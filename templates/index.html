@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>股市即時動能分析</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --bullish: #3fb950;
+    --mild-bullish: #79c0ff;
+    --neutral: #e3b341;
+    --mild-bearish: #f0883e;
+    --bearish: #f85149;
+    --accent: #58a6ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  header h1 { font-size: 1.15rem; font-weight: 600; color: var(--accent); }
+  header span { color: var(--text-muted); font-size: 0.82rem; }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px 16px; }
+
+  /* Search */
+  .search-bar {
+    display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap;
+  }
+  .search-bar input {
+    flex: 1; min-width: 180px; padding: 10px 14px;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; font-size: 0.95rem; outline: none;
+  }
+  .search-bar input:focus { border-color: var(--accent); }
+  .search-bar button {
+    padding: 10px 20px; background: var(--accent); color: #000;
+    border: none; border-radius: 8px; font-weight: 600; cursor: pointer;
+    font-size: 0.95rem; transition: opacity .15s;
+  }
+  .search-bar button:hover { opacity: 0.85; }
+  .search-bar button.secondary {
+    background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  }
+
+  .quick-picks { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .quick-picks button {
+    padding: 5px 12px; background: var(--surface2);
+    border: 1px solid var(--border); color: var(--text-muted);
+    border-radius: 6px; cursor: pointer; font-size: 0.82rem; transition: all .15s;
+  }
+  .quick-picks button:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Compare table */
+  #compare-section { display: none; margin-bottom: 24px; }
+  .compare-input { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .compare-input input {
+    flex: 1; min-width: 200px; padding: 8px 12px;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; font-size: 0.9rem; outline: none;
+  }
+
+  .section-title {
+    font-size: 0.8rem; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  thead th {
+    padding: 8px 12px; text-align: left;
+    border-bottom: 1px solid var(--border); color: var(--text-muted);
+    font-weight: 500; font-size: 0.8rem; text-transform: uppercase;
+  }
+  tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background .1s; }
+  tbody tr:hover { background: var(--surface2); }
+  tbody td { padding: 10px 12px; }
+
+  /* Score bar */
+  .score-bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .score-bar { height: 6px; border-radius: 3px; background: var(--border); flex: 1; overflow: hidden; }
+  .score-bar-fill { height: 100%; border-radius: 3px; transition: width .4s; }
+  .score-num { font-weight: 700; font-size: 0.95rem; min-width: 34px; text-align: right; }
+
+  /* Signal badges */
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 0.75rem; font-weight: 600;
+  }
+  .badge.bullish       { background: rgba(63,185,80,.18); color: var(--bullish); }
+  .badge.mild-bullish  { background: rgba(121,192,255,.18); color: var(--mild-bullish); }
+  .badge.neutral       { background: rgba(227,179,65,.18); color: var(--neutral); }
+  .badge.mild-bearish  { background: rgba(240,136,62,.18); color: var(--mild-bearish); }
+  .badge.bearish       { background: rgba(248,81,73,.18); color: var(--bearish); }
+
+  .pos { color: var(--bullish); } .neg { color: var(--bearish); } .muted { color: var(--text-muted); }
+
+  /* Detail panel */
+  #detail { display: none; }
+
+  .panel-header {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;
+  }
+  .price-block h2 { font-size: 2rem; font-weight: 700; }
+  .price-block .change { font-size: 1rem; margin-top: 2px; }
+  .price-block .meta { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+
+  .score-block {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px;
+  }
+  .gauge {
+    width: 90px; height: 90px; position: relative;
+  }
+  .gauge svg { width: 90px; height: 90px; }
+  .gauge-label {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center;
+  }
+  .gauge-label .g-score { font-size: 1.4rem; font-weight: 700; }
+  .gauge-label .g-sub { font-size: 0.65rem; color: var(--text-muted); }
+
+  .stats-row { display: flex; flex-wrap: wrap; gap: 12px; flex: 1; min-width: 240px; }
+  .stat-box {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; flex: 1; min-width: 100px;
+  }
+  .stat-box .label { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 4px; }
+  .stat-box .value { font-size: 1rem; font-weight: 600; }
+
+  /* Charts grid */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .chart-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px;
+  }
+  .chart-card h3 { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; }
+  .chart-card canvas { max-height: 180px; }
+
+  /* Indicators grid */
+  .ind-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px; margin-bottom: 16px;
+  }
+  .ind-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .ind-card .ind-label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; }
+  .ind-card .ind-value { font-size: 1.25rem; font-weight: 700; }
+  .ind-card .ind-bar { margin-top: 8px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .ind-card .ind-bar-fill { height: 100%; border-radius: 2px; }
+  .ind-card .ind-note { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; }
+
+  /* MA table */
+  .ma-section {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 16px;
+  }
+
+  /* Loading & error */
+  #loading { text-align: center; padding: 40px; color: var(--text-muted); display: none; }
+  .spinner {
+    display: inline-block; width: 28px; height: 28px;
+    border: 3px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #error-msg { background: rgba(248,81,73,.12); border: 1px solid rgba(248,81,73,.3);
+    color: var(--bearish); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: none; }
+
+  @media (max-width: 600px) {
+    .charts-grid { grid-template-columns: 1fr; }
+    .panel-header { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+    <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>
+  </svg>
+  <h1>股市即時動能分析</h1>
+  <span id="last-updated"></span>
+</header>
+
+<div class="container">
+  <!-- Search -->
+  <div class="search-bar">
+    <input type="text" id="symbol-input" placeholder="輸入股票代碼，例如 AAPL, 2330.TW, TSLA" autocomplete="off">
+    <button onclick="searchStock()">分析</button>
+    <button class="secondary" onclick="toggleCompare()">比較模式</button>
+  </div>
+
+  <div class="quick-picks">
+    <span style="color:var(--text-muted);font-size:.8rem;align-self:center">快速選股：</span>
+    <button onclick="quickSearch('AAPL')">AAPL</button>
+    <button onclick="quickSearch('MSFT')">MSFT</button>
+    <button onclick="quickSearch('NVDA')">NVDA</button>
+    <button onclick="quickSearch('TSLA')">TSLA</button>
+    <button onclick="quickSearch('AMZN')">AMZN</button>
+    <button onclick="quickSearch('META')">META</button>
+    <button onclick="quickSearch('GOOGL')">GOOGL</button>
+    <button onclick="quickSearch('2330.TW')">台積電</button>
+    <button onclick="quickSearch('2317.TW')">鴻海</button>
+    <button onclick="quickSearch('0050.TW')">元大台灣50</button>
+    <button onclick="quickSearch('SPY')">SPY</button>
+    <button onclick="quickSearch('QQQ')">QQQ</button>
+  </div>
+
+  <!-- Compare section -->
+  <div id="compare-section">
+    <div class="section-title">多股比較</div>
+    <div class="compare-input">
+      <input type="text" id="compare-input" placeholder="輸入多個代碼，用逗號分隔：AAPL, MSFT, NVDA, 2330.TW">
+      <button onclick="runCompare()">比較</button>
+    </div>
+    <div id="compare-table-wrap"></div>
+  </div>
+
+  <!-- Error -->
+  <div id="error-msg"></div>
+
+  <!-- Loading -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <div>載入中...</div>
+  </div>
+
+  <!-- Detail -->
+  <div id="detail">
+    <div class="panel-header" id="panel-header"></div>
+
+    <div class="charts-grid">
+      <div class="chart-card" style="grid-column: span 2 / auto;">
+        <h3>價格走勢 (近60日)</h3>
+        <canvas id="price-chart" height="180"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>RSI (14)</h3>
+        <canvas id="rsi-chart" height="140"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>MACD (12, 26, 9)</h3>
+        <canvas id="macd-chart" height="140"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>成交量</h3>
+        <canvas id="vol-chart" height="140"></canvas>
+      </div>
+    </div>
+
+    <div class="section-title">動能指標詳情</div>
+    <div class="ind-grid" id="ind-grid"></div>
+
+    <div class="ma-section">
+      <div class="section-title" style="margin-bottom:12px">均線分析</div>
+      <table id="ma-table">
+        <thead><tr>
+          <th>均線</th><th>數值</th><th>偏離幅度</th><th>方向</th>
+        </tr></thead>
+        <tbody id="ma-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let charts = {};
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function scoreColor(s) {
+  if (s >= 70) return getComputedStyle(document.documentElement).getPropertyValue('--bullish').trim();
+  if (s >= 58) return getComputedStyle(document.documentElement).getPropertyValue('--mild-bullish').trim();
+  if (s >= 42) return getComputedStyle(document.documentElement).getPropertyValue('--neutral').trim();
+  if (s >= 30) return getComputedStyle(document.documentElement).getPropertyValue('--mild-bearish').trim();
+  return getComputedStyle(document.documentElement).getPropertyValue('--bearish').trim();
+}
+
+function signalBadge(cls, label) {
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+function fmt(v, dec=2) { return v == null ? '—' : Number(v).toFixed(dec); }
+function pctClass(v) { return v > 0 ? 'pos' : v < 0 ? 'neg' : 'muted'; }
+function sign(v) { return v > 0 ? '+' : ''; }
+
+// ── Gauge SVG ──────────────────────────────────────────────────────────────
+function gaugeHTML(score) {
+  const r = 36, cx = 45, cy = 45;
+  const startAngle = -210, totalArc = 240;
+  const angle = startAngle + (score / 100) * totalArc;
+  const toRad = d => d * Math.PI / 180;
+  const bgX1 = cx + r * Math.cos(toRad(startAngle));
+  const bgY1 = cy + r * Math.sin(toRad(startAngle));
+  const endAngle = startAngle + totalArc;
+  const bgX2 = cx + r * Math.cos(toRad(endAngle));
+  const bgY2 = cy + r * Math.sin(toRad(endAngle));
+  const fgX2 = cx + r * Math.cos(toRad(angle));
+  const fgY2 = cy + r * Math.sin(toRad(angle));
+  const largeArcBg = totalArc > 180 ? 1 : 0;
+  const fgArc = (score / 100) * totalArc;
+  const largeArcFg = fgArc > 180 ? 1 : 0;
+  const color = scoreColor(score);
+  return `<div class="gauge">
+  <svg viewBox="0 0 90 90">
+    <path d="M${bgX1},${bgY1} A${r},${r} 0 ${largeArcBg},1 ${bgX2},${bgY2}"
+      fill="none" stroke="#30363d" stroke-width="7" stroke-linecap="round"/>
+    <path d="M${bgX1},${bgY1} A${r},${r} 0 ${largeArcFg},1 ${fgX2},${fgY2}"
+      fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round"/>
+  </svg>
+  <div class="gauge-label">
+    <div class="g-score" style="color:${color}">${score}</div>
+    <div class="g-sub">/ 100</div>
+  </div>
+</div>`;
+}
+
+// ── Chart helpers ──────────────────────────────────────────────────────────
+const chartDefaults = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { labels: { color: '#8b949e', boxWidth: 10, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
+  scales: {
+    x: { ticks: { color: '#8b949e', maxTicksLimit: 8, font: { size: 10 } }, grid: { color: '#21262d' } },
+    y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } }
+  },
+  elements: { point: { radius: 0, hoverRadius: 4 } },
+  animation: { duration: 400 }
+};
+
+function makePriceChart(c, labels, prices, sma20, sma50) {
+  destroyChart('price');
+  charts['price'] = new Chart(c, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '收盤價', data: prices, borderColor: '#58a6ff', borderWidth: 2, fill: false, tension: 0.3 },
+        { label: 'SMA20', data: sma20, borderColor: '#e3b341', borderWidth: 1.5, fill: false, borderDash: [4,3], tension: 0.3 },
+        { label: 'SMA50', data: sma50, borderColor: '#f0883e', borderWidth: 1.5, fill: false, borderDash: [6,3], tension: 0.3 },
+      ]
+    },
+    options: { ...chartDefaults, maintainAspectRatio: false }
+  });
+}
+
+function makeRsiChart(c, labels, rsiData) {
+  destroyChart('rsi');
+  charts['rsi'] = new Chart(c, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{ label: 'RSI', data: rsiData, borderColor: '#79c0ff', borderWidth: 2, fill: false, tension: 0.3 }]
+    },
+    options: {
+      ...chartDefaults,
+      maintainAspectRatio: false,
+      scales: {
+        ...chartDefaults.scales,
+        y: {
+          ...chartDefaults.scales.y, min: 0, max: 100,
+          ticks: { color: '#8b949e', font: { size: 10 }, stepSize: 20 }
+        }
+      },
+      plugins: {
+        ...chartDefaults.plugins,
+        annotation: undefined
+      }
+    }
+  });
+}
+
+function makeMacdChart(c, labels, macdLine, signalLine, histData) {
+  destroyChart('macd');
+  const colors = histData.map(v => v >= 0 ? 'rgba(63,185,80,.6)' : 'rgba(248,81,73,.6)');
+  charts['macd'] = new Chart(c, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { type: 'line', label: 'MACD', data: macdLine, borderColor: '#58a6ff', borderWidth: 1.5, fill: false, tension: 0.3, yAxisID: 'y' },
+        { type: 'line', label: 'Signal', data: signalLine, borderColor: '#f0883e', borderWidth: 1.5, fill: false, tension: 0.3, yAxisID: 'y' },
+        { type: 'bar', label: 'Histogram', data: histData, backgroundColor: colors, yAxisID: 'y' }
+      ]
+    },
+    options: { ...chartDefaults, maintainAspectRatio: false }
+  });
+}
+
+function makeVolChart(c, labels, volumes, volRatio) {
+  destroyChart('vol');
+  const colors = volumes.map((_, i) => i === volumes.length - 1 ? 'rgba(88,166,255,.8)' : 'rgba(88,166,255,.35)');
+  charts['vol'] = new Chart(c, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ label: '成交量', data: volumes, backgroundColor: colors }]
+    },
+    options: { ...chartDefaults, maintainAspectRatio: false }
+  });
+}
+
+// ── Indicator Cards ────────────────────────────────────────────────────────
+function indCard(label, value, note, barPct, barColor) {
+  const bar = barPct != null
+    ? `<div class="ind-bar"><div class="ind-bar-fill" style="width:${Math.min(barPct,100)}%;background:${barColor}"></div></div>`
+    : '';
+  return `<div class="ind-card">
+    <div class="ind-label">${label}</div>
+    <div class="ind-value">${value}</div>
+    ${bar}
+    <div class="ind-note">${note}</div>
+  </div>`;
+}
+
+function rsiNote(v) {
+  if (v == null) return '—';
+  if (v > 70) return '<span class="neg">超買區域</span>';
+  if (v < 30) return '<span class="pos">超賣區域</span>';
+  return '<span class="muted">中性</span>';
+}
+
+function renderIndicators(ind, volRatio, price) {
+  const grid = document.getElementById('ind-grid');
+  const rsiColor = ind.rsi > 70 ? '#f85149' : ind.rsi < 30 ? '#3fb950' : '#58a6ff';
+  grid.innerHTML = [
+    indCard('RSI (14)', fmt(ind.rsi), rsiNote(ind.rsi), ind.rsi, rsiColor),
+    indCard('隨機指標 K%', fmt(ind.stoch_k), `D: ${fmt(ind.stoch_d)}`, ind.stoch_k,
+      ind.stoch_k > 80 ? '#f85149' : ind.stoch_k < 20 ? '#3fb950' : '#58a6ff'),
+    indCard('布林%B', fmt(ind.bb_pct_b, 3),
+      `上軌: ${fmt(ind.bb_upper)}  下軌: ${fmt(ind.bb_lower)}`,
+      (ind.bb_pct_b || 0) * 100, '#79c0ff'),
+    indCard('MACD 柱狀', fmt(ind.macd_hist, 4),
+      `MACD: ${fmt(ind.macd, 4)}  Signal: ${fmt(ind.macd_signal, 4)}`,
+      null, null),
+    indCard('10日變動率 ROC', `${sign(ind.roc_10)}${fmt(ind.roc_10)}%`,
+      ind.roc_10 > 0 ? '<span class="pos">正動能</span>' : '<span class="neg">負動能</span>',
+      Math.min(Math.abs(ind.roc_10 || 0) * 3, 100), ind.roc_10 > 0 ? '#3fb950' : '#f85149'),
+    indCard('ADX (14)', fmt(ind.adx),
+      `+DI: ${fmt(ind.di_plus)}  -DI: ${fmt(ind.di_minus)}`,
+      Math.min(ind.adx || 0, 100), '#e3b341'),
+    indCard('成交量比率', fmt(volRatio, 2) + 'x',
+      volRatio > 1.5 ? '<span class="pos">放量</span>' : volRatio < 0.7 ? '<span class="neg">縮量</span>' : '<span class="muted">正常</span>',
+      Math.min((volRatio || 1) * 33, 100), volRatio > 1 ? '#3fb950' : '#8b949e'),
+    indCard('布林帶位置', fmt(ind.bb_pct_b, 3),
+      `中軌: ${fmt(ind.bb_mid)}`,
+      (ind.bb_pct_b || 0) * 100, '#58a6ff'),
+  ].join('');
+}
+
+function renderMA(maSignals, bullishMa, totalMa) {
+  const tbody = document.getElementById('ma-tbody');
+  tbody.innerHTML = maSignals.map(m => `<tr>
+    <td><b>${m.label}</b></td>
+    <td>${fmt(m.value)}</td>
+    <td class="${pctClass(m.pct)}">${sign(m.pct)}${fmt(m.pct)}%</td>
+    <td>${m.bullish ? '<span class="pos">↑ 多頭</span>' : '<span class="neg">↓ 空頭</span>'}</td>
+  </tr>`).join('');
+}
+
+// ── Main render ────────────────────────────────────────────────────────────
+function renderDetail(d) {
+  document.getElementById('detail').style.display = 'block';
+
+  // Header
+  const score = d.momentum_score;
+  const color = scoreColor(score);
+  const changeSign = d.change_abs >= 0 ? '+' : '';
+  document.getElementById('panel-header').innerHTML = `
+    <div class="price-block">
+      <div style="color:var(--text-muted);font-size:.9rem;margin-bottom:4px">${d.symbol} &nbsp;${d.name}${d.is_demo ? ' &nbsp;<span style="background:rgba(227,179,65,.2);color:#e3b341;font-size:.7rem;padding:2px 7px;border-radius:4px;font-weight:600">模擬數據</span>' : ''}</div>
+      <div class="price-block">
+        <h2>${fmt(d.price)}</h2>
+        <div class="change ${pctClass(d.change_abs)}">
+          ${changeSign}${fmt(d.change_abs)} (${changeSign}${fmt(d.change_pct)}%)
+        </div>
+        <div class="meta">更新時間：${d.updated_at}</div>
+      </div>
+    </div>
+    <div class="score-block">
+      ${gaugeHTML(score)}
+      <div>${signalBadge(d.signal_class, d.signal)}</div>
+    </div>
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="label">52周高點</div>
+        <div class="value">${fmt(d.high_52w)}</div>
+        <div style="font-size:.75rem" class="${pctClass(d.pct_from_high)}">${sign(d.pct_from_high)}${fmt(d.pct_from_high)}%</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">52周低點</div>
+        <div class="value">${fmt(d.low_52w)}</div>
+        <div style="font-size:.75rem" class="pos">+${fmt(d.pct_from_low)}%</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">成交量比率</div>
+        <div class="value ${d.volume_ratio > 1.3 ? 'pos' : 'muted'}">${fmt(d.volume_ratio, 2)}x</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">均線多空</div>
+        <div class="value">${d.bullish_ma}/${d.total_ma} 多頭</div>
+      </div>
+    </div>`;
+
+  // Charts
+  makePriceChart(document.getElementById('price-chart'),
+    d.chart.dates, d.chart.prices, d.chart.sma20, d.chart.sma50);
+  makeRsiChart(document.getElementById('rsi-chart'), d.chart.dates, d.chart.rsi);
+  makeMacdChart(document.getElementById('macd-chart'), d.chart.dates,
+    d.chart.macd, d.chart.macd_signal, d.chart.macd_hist);
+  makeVolChart(document.getElementById('vol-chart'), d.chart.dates,
+    d.chart.volumes, d.volume_ratio);
+
+  renderIndicators(d.indicators, d.volume_ratio, d.price);
+  renderMA(d.ma_signals, d.bullish_ma, d.total_ma);
+
+  document.getElementById('last-updated').textContent = d.updated_at;
+}
+
+// ── Search ────────────────────────────────────────────────────────────────
+async function searchStock(sym) {
+  const symbol = sym || document.getElementById('symbol-input').value.trim();
+  if (!symbol) return;
+  document.getElementById('symbol-input').value = symbol;
+
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('detail').style.display = 'none';
+  document.getElementById('error-msg').style.display = 'none';
+
+  try {
+    const res = await fetch(`/api/momentum/${encodeURIComponent(symbol)}`);
+    const json = await res.json();
+    document.getElementById('loading').style.display = 'none';
+    if (!json.ok) throw new Error(json.error);
+    renderDetail(json.data);
+  } catch (e) {
+    document.getElementById('loading').style.display = 'none';
+    const err = document.getElementById('error-msg');
+    err.style.display = 'block';
+    err.textContent = `錯誤：${e.message}`;
+  }
+}
+
+function quickSearch(sym) {
+  searchStock(sym);
+}
+
+// ── Compare ───────────────────────────────────────────────────────────────
+function toggleCompare() {
+  const s = document.getElementById('compare-section');
+  s.style.display = s.style.display === 'none' ? 'block' : 'none';
+}
+
+async function runCompare() {
+  const raw = document.getElementById('compare-input').value.trim();
+  if (!raw) return;
+  const wrap = document.getElementById('compare-table-wrap');
+  wrap.innerHTML = '<div style="color:var(--text-muted);padding:12px">載入中...</div>';
+  try {
+    const res = await fetch(`/api/compare?symbols=${encodeURIComponent(raw)}`);
+    const json = await res.json();
+    if (!json.ok) throw new Error('比較失敗');
+    const rows = json.results.map(r => `<tr onclick="quickSearch('${r.symbol}')">
+      <td><b>${r.symbol}</b></td>
+      <td style="color:var(--text-muted);font-size:.82rem">${r.name}</td>
+      <td>${fmt(r.price)}</td>
+      <td class="${pctClass(r.change_pct)}">${sign(r.change_pct)}${fmt(r.change_pct)}%</td>
+      <td>
+        <div class="score-bar-wrap">
+          <div class="score-bar"><div class="score-bar-fill" style="width:${r.momentum_score}%;background:${scoreColor(r.momentum_score)}"></div></div>
+          <span class="score-num" style="color:${scoreColor(r.momentum_score)}">${r.momentum_score}</span>
+        </div>
+      </td>
+      <td>${signalBadge(r.signal_class, r.signal)}</td>
+      <td>${fmt(r.rsi)}</td>
+      <td class="${pctClass(r.macd_hist)}">${fmt(r.macd_hist, 4)}</td>
+    </tr>`).join('');
+    const errRows = json.errors.map(e =>
+      `<tr><td>${e.symbol}</td><td colspan="7" class="neg">${e.error}</td></tr>`).join('');
+    wrap.innerHTML = `<table>
+      <thead><tr>
+        <th>代碼</th><th>名稱</th><th>價格</th><th>漲跌%</th>
+        <th style="min-width:160px">動能分數</th><th>信號</th><th>RSI</th><th>MACD柱</th>
+      </tr></thead>
+      <tbody>${rows}${errRows}</tbody>
+    </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="neg" style="padding:10px">${e.message}</div>`;
+  }
+}
+
+// ── Enter key ──────────────────────────────────────────────────────────────
+document.getElementById('symbol-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') searchStock();
+});
+document.addEventListener('DOMContentLoaded', () => {
+  // load NVDA on startup as demo
+  searchStock('NVDA');
+});
+</script>
+</body>
+</html>
