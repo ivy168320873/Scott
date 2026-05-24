@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import traceback, os
 import demo_data as _demo
 import analyzer
+import backtest as _bt
 
 app = Flask(__name__)
 
@@ -80,6 +81,39 @@ def api_analyze():
     try:
         payload = request.json or {}
         result = analyzer.analyze(payload)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Backtest endpoint ─────────────────────────────────────────────────────────
+
+@app.route("/api/backtest", methods=["POST"])
+def api_backtest():
+    try:
+        payload = request.json or {}
+        symbol   = payload.get("symbol", "NVDA").upper()
+        strategy = payload.get("strategy", "rsi")
+        params   = payload.get("params", {})
+        ohlcv    = payload.get("ohlcv")   # sent from frontend
+
+        if not ohlcv:
+            # Fall back to demo data when frontend doesn't send OHLCV
+            hist = _demo.generate(symbol)
+            ohlcv = [
+                {
+                    "date":   row.Index.strftime("%Y-%m-%d"),
+                    "open":   float(row.Open),
+                    "high":   float(row.High),
+                    "low":    float(row.Low),
+                    "close":  float(row.Close),
+                    "volume": int(row.Volume),
+                }
+                for row in hist.itertuples()
+            ]
+
+        result = _bt.run(ohlcv, strategy, params)
         return jsonify({"ok": True, **result})
     except Exception as e:
         traceback.print_exc()

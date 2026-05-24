@@ -139,6 +139,50 @@ tbody td{padding:9px 10px}
 
 .pos{color:var(--bull)} .neg{color:var(--bear)} .muted{color:var(--muted)}
 
+/* ── Tabs ── */
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0}
+.tab{padding:8px 18px;background:none;border:none;color:var(--muted);cursor:pointer;
+  font-size:.9rem;font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab:hover:not(.active){color:var(--text)}
+
+/* ── Backtest ── */
+#bt-section{display:none}
+.bt-config{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:16px 20px;margin-bottom:14px}
+.bt-config h3{font-size:.85rem;color:var(--muted);margin-bottom:14px}
+.bt-form{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.bt-field{display:flex;flex-direction:column;gap:4px;min-width:130px}
+.bt-field label{font-size:.72rem;color:var(--muted)}
+.bt-field select,.bt-field input[type=number]{
+  padding:7px 10px;background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);border-radius:7px;font-size:.88rem;outline:none}
+.bt-field select:focus,.bt-field input:focus{border-color:var(--accent)}
+.bt-params{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px}
+
+.bt-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.bs{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 15px}
+.bs .blbl{font-size:.7rem;color:var(--muted);margin-bottom:4px}
+.bs .bval{font-size:1.15rem;font-weight:700}
+.bs .bsub{font-size:.72rem;color:var(--muted);margin-top:2px}
+
+.bt-charts{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.bt-chart-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+.bt-chart-card h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
+.bt-chart-card.wide{grid-column:1/-1}
+
+.trade-sec{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:14px;margin-bottom:14px}
+.trade-sec h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
+.trade-scroll{max-height:320px;overflow-y:auto}
+
+#bt-loading{text-align:center;padding:30px;color:var(--muted);display:none}
+
+@media(max-width:700px){
+  .bt-charts{grid-template-columns:1fr}
+  .bt-chart-card.wide{grid-column:auto}
+}
+
 @media(max-width:600px){
   .charts-grid{grid-template-columns:1fr}
   .price-card{grid-column:auto}
@@ -193,6 +237,12 @@ tbody td{padding:9px 10px}
   <div id="errmsg"></div>
   <div id="loading"><div class="spinner"></div><div>載入中，正在抓取 K 線資料並計算指標…</div></div>
 
+  <!-- ── Tabs (shown after first load) ── -->
+  <div class="tabs" id="tabs" style="display:none">
+    <button class="tab active" onclick="switchTab('analysis')">動能分析</button>
+    <button class="tab" onclick="switchTab('backtest')">策略回測</button>
+  </div>
+
   <div id="detail">
     <div class="ph" id="ph"></div>
 
@@ -224,6 +274,66 @@ tbody td{padding:9px 10px}
       <table id="mat"><thead><tr>
         <th>均線</th><th>數值</th><th>偏離幅度</th><th>多空</th>
       </tr></thead><tbody id="matb"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── Backtest Section ── -->
+  <div id="bt-section">
+    <div class="bt-config">
+      <h3>回測設定</h3>
+      <div class="bt-form">
+        <div class="bt-field">
+          <label>選擇策略</label>
+          <select id="bt-strategy" onchange="updateBtParams()">
+            <option value="rsi">RSI 反轉策略</option>
+            <option value="macd">MACD 趨勢策略</option>
+            <option value="ma_cross">MA 雙線交叉策略</option>
+            <option value="bollinger">布林通道策略</option>
+            <option value="combined">多指標綜合策略</option>
+          </select>
+        </div>
+        <div id="bt-params" class="bt-params"></div>
+        <div class="bt-field" style="align-self:flex-end">
+          <button class="btn btn-primary" onclick="runBacktest()">執行回測</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="bt-loading"><div class="spinner"></div><div>回測執行中…</div></div>
+
+    <div id="bt-results" style="display:none">
+      <!-- Stats grid -->
+      <div class="bt-stats" id="bt-stats"></div>
+
+      <!-- Charts -->
+      <div class="bt-charts">
+        <div class="bt-chart-card wide">
+          <h3>權益曲線 vs. 買入持有（%）</h3>
+          <canvas id="bt-equity-chart" height="200"></canvas>
+        </div>
+        <div class="bt-chart-card">
+          <h3>每筆交易損益分佈（%）</h3>
+          <canvas id="bt-pnl-chart" height="200"></canvas>
+        </div>
+        <div class="bt-chart-card">
+          <h3>累計盈虧（按月）</h3>
+          <canvas id="bt-monthly-chart" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- Trade list -->
+      <div class="trade-sec">
+        <h3>交易紀錄 <span id="bt-trade-count" style="color:var(--muted)"></span></h3>
+        <div class="trade-scroll">
+          <table id="bt-trade-table">
+            <thead><tr>
+              <th>#</th><th>買入日</th><th>賣出日</th>
+              <th>買入價</th><th>賣出價</th><th>損益%</th><th>持有天數</th><th>結果</th>
+            </tr></thead>
+            <tbody id="bt-trade-tbody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -832,7 +942,218 @@ async function runCmp() {
 }
 
 document.getElementById('sym').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
-window.addEventListener('DOMContentLoaded', () => search('NVDA'));
+// ══════════════════════════════════════════════════════
+// 8. Tab switching
+// ══════════════════════════════════════════════════════
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab')[tab === 'analysis' ? 0 : 1].classList.add('active');
+  document.getElementById('detail').style.display    = tab === 'analysis' ? 'block' : 'none';
+  document.getElementById('bt-section').style.display = tab === 'backtest' ? 'block' : 'none';
+}
+
+// ══════════════════════════════════════════════════════
+// 9. Backtest UI
+// ══════════════════════════════════════════════════════
+
+const BT_PARAMS = {
+  rsi:       [{ id:'rsi_period', label:'RSI 週期', val:14, min:5, max:30 },
+               { id:'buy_thr',   label:'買入閾值', val:30, min:10, max:50 },
+               { id:'sell_thr',  label:'賣出閾值', val:70, min:50, max:90 }],
+  macd:      [{ id:'fast', label:'快線', val:12, min:5,  max:20 },
+               { id:'slow', label:'慢線', val:26, min:15, max:50 },
+               { id:'signal', label:'訊號線', val:9, min:3, max:15 }],
+  ma_cross:  [{ id:'fast', label:'快線週期', val:20, min:5,  max:50 },
+               { id:'slow', label:'慢線週期', val:60, min:20, max:200 }],
+  bollinger: [{ id:'period',  label:'週期', val:20, min:10, max:50 },
+               { id:'std_dev', label:'標準差倍數', val:2, min:1, max:3 }],
+  combined:  [{ id:'rsi_period', label:'RSI 週期', val:14, min:5, max:30 },
+               { id:'fast_ma',  label:'快均線', val:20, min:5,  max:50 },
+               { id:'slow_ma',  label:'慢均線', val:60, min:20, max:200 }],
+};
+
+function updateBtParams() {
+  const strategy = document.getElementById('bt-strategy').value;
+  const container = document.getElementById('bt-params');
+  container.innerHTML = (BT_PARAMS[strategy] || []).map(p => `
+    <div class="bt-field">
+      <label>${p.label} (<span id="lbl-${p.id}">${p.val}</span>)</label>
+      <input type="number" id="btp-${p.id}" value="${p.val}" min="${p.min}" max="${p.max}"
+        oninput="document.getElementById('lbl-${p.id}').textContent=this.value">
+    </div>`).join('');
+}
+
+// stored OHLCV from last search (sent to backtest)
+let _lastOHLCV = null;
+let _lastSymbol = null;
+
+// Override search to also save OHLCV
+const _origSearch = search;
+async function search(sym) {
+  const symbol = (sym || document.getElementById('sym').value.trim()).toUpperCase();
+  document.getElementById('sym').value = symbol || document.getElementById('sym').value;
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('detail').style.display = 'none';
+  document.getElementById('bt-section').style.display = 'none';
+  document.getElementById('tabs').style.display = 'none';
+  document.getElementById('errmsg').style.display = 'none';
+  document.getElementById('ai-panel').style.display = 'none';
+  document.getElementById('bt-results').style.display = 'none';
+  destroyAll();
+
+  try {
+    const raw = await fetchOHLCV(symbol || 'NVDA');
+    const d = computeAll(raw);
+    _lastOHLCV = raw.ohlcv.map(o => ({
+      date:   o.date.toISOString().slice(0,10),
+      open:   o.open, high: o.high, low: o.low,
+      close:  o.close, volume: o.volume,
+    }));
+    _lastSymbol = d.symbol;
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('detail').style.display = 'block';
+    document.getElementById('tabs').style.display = 'flex';
+    document.getElementById('upd').textContent = new Date().toLocaleTimeString('zh-TW');
+
+    // Reset tabs to analysis
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab')[0].classList.add('active');
+
+    renderPanel(d);
+    renderCharts(d);
+    renderIndicators(d);
+    renderMA(d);
+    requestAI(d);
+  } catch (e) {
+    document.getElementById('loading').style.display = 'none';
+    const em = document.getElementById('errmsg');
+    em.style.display = 'block';
+    em.textContent = `錯誤：${e.message}`;
+  }
+}
+
+async function runBacktest() {
+  if (!_lastOHLCV) { alert('請先查詢一支股票'); return; }
+
+  const strategy = document.getElementById('bt-strategy').value;
+  const paramDefs = BT_PARAMS[strategy] || [];
+  const params = {};
+  paramDefs.forEach(p => {
+    const v = parseFloat(document.getElementById('btp-' + p.id)?.value ?? p.val);
+    params[p.id] = v;
+  });
+
+  document.getElementById('bt-loading').style.display = 'block';
+  document.getElementById('bt-results').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/backtest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: _lastSymbol, strategy, params, ohlcv: _lastOHLCV }),
+    });
+    const j = await res.json();
+    document.getElementById('bt-loading').style.display = 'none';
+    if (!j.ok) throw new Error(j.error);
+    renderBacktest(j, strategy);
+  } catch (e) {
+    document.getElementById('bt-loading').style.display = 'none';
+    alert('回測失敗：' + e.message);
+  }
+}
+
+function renderBacktest(d, strategy) {
+  document.getElementById('bt-results').style.display = 'block';
+
+  const retColor  = s => s > 0 ? 'var(--bull)' : s < 0 ? 'var(--bear)' : 'var(--muted)';
+  const sign      = v => v > 0 ? '+' : '';
+  const fmtPct    = v => `${sign(v)}${v.toFixed(2)}%`;
+
+  // ── Stats grid ──
+  const vsSign = d.total_return - d.bh_return;
+  document.getElementById('bt-stats').innerHTML = [
+    { lbl: '策略總報酬', val: fmtPct(d.total_return), sub: `vs 持有 ${fmtPct(d.bh_return)}`, color: retColor(d.total_return) },
+    { lbl: '年化報酬率', val: fmtPct(d.annual_return), color: retColor(d.annual_return) },
+    { lbl: '勝率',       val: `${d.win_rate.toFixed(1)}%`, color: d.win_rate > 50 ? 'var(--bull)' : 'var(--bear)' },
+    { lbl: '交易次數',   val: d.num_trades, color: 'var(--text)' },
+    { lbl: '平均獲利',   val: fmtPct(d.avg_win),  color: 'var(--bull)' },
+    { lbl: '平均虧損',   val: fmtPct(d.avg_loss),  color: 'var(--bear)' },
+    { lbl: '獲利因子',   val: d.profit_factor === 999 ? '∞' : d.profit_factor.toFixed(2), color: d.profit_factor > 1 ? 'var(--bull)' : 'var(--bear)' },
+    { lbl: '最大回撤',   val: fmtPct(d.max_drawdown), color: 'var(--bear)' },
+    { lbl: '夏普比率',   val: d.sharpe.toFixed(2), color: d.sharpe > 1 ? 'var(--bull)' : d.sharpe > 0 ? 'var(--neutral)' : 'var(--bear)' },
+    { lbl: '平均持有天', val: d.avg_holding.toFixed(1) + ' 天', color: 'var(--text)' },
+  ].map(s => `<div class="bs">
+    <div class="blbl">${s.lbl}</div>
+    <div class="bval" style="color:${s.color}">${s.val}</div>
+    ${s.sub ? `<div class="bsub">${s.sub}</div>` : ''}
+  </div>`).join('');
+
+  // ── Equity curve ──
+  const dates = _lastOHLCV.map(o => o.date.slice(5));
+  if (_charts['bt-eq']) _charts['bt-eq'].destroy();
+  _charts['bt-eq'] = new Chart(document.getElementById('bt-equity-chart'), {
+    type: 'line',
+    data: { labels: dates, datasets: [
+      { label: d.strategy_name, data: d.equity_pct, borderColor: '#58a6ff', borderWidth: 2, fill: false, tension: 0.3, pointRadius: 0 },
+      { label: '買入持有',      data: d.bh_pct,     borderColor: '#8b949e', borderWidth: 1.5, fill: false, tension: 0.3, borderDash: [4,3], pointRadius: 0 },
+    ]},
+    options: { ...CDef, maintainAspectRatio: false }
+  });
+
+  // ── PnL distribution ──
+  const trades = d.trades;
+  const pnls = trades.map(t => t.pnl_pct);
+  if (_charts['bt-pnl']) _charts['bt-pnl'].destroy();
+  _charts['bt-pnl'] = new Chart(document.getElementById('bt-pnl-chart'), {
+    type: 'bar',
+    data: { labels: trades.map((_, i) => `#${i+1}`), datasets: [{
+      label: '損益%',
+      data: pnls,
+      backgroundColor: pnls.map(v => v >= 0 ? 'rgba(63,185,80,.7)' : 'rgba(248,81,73,.7)'),
+    }]},
+    options: { ...CDef, maintainAspectRatio: false }
+  });
+
+  // ── Monthly cumulative ──
+  const monthly = {};
+  trades.forEach(t => {
+    const mon = t.exit_date.slice(0, 7);
+    monthly[mon] = (monthly[mon] || 0) + t.pnl_pct;
+  });
+  const monKeys = Object.keys(monthly).sort();
+  if (_charts['bt-mon']) _charts['bt-mon'].destroy();
+  _charts['bt-mon'] = new Chart(document.getElementById('bt-monthly-chart'), {
+    type: 'bar',
+    data: { labels: monKeys, datasets: [{
+      label: '月度損益%',
+      data: monKeys.map(k => monthly[k]),
+      backgroundColor: monKeys.map(k => monthly[k] >= 0 ? 'rgba(63,185,80,.7)' : 'rgba(248,81,73,.7)'),
+    }]},
+    options: { ...CDef, maintainAspectRatio: false }
+  });
+
+  // ── Trade table ──
+  document.getElementById('bt-trade-count').textContent = `共 ${trades.length} 筆`;
+  document.getElementById('bt-trade-tbody').innerHTML = trades.map((t, i) => `<tr>
+    <td style="color:var(--muted)">${i + 1}</td>
+    <td>${t.entry_date}</td>
+    <td>${t.exit_date}</td>
+    <td>${t.entry_price.toFixed(2)}</td>
+    <td>${t.exit_price.toFixed(2)}</td>
+    <td class="${t.pnl_pct >= 0 ? 'pos' : 'neg'}">${sign(t.pnl_pct)}${t.pnl_pct.toFixed(2)}%</td>
+    <td>${t.holding_days} 天</td>
+    <td>${t.win ? '<span class="badge bullish">獲利</span>' : '<span class="badge bearish">虧損</span>'}</td>
+  </tr>`).join('');
+}
+
+// Init backtest params and auto-load on page load
+window.addEventListener('DOMContentLoaded', () => {
+  updateBtParams();
+  document.getElementById('bt-strategy').addEventListener('change', updateBtParams);
+  search('NVDA');
+});
 </script>
 </body>
 </html>
