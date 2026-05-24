@@ -6,623 +6,833 @@
 <title>股市即時動能分析</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-  :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --surface2: #21262d;
-    --border: #30363d;
-    --text: #e6edf3;
-    --text-muted: #8b949e;
-    --bullish: #3fb950;
-    --mild-bullish: #79c0ff;
-    --neutral: #e3b341;
-    --mild-bearish: #f0883e;
-    --bearish: #f85149;
-    --accent: #58a6ff;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+:root {
+  --bg:#0d1117; --surface:#161b22; --surface2:#21262d; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e;
+  --bull:#3fb950; --mbull:#79c0ff; --neutral:#e3b341; --mbear:#f0883e; --bear:#f85149;
+  --accent:#58a6ff; --purple:#d2a8ff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
 
-  header {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 14px 24px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    position: sticky; top: 0; z-index: 100;
-  }
-  header h1 { font-size: 1.15rem; font-weight: 600; color: var(--accent); }
-  header span { color: var(--text-muted); font-size: 0.82rem; }
+/* ── Header ── */
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 20px;
+  display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
+header h1{font-size:1.05rem;font-weight:600;color:var(--accent)}
+.ai-badge{font-size:.7rem;padding:2px 7px;border-radius:4px;font-weight:600;
+  background:rgba(210,168,255,.15);color:var(--purple)}
 
-  .container { max-width: 1400px; margin: 0 auto; padding: 20px 16px; }
+/* ── Layout ── */
+.container{max-width:1380px;margin:0 auto;padding:16px}
 
-  /* Search */
-  .search-bar {
-    display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap;
-  }
-  .search-bar input {
-    flex: 1; min-width: 180px; padding: 10px 14px;
-    background: var(--surface2); border: 1px solid var(--border);
-    color: var(--text); border-radius: 8px; font-size: 0.95rem; outline: none;
-  }
-  .search-bar input:focus { border-color: var(--accent); }
-  .search-bar button {
-    padding: 10px 20px; background: var(--accent); color: #000;
-    border: none; border-radius: 8px; font-weight: 600; cursor: pointer;
-    font-size: 0.95rem; transition: opacity .15s;
-  }
-  .search-bar button:hover { opacity: 0.85; }
-  .search-bar button.secondary {
-    background: var(--surface2); color: var(--text); border: 1px solid var(--border);
-  }
+/* ── Search ── */
+.search-row{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.search-row input{flex:1;min-width:180px;padding:9px 13px;background:var(--surface2);
+  border:1px solid var(--border);color:var(--text);border-radius:8px;font-size:.95rem;outline:none}
+.search-row input:focus{border-color:var(--accent)}
+.btn{padding:9px 18px;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:.9rem;transition:opacity .15s}
+.btn-primary{background:var(--accent);color:#000}
+.btn-primary:hover{opacity:.85}
+.btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover{border-color:var(--accent);color:var(--accent)}
 
-  .quick-picks { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
-  .quick-picks button {
-    padding: 5px 12px; background: var(--surface2);
-    border: 1px solid var(--border); color: var(--text-muted);
-    border-radius: 6px; cursor: pointer; font-size: 0.82rem; transition: all .15s;
-  }
-  .quick-picks button:hover { border-color: var(--accent); color: var(--accent); }
+.quick-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.quick-btn{padding:4px 11px;background:var(--surface2);border:1px solid var(--border);
+  color:var(--muted);border-radius:6px;cursor:pointer;font-size:.8rem;transition:all .15s}
+.quick-btn:hover{border-color:var(--accent);color:var(--accent)}
 
-  /* Compare table */
-  #compare-section { display: none; margin-bottom: 24px; }
-  .compare-input { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-  .compare-input input {
-    flex: 1; min-width: 200px; padding: 8px 12px;
-    background: var(--surface2); border: 1px solid var(--border);
-    color: var(--text); border-radius: 8px; font-size: 0.9rem; outline: none;
-  }
+/* ── Compare ── */
+#cmp-section{display:none;margin-bottom:20px}
+.cmp-row{display:flex;gap:8px;margin-bottom:12px}
+.cmp-row input{flex:1;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);border-radius:8px;outline:none;font-size:.88rem}
+table{width:100%;border-collapse:collapse;font-size:.86rem}
+thead th{padding:7px 10px;text-align:left;border-bottom:1px solid var(--border);
+  color:var(--muted);font-weight:500;font-size:.76rem;text-transform:uppercase}
+tbody tr{border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+tbody tr:hover{background:var(--surface2)}
+tbody td{padding:9px 10px}
 
-  .section-title {
-    font-size: 0.8rem; font-weight: 600; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px;
-  }
+/* ── Score bar ── */
+.score-wrap{display:flex;align-items:center;gap:7px}
+.sbar{height:5px;border-radius:3px;background:var(--border);flex:1;overflow:hidden}
+.sbar-fill{height:100%;border-radius:3px}
+.snum{font-weight:700;font-size:.9rem;min-width:30px;text-align:right}
 
-  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-  thead th {
-    padding: 8px 12px; text-align: left;
-    border-bottom: 1px solid var(--border); color: var(--text-muted);
-    font-weight: 500; font-size: 0.8rem; text-transform: uppercase;
-  }
-  tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background .1s; }
-  tbody tr:hover { background: var(--surface2); }
-  tbody td { padding: 10px 12px; }
+/* ── Badges ── */
+.badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.73rem;font-weight:600}
+.badge.bullish{background:rgba(63,185,80,.18);color:var(--bull)}
+.badge.mild-bullish{background:rgba(121,192,255,.18);color:var(--mbull)}
+.badge.neutral{background:rgba(227,179,65,.18);color:var(--neutral)}
+.badge.mild-bearish{background:rgba(240,136,62,.18);color:var(--mbear)}
+.badge.bearish{background:rgba(248,81,73,.18);color:var(--bear)}
 
-  /* Score bar */
-  .score-bar-wrap { display: flex; align-items: center; gap: 8px; }
-  .score-bar { height: 6px; border-radius: 3px; background: var(--border); flex: 1; overflow: hidden; }
-  .score-bar-fill { height: 100%; border-radius: 3px; transition: width .4s; }
-  .score-num { font-weight: 700; font-size: 0.95rem; min-width: 34px; text-align: right; }
+/* ── Detail ── */
+#detail{display:none}
 
-  /* Signal badges */
-  .badge {
-    display: inline-block; padding: 2px 8px; border-radius: 4px;
-    font-size: 0.75rem; font-weight: 600;
-  }
-  .badge.bullish       { background: rgba(63,185,80,.18); color: var(--bullish); }
-  .badge.mild-bullish  { background: rgba(121,192,255,.18); color: var(--mild-bullish); }
-  .badge.neutral       { background: rgba(227,179,65,.18); color: var(--neutral); }
-  .badge.mild-bearish  { background: rgba(240,136,62,.18); color: var(--mild-bearish); }
-  .badge.bearish       { background: rgba(248,81,73,.18); color: var(--bearish); }
+.ph{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:18px 22px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
 
-  .pos { color: var(--bullish); } .neg { color: var(--bearish); } .muted { color: var(--text-muted); }
+.price-blk h2{font-size:1.9rem;font-weight:700}
+.price-blk .chg{font-size:.95rem;margin-top:2px}
+.price-blk .meta{font-size:.75rem;color:var(--muted);margin-top:3px}
+.demo-tag{background:rgba(227,179,65,.2);color:var(--neutral);font-size:.68rem;
+  padding:2px 7px;border-radius:4px;font-weight:600}
 
-  /* Detail panel */
-  #detail { display: none; }
+/* ── Gauge ── */
+.gauge-blk{display:flex;flex-direction:column;align-items:center;gap:4px}
+.gauge{width:88px;height:88px;position:relative}
+.gauge svg{width:88px;height:88px}
+.gauge-lbl{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center}
+.gauge-lbl .gs{font-size:1.35rem;font-weight:700}
+.gauge-lbl .gsub{font-size:.62rem;color:var(--muted)}
 
-  .panel-header {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px 24px;
-    margin-bottom: 16px;
-    display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;
-  }
-  .price-block h2 { font-size: 2rem; font-weight: 700; }
-  .price-block .change { font-size: 1rem; margin-top: 2px; }
-  .price-block .meta { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+.stat-row{display:flex;flex-wrap:wrap;gap:10px;flex:1;min-width:220px}
+.stat{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:9px 13px;flex:1;min-width:95px}
+.stat .lbl{font-size:.7rem;color:var(--muted);margin-bottom:3px}
+.stat .val{font-size:.95rem;font-weight:600}
+.stat .sub{font-size:.72rem;margin-top:2px}
 
-  .score-block {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 4px;
-  }
-  .gauge {
-    width: 90px; height: 90px; position: relative;
-  }
-  .gauge svg { width: 90px; height: 90px; }
-  .gauge-label {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    text-align: center;
-  }
-  .gauge-label .g-score { font-size: 1.4rem; font-weight: 700; }
-  .gauge-label .g-sub { font-size: 0.65rem; color: var(--text-muted); }
+/* ── Charts ── */
+.charts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-bottom:14px}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+.chart-card h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
+.price-card{grid-column:1/-1}
 
-  .stats-row { display: flex; flex-wrap: wrap; gap: 12px; flex: 1; min-width: 240px; }
-  .stat-box {
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 8px; padding: 10px 14px; flex: 1; min-width: 100px;
-  }
-  .stat-box .label { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 4px; }
-  .stat-box .value { font-size: 1rem; font-weight: 600; }
+/* ── Indicators ── */
+.ind-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:14px}
+.ind{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px 15px}
+.ind .ilbl{font-size:.72rem;color:var(--muted);margin-bottom:5px}
+.ind .ival{font-size:1.2rem;font-weight:700}
+.ind .ibar{margin-top:7px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.ind .ibar-fill{height:100%;border-radius:2px}
+.ind .inote{font-size:.7rem;color:var(--muted);margin-top:3px}
 
-  /* Charts grid */
-  .charts-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
-    gap: 16px;
-    margin-bottom: 16px;
-  }
-  .chart-card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 12px; padding: 16px;
-  }
-  .chart-card h3 { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; }
-  .chart-card canvas { max-height: 180px; }
+/* ── MA ── */
+.ma-sec{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:14px;margin-bottom:14px}
+.sec-title{font-size:.76rem;font-weight:600;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:10px}
 
-  /* Indicators grid */
-  .ind-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 12px; margin-bottom: 16px;
-  }
-  .ind-card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px; padding: 14px 16px;
-  }
-  .ind-card .ind-label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; }
-  .ind-card .ind-value { font-size: 1.25rem; font-weight: 700; }
-  .ind-card .ind-bar { margin-top: 8px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
-  .ind-card .ind-bar-fill { height: 100%; border-radius: 2px; }
-  .ind-card .ind-note { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; }
+/* ── AI Panel ── */
+.ai-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:16px 20px;margin-bottom:14px}
+.ai-panel h3{font-size:.85rem;color:var(--purple);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.ai-content{font-size:.88rem;line-height:1.7;white-space:pre-wrap}
+.ai-content strong,.ai-content b{color:var(--accent)}
+.ai-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:12px}
+.ai-box{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px}
+.ai-box .albl{font-size:.7rem;color:var(--muted);margin-bottom:4px}
+.ai-box .aval{font-size:.85rem;line-height:1.5}
+.ai-loading{color:var(--muted);font-size:.85rem;padding:8px 0}
+.ai-spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);
+  border-top-color:var(--purple);border-radius:50%;animation:spin .7s linear infinite;margin-right:6px;vertical-align:middle}
 
-  /* MA table */
-  .ma-section {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 12px; padding: 16px; margin-bottom: 16px;
-  }
+/* ── Loading / Error ── */
+#loading{text-align:center;padding:40px;color:var(--muted);display:none}
+.spinner{display:inline-block;width:26px;height:26px;border:3px solid var(--border);
+  border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#errmsg{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:var(--bear);
+  border-radius:8px;padding:11px 14px;margin-bottom:14px;display:none}
 
-  /* Loading & error */
-  #loading { text-align: center; padding: 40px; color: var(--text-muted); display: none; }
-  .spinner {
-    display: inline-block; width: 28px; height: 28px;
-    border: 3px solid var(--border); border-top-color: var(--accent);
-    border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 10px;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #error-msg { background: rgba(248,81,73,.12); border: 1px solid rgba(248,81,73,.3);
-    color: var(--bearish); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: none; }
+.pos{color:var(--bull)} .neg{color:var(--bear)} .muted{color:var(--muted)}
 
-  @media (max-width: 600px) {
-    .charts-grid { grid-template-columns: 1fr; }
-    .panel-header { flex-direction: column; }
-  }
+@media(max-width:600px){
+  .charts-grid{grid-template-columns:1fr}
+  .price-card{grid-column:auto}
+  .ph{flex-direction:column}
+}
 </style>
 </head>
 <body>
 <header>
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
     <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>
   </svg>
   <h1>股市即時動能分析</h1>
-  <span id="last-updated"></span>
+  {% if has_claude %}<span class="ai-badge">✦ Claude AI</span>{% endif %}
+  <span style="flex:1"></span>
+  <span id="upd" style="font-size:.74rem;color:var(--muted)"></span>
 </header>
 
 <div class="container">
-  <!-- Search -->
-  <div class="search-bar">
-    <input type="text" id="symbol-input" placeholder="輸入股票代碼，例如 AAPL, 2330.TW, TSLA" autocomplete="off">
-    <button onclick="searchStock()">分析</button>
-    <button class="secondary" onclick="toggleCompare()">比較模式</button>
+  <div class="search-row">
+    <input id="sym" type="text" placeholder="股票代碼：AAPL, NVDA, 2330.TW, 0050.TW …" autocomplete="off">
+    <button class="btn btn-primary" onclick="search()">分析</button>
+    <button class="btn btn-secondary" onclick="toggleCmp()">比較模式</button>
   </div>
 
-  <div class="quick-picks">
-    <span style="color:var(--text-muted);font-size:.8rem;align-self:center">快速選股：</span>
-    <button onclick="quickSearch('AAPL')">AAPL</button>
-    <button onclick="quickSearch('MSFT')">MSFT</button>
-    <button onclick="quickSearch('NVDA')">NVDA</button>
-    <button onclick="quickSearch('TSLA')">TSLA</button>
-    <button onclick="quickSearch('AMZN')">AMZN</button>
-    <button onclick="quickSearch('META')">META</button>
-    <button onclick="quickSearch('GOOGL')">GOOGL</button>
-    <button onclick="quickSearch('2330.TW')">台積電</button>
-    <button onclick="quickSearch('2317.TW')">鴻海</button>
-    <button onclick="quickSearch('0050.TW')">元大台灣50</button>
-    <button onclick="quickSearch('SPY')">SPY</button>
-    <button onclick="quickSearch('QQQ')">QQQ</button>
+  <div class="quick-row">
+    <span style="color:var(--muted);font-size:.78rem;align-self:center">快速：</span>
+    <button class="quick-btn" onclick="qs('NVDA')">NVDA</button>
+    <button class="quick-btn" onclick="qs('AAPL')">AAPL</button>
+    <button class="quick-btn" onclick="qs('MSFT')">MSFT</button>
+    <button class="quick-btn" onclick="qs('TSLA')">TSLA</button>
+    <button class="quick-btn" onclick="qs('AMZN')">AMZN</button>
+    <button class="quick-btn" onclick="qs('META')">META</button>
+    <button class="quick-btn" onclick="qs('GOOGL')">GOOGL</button>
+    <button class="quick-btn" onclick="qs('2330.TW')">台積電 2330</button>
+    <button class="quick-btn" onclick="qs('2317.TW')">鴻海 2317</button>
+    <button class="quick-btn" onclick="qs('0050.TW')">元大50</button>
+    <button class="quick-btn" onclick="qs('SPY')">SPY</button>
+    <button class="quick-btn" onclick="qs('QQQ')">QQQ</button>
   </div>
 
-  <!-- Compare section -->
-  <div id="compare-section">
-    <div class="section-title">多股比較</div>
-    <div class="compare-input">
-      <input type="text" id="compare-input" placeholder="輸入多個代碼，用逗號分隔：AAPL, MSFT, NVDA, 2330.TW">
-      <button onclick="runCompare()">比較</button>
+  <!-- Compare -->
+  <div id="cmp-section">
+    <div class="sec-title">多股比較</div>
+    <div class="cmp-row">
+      <input id="cmp-in" placeholder="多個代碼用逗號分隔：NVDA, AAPL, TSLA, 2330.TW">
+      <button class="btn btn-primary" onclick="runCmp()">比較</button>
     </div>
-    <div id="compare-table-wrap"></div>
+    <div id="cmp-out"></div>
   </div>
 
-  <!-- Error -->
-  <div id="error-msg"></div>
+  <div id="errmsg"></div>
+  <div id="loading"><div class="spinner"></div><div>載入中，正在抓取 K 線資料並計算指標…</div></div>
 
-  <!-- Loading -->
-  <div id="loading">
-    <div class="spinner"></div>
-    <div>載入中...</div>
-  </div>
-
-  <!-- Detail -->
   <div id="detail">
-    <div class="panel-header" id="panel-header"></div>
+    <div class="ph" id="ph"></div>
+
+    <!-- AI Analysis -->
+    <div class="ai-panel" id="ai-panel" style="display:none">
+      <h3>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--purple)"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3" stroke="#0d1117" stroke-width="2" fill="none"/></svg>
+        AI 技術分析
+      </h3>
+      <div id="ai-body"><div class="ai-loading"><span class="ai-spinner"></span>AI 正在分析指標數據…</div></div>
+    </div>
 
     <div class="charts-grid">
-      <div class="chart-card" style="grid-column: span 2 / auto;">
-        <h3>價格走勢 (近60日)</h3>
-        <canvas id="price-chart" height="180"></canvas>
+      <div class="chart-card price-card">
+        <h3>價格走勢（近60日）含 MA20 / MA60</h3>
+        <canvas id="pc" height="180"></canvas>
       </div>
-      <div class="chart-card">
-        <h3>RSI (14)</h3>
-        <canvas id="rsi-chart" height="140"></canvas>
-      </div>
-      <div class="chart-card">
-        <h3>MACD (12, 26, 9)</h3>
-        <canvas id="macd-chart" height="140"></canvas>
-      </div>
-      <div class="chart-card">
-        <h3>成交量</h3>
-        <canvas id="vol-chart" height="140"></canvas>
-      </div>
+      <div class="chart-card"><h3>RSI (14)</h3><canvas id="rc" height="150"></canvas></div>
+      <div class="chart-card"><h3>MACD (12, 26, 9)</h3><canvas id="mc" height="150"></canvas></div>
+      <div class="chart-card"><h3>布林通道 (20, 2)</h3><canvas id="bc" height="150"></canvas></div>
+      <div class="chart-card"><h3>成交量</h3><canvas id="vc" height="150"></canvas></div>
     </div>
 
-    <div class="section-title">動能指標詳情</div>
+    <div class="sec-title">動能指標</div>
     <div class="ind-grid" id="ind-grid"></div>
 
-    <div class="ma-section">
-      <div class="section-title" style="margin-bottom:12px">均線分析</div>
-      <table id="ma-table">
-        <thead><tr>
-          <th>均線</th><th>數值</th><th>偏離幅度</th><th>方向</th>
-        </tr></thead>
-        <tbody id="ma-tbody"></tbody>
-      </table>
+    <div class="ma-sec">
+      <div class="sec-title">均線分析</div>
+      <table id="mat"><thead><tr>
+        <th>均線</th><th>數值</th><th>偏離幅度</th><th>多空</th>
+      </tr></thead><tbody id="matb"></tbody></table>
     </div>
   </div>
 </div>
 
 <script>
-let charts = {};
+// ══════════════════════════════════════════════════════
+// 1. Technical Indicator Calculations (pure JS)
+// ══════════════════════════════════════════════════════
 
-function destroyChart(id) {
-  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+function ema(arr, period) {
+  const k = 2 / (period + 1), out = new Array(arr.length).fill(null);
+  let s = 0, cnt = 0;
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] == null) continue;
+    if (cnt < period) { s += arr[i]; cnt++; if (cnt === period) out[i] = s / period; }
+    else out[i] = arr[i] * k + out[i - 1] * (1 - k);
+  }
+  return out;
 }
 
-function scoreColor(s) {
-  if (s >= 70) return getComputedStyle(document.documentElement).getPropertyValue('--bullish').trim();
-  if (s >= 58) return getComputedStyle(document.documentElement).getPropertyValue('--mild-bullish').trim();
-  if (s >= 42) return getComputedStyle(document.documentElement).getPropertyValue('--neutral').trim();
-  if (s >= 30) return getComputedStyle(document.documentElement).getPropertyValue('--mild-bearish').trim();
-  return getComputedStyle(document.documentElement).getPropertyValue('--bearish').trim();
+function sma(arr, period) {
+  return arr.map((_, i) => {
+    if (i < period - 1) return null;
+    const sl = arr.slice(i - period + 1, i + 1);
+    if (sl.some(v => v == null)) return null;
+    return sl.reduce((a, b) => a + b, 0) / period;
+  });
 }
 
-function signalBadge(cls, label) {
-  return `<span class="badge ${cls}">${label}</span>`;
+function calcRSI(closes, period = 14) {
+  const out = new Array(closes.length).fill(null);
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) avgGain += d; else avgLoss -= d;
+  }
+  avgGain /= period; avgLoss /= period;
+  out[period] = 100 - 100 / (1 + (avgLoss === 0 ? Infinity : avgGain / avgLoss));
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + Math.max(d, 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(-d, 0)) / period;
+    out[i] = 100 - 100 / (1 + (avgLoss === 0 ? 100 : avgGain / avgLoss));
+  }
+  return out;
 }
 
-function fmt(v, dec=2) { return v == null ? '—' : Number(v).toFixed(dec); }
-function pctClass(v) { return v > 0 ? 'pos' : v < 0 ? 'neg' : 'muted'; }
-function sign(v) { return v > 0 ? '+' : ''; }
-
-// ── Gauge SVG ──────────────────────────────────────────────────────────────
-function gaugeHTML(score) {
-  const r = 36, cx = 45, cy = 45;
-  const startAngle = -210, totalArc = 240;
-  const angle = startAngle + (score / 100) * totalArc;
-  const toRad = d => d * Math.PI / 180;
-  const bgX1 = cx + r * Math.cos(toRad(startAngle));
-  const bgY1 = cy + r * Math.sin(toRad(startAngle));
-  const endAngle = startAngle + totalArc;
-  const bgX2 = cx + r * Math.cos(toRad(endAngle));
-  const bgY2 = cy + r * Math.sin(toRad(endAngle));
-  const fgX2 = cx + r * Math.cos(toRad(angle));
-  const fgY2 = cy + r * Math.sin(toRad(angle));
-  const largeArcBg = totalArc > 180 ? 1 : 0;
-  const fgArc = (score / 100) * totalArc;
-  const largeArcFg = fgArc > 180 ? 1 : 0;
-  const color = scoreColor(score);
-  return `<div class="gauge">
-  <svg viewBox="0 0 90 90">
-    <path d="M${bgX1},${bgY1} A${r},${r} 0 ${largeArcBg},1 ${bgX2},${bgY2}"
-      fill="none" stroke="#30363d" stroke-width="7" stroke-linecap="round"/>
-    <path d="M${bgX1},${bgY1} A${r},${r} 0 ${largeArcFg},1 ${fgX2},${fgY2}"
-      fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round"/>
-  </svg>
-  <div class="gauge-label">
-    <div class="g-score" style="color:${color}">${score}</div>
-    <div class="g-sub">/ 100</div>
-  </div>
-</div>`;
+function calcMACD(closes, fast = 12, slow = 26, signal = 9) {
+  const ef = ema(closes, fast), es = ema(closes, slow);
+  const macdLine = closes.map((_, i) => ef[i] != null && es[i] != null ? ef[i] - es[i] : null);
+  const signalLine = ema(macdLine, signal);
+  const hist = macdLine.map((v, i) => v != null && signalLine[i] != null ? v - signalLine[i] : null);
+  return { macdLine, signalLine, hist };
 }
 
-// ── Chart helpers ──────────────────────────────────────────────────────────
-const chartDefaults = {
+function calcBB(closes, period = 20, stdDev = 2) {
+  const mid = sma(closes, period);
+  const upper = [], lower = [], pctB = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (mid[i] == null) { upper.push(null); lower.push(null); pctB.push(null); continue; }
+    const sl = closes.slice(i - period + 1, i + 1);
+    const std = Math.sqrt(sl.reduce((a, v) => a + Math.pow(v - mid[i], 2), 0) / period);
+    upper.push(mid[i] + stdDev * std);
+    lower.push(mid[i] - stdDev * std);
+    const range = upper[i] - lower[i];
+    pctB.push(range > 0 ? (closes[i] - lower[i]) / range : 0.5);
+  }
+  return { upper, mid, lower, pctB };
+}
+
+function calcStochastic(highs, lows, closes, k = 14, d = 3) {
+  const kArr = closes.map((c, i) => {
+    if (i < k - 1) return null;
+    const sl = highs.slice(i - k + 1, i + 1);
+    const hh = Math.max(...sl), ll = Math.min(...lows.slice(i - k + 1, i + 1));
+    return hh === ll ? 50 : 100 * (c - ll) / (hh - ll);
+  });
+  return { k: kArr, d: sma(kArr, d) };
+}
+
+function calcADX(highs, lows, closes, period = 14) {
+  const n = closes.length;
+  const tr = new Array(n).fill(null);
+  const pdm = new Array(n).fill(null), ndm = new Array(n).fill(null);
+  for (let i = 1; i < n; i++) {
+    tr[i] = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i-1]), Math.abs(lows[i] - closes[i-1]));
+    const upMove = highs[i] - highs[i-1], downMove = lows[i-1] - lows[i];
+    pdm[i] = upMove > downMove && upMove > 0 ? upMove : 0;
+    ndm[i] = downMove > upMove && downMove > 0 ? downMove : 0;
+  }
+  const atr = ema(tr, period), ediP = ema(pdm, period), ediN = ema(ndm, period);
+  const diP = atr.map((a, i) => a ? 100 * ediP[i] / a : null);
+  const diN = atr.map((a, i) => a ? 100 * ediN[i] / a : null);
+  const dx = diP.map((p, i) => p != null && diN[i] != null ? 100 * Math.abs(p - diN[i]) / (p + diN[i] || 1) : null);
+  const adxLine = ema(dx, period);
+  return { adx: adxLine, diP, diN };
+}
+
+function calcROC(closes, period = 10) {
+  return closes.map((c, i) => i >= period && closes[i - period] ? 100 * (c / closes[i - period] - 1) : null);
+}
+
+function calcVolRatio(vols, period = 20) {
+  const avg = sma(vols, period);
+  return vols.map((v, i) => avg[i] ? v / avg[i] : null);
+}
+
+function last(arr) {
+  for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i];
+  return null;
+}
+
+// ══════════════════════════════════════════════════════
+// 2. Yahoo Finance Data Fetch
+// ══════════════════════════════════════════════════════
+
+async function fetchOHLCV(symbol) {
+  // Try direct Yahoo Finance first (works from most browsers)
+  const yUrls = [
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1y&interval=1d&events=history`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1y&interval=1d&events=history`,
+  ];
+
+  for (const url of yUrls) {
+    try {
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (r.ok) {
+        const j = await r.json();
+        if (j?.chart?.result?.[0]?.indicators?.quote?.[0]) return parseYahoo(j, false);
+      }
+    } catch {}
+  }
+
+  // Fallback: backend proxy (uses demo data when Yahoo is blocked server-side)
+  const r2 = await fetch(`/api/chart/${encodeURIComponent(symbol)}?range=1y&interval=1d`);
+  if (!r2.ok) throw new Error(`無法取得 ${symbol} 資料`);
+  const j2 = await r2.json();
+  if (!j2?.chart?.result?.[0]) throw new Error(`無有效資料：${symbol}`);
+  return parseYahoo(j2, j2.chart.result[0].meta?._demo === true);
+}
+
+function parseYahoo(json, isDemo) {
+  const res = json.chart.result[0];
+  const meta = res.meta;
+  const q = res.indicators.quote[0];
+  const ts = res.timestamp;
+  // Filter out null values
+  const valid = ts.map((t, i) => ({
+    date: new Date(t * 1000),
+    open: q.open[i], high: q.high[i], low: q.low[i],
+    close: q.close[i], volume: q.volume[i]
+  })).filter(d => d.close != null);
+
+  return {
+    symbol: (meta.symbol || '').toUpperCase(),
+    name: meta.longName || meta.shortName || meta.symbol || '',
+    currentPrice: meta.regularMarketPrice || valid[valid.length - 1]?.close,
+    prevClose: meta.previousClose || valid[valid.length - 2]?.close,
+    currency: meta.currency || 'USD',
+    isDemo,
+    ohlcv: valid,
+  };
+}
+
+// ══════════════════════════════════════════════════════
+// 3. Compute all indicators from OHLCV
+// ══════════════════════════════════════════════════════
+
+function computeAll(data) {
+  const { ohlcv } = data;
+  const closes = ohlcv.map(d => d.close);
+  const highs  = ohlcv.map(d => d.high);
+  const lows   = ohlcv.map(d => d.low);
+  const vols   = ohlcv.map(d => d.volume);
+
+  const rsi = calcRSI(closes);
+  const { macdLine, signalLine, hist: macdHist } = calcMACD(closes);
+  const bb = calcBB(closes);
+  const stoch = calcStochastic(highs, lows, closes);
+  const { adx, diP, diN } = calcADX(highs, lows, closes);
+  const roc = calcROC(closes, 10);
+  const volRatio = calcVolRatio(vols);
+
+  const ma20  = sma(closes, 20);
+  const ma60  = sma(closes, 60);
+  const ma200 = sma(closes, 200);
+  const ema12 = ema(closes, 12);
+  const ema26 = ema(closes, 26);
+
+  const cp = data.currentPrice;
+  const pc = data.prevClose;
+  const chgAbs = cp - pc;
+  const chgPct = (cp / pc - 1) * 100;
+
+  // 52-week high/low
+  const high52 = Math.max(...highs);
+  const low52  = Math.min(...lows);
+
+  // MA analysis
+  const maItems = [
+    { label: 'MA 20',  value: last(ma20),  period: 20 },
+    { label: 'MA 60',  value: last(ma60),  period: 60 },
+    { label: 'MA 200', value: last(ma200), period: 200 },
+    { label: 'EMA 12', value: last(ema12), period: 12 },
+    { label: 'EMA 26', value: last(ema26), period: 26 },
+  ].filter(m => m.value != null).map(m => ({
+    ...m,
+    pct: (cp / m.value - 1) * 100,
+    bullish: cp > m.value,
+  }));
+
+  const bullMa = maItems.filter(m => m.bullish).length;
+
+  // Composite momentum score
+  const rsiV    = last(rsi)      ?? 50;
+  const macdHV  = last(macdHist) ?? 0;
+  const stochKV = last(stoch.k)  ?? 50;
+  const rocV    = last(roc)      ?? 0;
+  const bbPctV  = last(bb.pctB)  ?? 0.5;
+  const adxV    = last(adx)      ?? 0;
+  const diPV    = last(diP)      ?? 0;
+  const diNV    = last(diN)      ?? 0;
+  const score = momentumScore(rsiV, macdHV, stochKV, rocV, bbPctV, adxV, diPV, diNV);
+
+  // Trim to last 60 bars for charts
+  const N = 60;
+  const slice = i => (arr => arr.slice(-N))(ohlcv.map((_, j) => (i(j))));
+  const dates = ohlcv.slice(-N).map(d => `${d.date.getMonth()+1}/${d.date.getDate()}`);
+
+  return {
+    symbol: data.symbol,
+    name: data.name,
+    price: cp,
+    prevClose: pc,
+    changeAbs: chgAbs,
+    changePct: chgPct,
+    high52, low52,
+    pctFromHigh: (cp / high52 - 1) * 100,
+    pctFromLow:  (cp / low52  - 1) * 100,
+    score,
+    ...signalLabel(score),
+    isDemo: data.isDemo,
+    volumeRatio: last(volRatio),
+    maItems, bullMa,
+    indicators: {
+      rsi: last(rsi), macdLine: last(macdLine), macdSignal: last(signalLine),
+      macdHist: last(macdHist), stochK: last(stoch.k), stochD: last(stoch.d),
+      bbUpper: last(bb.upper), bbMid: last(bb.mid), bbLower: last(bb.lower),
+      bbPctB: last(bb.pctB),
+      roc10: last(roc), adx: adxV, diPlus: diPV, diMinus: diNV,
+    },
+    chart: {
+      dates,
+      closes:     closes.slice(-N),
+      highs:      highs.slice(-N),
+      lows:       lows.slice(-N),
+      volumes:    vols.slice(-N),
+      ma20:       ma20.slice(-N),
+      ma60:       ma60.slice(-N),
+      bbUpper:    bb.upper.slice(-N),
+      bbLower:    bb.lower.slice(-N),
+      rsi:        rsi.slice(-N),
+      macdLine:   macdLine.slice(-N),
+      signalLine: signalLine.slice(-N),
+      macdHist:   macdHist.slice(-N),
+    },
+  };
+}
+
+function momentumScore(rsi, macdH, stochK, roc, bbPct, adx, diP, diN) {
+  const scores = [
+    Math.min(Math.max(rsi, 0), 100),
+    macdH > 0 ? 62 : 38,
+    Math.min(Math.max(stochK, 0), 100),
+    Math.min(Math.max(50 + roc * 2, 0), 100),
+    Math.min(Math.max(bbPct * 100, 0), 100),
+  ];
+  const strength = Math.min(adx / 50, 1);
+  const direction = diP > diN ? 62 : 38;
+  scores.push(50 + (direction - 50) * strength);
+  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) / 10;
+}
+
+function signalLabel(score) {
+  if (score >= 70) return { signal: '強力買入', signalClass: 'bullish' };
+  if (score >= 58) return { signal: '溫和買入', signalClass: 'mild-bullish' };
+  if (score >= 42) return { signal: '中性觀望', signalClass: 'neutral' };
+  if (score >= 30) return { signal: '溫和賣出', signalClass: 'mild-bearish' };
+  return { signal: '強力賣出', signalClass: 'bearish' };
+}
+
+// ══════════════════════════════════════════════════════
+// 4. Charts
+// ══════════════════════════════════════════════════════
+
+const _charts = {};
+function destroyAll() { Object.values(_charts).forEach(c => c.destroy()); Object.keys(_charts).forEach(k => delete _charts[k]); }
+
+const CDef = {
   responsive: true, maintainAspectRatio: false,
   plugins: { legend: { labels: { color: '#8b949e', boxWidth: 10, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
   scales: {
     x: { ticks: { color: '#8b949e', maxTicksLimit: 8, font: { size: 10 } }, grid: { color: '#21262d' } },
     y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } }
   },
-  elements: { point: { radius: 0, hoverRadius: 4 } },
-  animation: { duration: 400 }
+  elements: { point: { radius: 0, hoverRadius: 3 } },
+  animation: { duration: 350 }
 };
 
-function makePriceChart(c, labels, prices, sma20, sma50) {
-  destroyChart('price');
-  charts['price'] = new Chart(c, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label: '收盤價', data: prices, borderColor: '#58a6ff', borderWidth: 2, fill: false, tension: 0.3 },
-        { label: 'SMA20', data: sma20, borderColor: '#e3b341', borderWidth: 1.5, fill: false, borderDash: [4,3], tension: 0.3 },
-        { label: 'SMA50', data: sma50, borderColor: '#f0883e', borderWidth: 1.5, fill: false, borderDash: [6,3], tension: 0.3 },
-      ]
-    },
-    options: { ...chartDefaults, maintainAspectRatio: false }
-  });
+function makeChart(id, config) {
+  if (_charts[id]) _charts[id].destroy();
+  _charts[id] = new Chart(document.getElementById(id), config);
 }
 
-function makeRsiChart(c, labels, rsiData) {
-  destroyChart('rsi');
-  charts['rsi'] = new Chart(c, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{ label: 'RSI', data: rsiData, borderColor: '#79c0ff', borderWidth: 2, fill: false, tension: 0.3 }]
-    },
-    options: {
-      ...chartDefaults,
-      maintainAspectRatio: false,
-      scales: {
-        ...chartDefaults.scales,
-        y: {
-          ...chartDefaults.scales.y, min: 0, max: 100,
-          ticks: { color: '#8b949e', font: { size: 10 }, stepSize: 20 }
-        }
-      },
-      plugins: {
-        ...chartDefaults.plugins,
-        annotation: undefined
-      }
-    }
-  });
+function renderCharts(d) {
+  const { dates, closes, ma20, ma60, bbUpper, bbLower,
+          rsi, macdLine, signalLine, macdHist, volumes } = d.chart;
+
+  // Price chart
+  makeChart('pc', { type: 'line', data: { labels: dates, datasets: [
+    { label: '收盤價', data: closes, borderColor: '#58a6ff', borderWidth: 2, fill: false, tension: 0.3 },
+    { label: 'MA20',  data: ma20,   borderColor: '#e3b341', borderWidth: 1.5, borderDash: [4,3], fill: false, tension: 0.3 },
+    { label: 'MA60',  data: ma60,   borderColor: '#f0883e', borderWidth: 1.5, borderDash: [6,3], fill: false, tension: 0.3 },
+    { label: 'BB上軌', data: bbUpper, borderColor: 'rgba(121,192,255,.5)', borderWidth: 1, borderDash: [3,3], fill: false },
+    { label: 'BB下軌', data: bbLower, borderColor: 'rgba(121,192,255,.5)', borderWidth: 1, borderDash: [3,3], fill: false },
+  ]}, options: { ...CDef, maintainAspectRatio: false } });
+
+  // RSI
+  makeChart('rc', { type: 'line', data: { labels: dates, datasets: [
+    { label: 'RSI(14)', data: rsi, borderColor: '#79c0ff', borderWidth: 2, fill: false, tension: 0.3 }
+  ]}, options: { ...CDef, maintainAspectRatio: false,
+    scales: { ...CDef.scales, y: { ...CDef.scales.y, min: 0, max: 100, ticks: { color: '#8b949e', font: { size: 10 }, stepSize: 20 } } } } });
+
+  // MACD
+  const histColors = macdHist.map(v => v == null ? 'transparent' : v >= 0 ? 'rgba(63,185,80,.65)' : 'rgba(248,81,73,.65)');
+  makeChart('mc', { type: 'bar', data: { labels: dates, datasets: [
+    { type: 'line', label: 'MACD',   data: macdLine,   borderColor: '#58a6ff', borderWidth: 1.5, fill: false, tension: 0.3 },
+    { type: 'line', label: 'Signal', data: signalLine, borderColor: '#f0883e', borderWidth: 1.5, fill: false, tension: 0.3 },
+    { type: 'bar',  label: 'Hist',   data: macdHist,   backgroundColor: histColors },
+  ]}, options: { ...CDef, maintainAspectRatio: false } });
+
+  // Bollinger
+  makeChart('bc', { type: 'line', data: { labels: dates, datasets: [
+    { label: '收盤價', data: closes,  borderColor: '#58a6ff', borderWidth: 2, fill: false, tension: 0.3 },
+    { label: 'BB上軌', data: bbUpper, borderColor: 'rgba(121,192,255,.8)', borderWidth: 1.5, fill: false },
+    { label: 'BB下軌', data: bbLower, borderColor: 'rgba(121,192,255,.8)', borderWidth: 1.5, fill: false },
+  ]}, options: { ...CDef, maintainAspectRatio: false } });
+
+  // Volume
+  const volColors = volumes.map((_, i) => i === volumes.length - 1 ? 'rgba(88,166,255,.9)' : 'rgba(88,166,255,.35)');
+  makeChart('vc', { type: 'bar', data: { labels: dates, datasets: [
+    { label: '成交量', data: volumes, backgroundColor: volColors }
+  ]}, options: { ...CDef, maintainAspectRatio: false } });
 }
 
-function makeMacdChart(c, labels, macdLine, signalLine, histData) {
-  destroyChart('macd');
-  const colors = histData.map(v => v >= 0 ? 'rgba(63,185,80,.6)' : 'rgba(248,81,73,.6)');
-  charts['macd'] = new Chart(c, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { type: 'line', label: 'MACD', data: macdLine, borderColor: '#58a6ff', borderWidth: 1.5, fill: false, tension: 0.3, yAxisID: 'y' },
-        { type: 'line', label: 'Signal', data: signalLine, borderColor: '#f0883e', borderWidth: 1.5, fill: false, tension: 0.3, yAxisID: 'y' },
-        { type: 'bar', label: 'Histogram', data: histData, backgroundColor: colors, yAxisID: 'y' }
-      ]
-    },
-    options: { ...chartDefaults, maintainAspectRatio: false }
-  });
+// ══════════════════════════════════════════════════════
+// 5. Panel & Indicator rendering
+// ══════════════════════════════════════════════════════
+
+function scoreColor(s) {
+  if (s >= 70) return '#3fb950';
+  if (s >= 58) return '#79c0ff';
+  if (s >= 42) return '#e3b341';
+  if (s >= 30) return '#f0883e';
+  return '#f85149';
 }
 
-function makeVolChart(c, labels, volumes, volRatio) {
-  destroyChart('vol');
-  const colors = volumes.map((_, i) => i === volumes.length - 1 ? 'rgba(88,166,255,.8)' : 'rgba(88,166,255,.35)');
-  charts['vol'] = new Chart(c, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{ label: '成交量', data: volumes, backgroundColor: colors }]
-    },
-    options: { ...chartDefaults, maintainAspectRatio: false }
-  });
+function gaugeHTML(score) {
+  const r=36,cx=45,cy=45,toR=d=>d*Math.PI/180;
+  const sa=-210,ta=240,ea=sa+ta;
+  const gX=(a)=>cx+r*Math.cos(toR(a)), gY=(a)=>cy+r*Math.sin(toR(a));
+  const fgA=sa+(score/100)*ta, fgArc=(score/100)*ta;
+  const color=scoreColor(score);
+  return `<div class="gauge"><svg viewBox="0 0 90 90">
+    <path d="M${gX(sa)},${gY(sa)} A${r},${r} 0 1,1 ${gX(ea)},${gY(ea)}" fill="none" stroke="#30363d" stroke-width="7" stroke-linecap="round"/>
+    <path d="M${gX(sa)},${gY(sa)} A${r},${r} 0 ${fgArc>180?1:0},1 ${gX(fgA)},${gY(fgA)}" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round"/>
+  </svg><div class="gauge-lbl"><div class="gs" style="color:${color}">${score}</div><div class="gsub">/ 100</div></div></div>`;
 }
 
-// ── Indicator Cards ────────────────────────────────────────────────────────
+function badge(cls, txt) { return `<span class="badge ${cls}">${txt}</span>`; }
+function fmt(v,d=2){return v==null?'—':Number(v).toFixed(d)}
+function pC(v){return v>0?'pos':v<0?'neg':'muted'}
+function sgn(v){return v>0?'+':''}
+
+function renderPanel(d) {
+  const color = scoreColor(d.score);
+  const demoTag = d.isDemo ? ' <span class="demo-tag">模擬數據</span>' : '';
+  document.getElementById('ph').innerHTML = `
+    <div class="price-blk">
+      <div style="color:var(--muted);font-size:.88rem;margin-bottom:4px">${d.symbol} &nbsp;${d.name}${demoTag}</div>
+      <h2>${fmt(d.price)}</h2>
+      <div class="chg ${pC(d.changeAbs)}">${sgn(d.changeAbs)}${fmt(d.changeAbs)} (${sgn(d.changePct)}${fmt(d.changePct)}%)</div>
+      <div class="meta">更新：${new Date().toLocaleString('zh-TW')}</div>
+    </div>
+    <div class="gauge-blk">${gaugeHTML(d.score)}<div>${badge(d.signalClass, d.signal)}</div></div>
+    <div class="stat-row">
+      <div class="stat"><div class="lbl">52週高點</div><div class="val">${fmt(d.high52)}</div><div class="sub ${pC(d.pctFromHigh)}">${sgn(d.pctFromHigh)}${fmt(d.pctFromHigh)}%</div></div>
+      <div class="stat"><div class="lbl">52週低點</div><div class="val">${fmt(d.low52)}</div><div class="sub pos">+${fmt(d.pctFromLow)}%</div></div>
+      <div class="stat"><div class="lbl">量能比率</div><div class="val ${d.volumeRatio>1.3?'pos':'muted'}">${fmt(d.volumeRatio,2)}x</div></div>
+      <div class="stat"><div class="lbl">均線多空</div><div class="val">${d.bullMa}/${d.maItems.length} 多頭</div></div>
+    </div>`;
+}
+
 function indCard(label, value, note, barPct, barColor) {
-  const bar = barPct != null
-    ? `<div class="ind-bar"><div class="ind-bar-fill" style="width:${Math.min(barPct,100)}%;background:${barColor}"></div></div>`
+  const bar = barPct!=null
+    ? `<div class="ibar"><div class="ibar-fill" style="width:${Math.min(barPct,100)}%;background:${barColor}"></div></div>`
     : '';
-  return `<div class="ind-card">
-    <div class="ind-label">${label}</div>
-    <div class="ind-value">${value}</div>
-    ${bar}
-    <div class="ind-note">${note}</div>
-  </div>`;
+  return `<div class="ind"><div class="ilbl">${label}</div><div class="ival">${value}</div>${bar}<div class="inote">${note}</div></div>`;
 }
 
 function rsiNote(v) {
-  if (v == null) return '—';
-  if (v > 70) return '<span class="neg">超買區域</span>';
-  if (v < 30) return '<span class="pos">超賣區域</span>';
+  if(!v) return '—';
+  if(v>70) return '<span class="neg">超買</span>';
+  if(v<30) return '<span class="pos">超賣</span>';
   return '<span class="muted">中性</span>';
 }
 
-function renderIndicators(ind, volRatio, price) {
-  const grid = document.getElementById('ind-grid');
-  const rsiColor = ind.rsi > 70 ? '#f85149' : ind.rsi < 30 ? '#3fb950' : '#58a6ff';
-  grid.innerHTML = [
+function renderIndicators(d) {
+  const ind = d.indicators, vr = d.volumeRatio;
+  const rsiColor = ind.rsi>70?'#f85149':ind.rsi<30?'#3fb950':'#58a6ff';
+  document.getElementById('ind-grid').innerHTML = [
     indCard('RSI (14)', fmt(ind.rsi), rsiNote(ind.rsi), ind.rsi, rsiColor),
-    indCard('隨機指標 K%', fmt(ind.stoch_k), `D: ${fmt(ind.stoch_d)}`, ind.stoch_k,
-      ind.stoch_k > 80 ? '#f85149' : ind.stoch_k < 20 ? '#3fb950' : '#58a6ff'),
-    indCard('布林%B', fmt(ind.bb_pct_b, 3),
-      `上軌: ${fmt(ind.bb_upper)}  下軌: ${fmt(ind.bb_lower)}`,
-      (ind.bb_pct_b || 0) * 100, '#79c0ff'),
-    indCard('MACD 柱狀', fmt(ind.macd_hist, 4),
-      `MACD: ${fmt(ind.macd, 4)}  Signal: ${fmt(ind.macd_signal, 4)}`,
-      null, null),
-    indCard('10日變動率 ROC', `${sign(ind.roc_10)}${fmt(ind.roc_10)}%`,
-      ind.roc_10 > 0 ? '<span class="pos">正動能</span>' : '<span class="neg">負動能</span>',
-      Math.min(Math.abs(ind.roc_10 || 0) * 3, 100), ind.roc_10 > 0 ? '#3fb950' : '#f85149'),
+    indCard('隨機指標 K%', fmt(ind.stochK), `D: ${fmt(ind.stochD)}`, ind.stochK,
+      ind.stochK>80?'#f85149':ind.stochK<20?'#3fb950':'#58a6ff'),
+    indCard('布林 %B', fmt(ind.bbPctB,3),
+      `上軌: ${fmt(ind.bbUpper)}  下軌: ${fmt(ind.bbLower)}`, (ind.bbPctB??0.5)*100, '#79c0ff'),
+    indCard('MACD 柱狀', fmt(ind.macdHist,4),
+      `MACD: ${fmt(ind.macdLine,4)}  Signal: ${fmt(ind.macdSignal,4)}`, null, null),
+    indCard('10日 ROC', `${sgn(ind.roc10)}${fmt(ind.roc10)}%`,
+      ind.roc10>0?'<span class="pos">正動能</span>':'<span class="neg">負動能</span>',
+      Math.min(Math.abs(ind.roc10||0)*3,100), ind.roc10>0?'#3fb950':'#f85149'),
     indCard('ADX (14)', fmt(ind.adx),
-      `+DI: ${fmt(ind.di_plus)}  -DI: ${fmt(ind.di_minus)}`,
-      Math.min(ind.adx || 0, 100), '#e3b341'),
-    indCard('成交量比率', fmt(volRatio, 2) + 'x',
-      volRatio > 1.5 ? '<span class="pos">放量</span>' : volRatio < 0.7 ? '<span class="neg">縮量</span>' : '<span class="muted">正常</span>',
-      Math.min((volRatio || 1) * 33, 100), volRatio > 1 ? '#3fb950' : '#8b949e'),
-    indCard('布林帶位置', fmt(ind.bb_pct_b, 3),
-      `中軌: ${fmt(ind.bb_mid)}`,
-      (ind.bb_pct_b || 0) * 100, '#58a6ff'),
+      `+DI: ${fmt(ind.diPlus)}  -DI: ${fmt(ind.diMinus)}`,
+      Math.min(ind.adx||0,100), '#e3b341'),
+    indCard('量能比率', fmt(vr,2)+'x',
+      vr>1.5?'<span class="pos">放量</span>':vr<0.7?'<span class="neg">縮量</span>':'<span class="muted">正常</span>',
+      Math.min((vr||1)*33,100), vr>1?'#3fb950':'#8b949e'),
+    indCard('布林中軌', fmt(ind.bbMid), `%B 位置: ${fmt(ind.bbPctB,3)}`, (ind.bbPctB??0.5)*100, '#58a6ff'),
   ].join('');
 }
 
-function renderMA(maSignals, bullishMa, totalMa) {
-  const tbody = document.getElementById('ma-tbody');
-  tbody.innerHTML = maSignals.map(m => `<tr>
-    <td><b>${m.label}</b></td>
-    <td>${fmt(m.value)}</td>
-    <td class="${pctClass(m.pct)}">${sign(m.pct)}${fmt(m.pct)}%</td>
-    <td>${m.bullish ? '<span class="pos">↑ 多頭</span>' : '<span class="neg">↓ 空頭</span>'}</td>
-  </tr>`).join('');
+function renderMA(d) {
+  document.getElementById('matb').innerHTML = d.maItems.map(m =>
+    `<tr><td><b>${m.label}</b></td><td>${fmt(m.value)}</td>
+     <td class="${pC(m.pct)}">${sgn(m.pct)}${fmt(m.pct)}%</td>
+     <td>${m.bullish?'<span class="pos">↑ 多頭</span>':'<span class="neg">↓ 空頭</span>'}</td></tr>`
+  ).join('');
 }
 
-// ── Main render ────────────────────────────────────────────────────────────
-function renderDetail(d) {
-  document.getElementById('detail').style.display = 'block';
+// ══════════════════════════════════════════════════════
+// 6. AI Analysis
+// ══════════════════════════════════════════════════════
 
-  // Header
-  const score = d.momentum_score;
-  const color = scoreColor(score);
-  const changeSign = d.change_abs >= 0 ? '+' : '';
-  document.getElementById('panel-header').innerHTML = `
-    <div class="price-block">
-      <div style="color:var(--text-muted);font-size:.9rem;margin-bottom:4px">${d.symbol} &nbsp;${d.name}${d.is_demo ? ' &nbsp;<span style="background:rgba(227,179,65,.2);color:#e3b341;font-size:.7rem;padding:2px 7px;border-radius:4px;font-weight:600">模擬數據</span>' : ''}</div>
-      <div class="price-block">
-        <h2>${fmt(d.price)}</h2>
-        <div class="change ${pctClass(d.change_abs)}">
-          ${changeSign}${fmt(d.change_abs)} (${changeSign}${fmt(d.change_pct)}%)
-        </div>
-        <div class="meta">更新時間：${d.updated_at}</div>
-      </div>
-    </div>
-    <div class="score-block">
-      ${gaugeHTML(score)}
-      <div>${signalBadge(d.signal_class, d.signal)}</div>
-    </div>
-    <div class="stats-row">
-      <div class="stat-box">
-        <div class="label">52周高點</div>
-        <div class="value">${fmt(d.high_52w)}</div>
-        <div style="font-size:.75rem" class="${pctClass(d.pct_from_high)}">${sign(d.pct_from_high)}${fmt(d.pct_from_high)}%</div>
-      </div>
-      <div class="stat-box">
-        <div class="label">52周低點</div>
-        <div class="value">${fmt(d.low_52w)}</div>
-        <div style="font-size:.75rem" class="pos">+${fmt(d.pct_from_low)}%</div>
-      </div>
-      <div class="stat-box">
-        <div class="label">成交量比率</div>
-        <div class="value ${d.volume_ratio > 1.3 ? 'pos' : 'muted'}">${fmt(d.volume_ratio, 2)}x</div>
-      </div>
-      <div class="stat-box">
-        <div class="label">均線多空</div>
-        <div class="value">${d.bullish_ma}/${d.total_ma} 多頭</div>
-      </div>
-    </div>`;
+async function requestAI(d) {
+  const panel = document.getElementById('ai-panel');
+  const body  = document.getElementById('ai-body');
+  panel.style.display = 'block';
+  body.innerHTML = '<div class="ai-loading"><span class="ai-spinner"></span>AI 正在分析指標數據…</div>';
 
-  // Charts
-  makePriceChart(document.getElementById('price-chart'),
-    d.chart.dates, d.chart.prices, d.chart.sma20, d.chart.sma50);
-  makeRsiChart(document.getElementById('rsi-chart'), d.chart.dates, d.chart.rsi);
-  makeMacdChart(document.getElementById('macd-chart'), d.chart.dates,
-    d.chart.macd, d.chart.macd_signal, d.chart.macd_hist);
-  makeVolChart(document.getElementById('vol-chart'), d.chart.dates,
-    d.chart.volumes, d.volume_ratio);
-
-  renderIndicators(d.indicators, d.volume_ratio, d.price);
-  renderMA(d.ma_signals, d.bullish_ma, d.total_ma);
-
-  document.getElementById('last-updated').textContent = d.updated_at;
-}
-
-// ── Search ────────────────────────────────────────────────────────────────
-async function searchStock(sym) {
-  const symbol = sym || document.getElementById('symbol-input').value.trim();
-  if (!symbol) return;
-  document.getElementById('symbol-input').value = symbol;
-
-  document.getElementById('loading').style.display = 'block';
-  document.getElementById('detail').style.display = 'none';
-  document.getElementById('error-msg').style.display = 'none';
+  const payload = {
+    symbol: d.symbol,
+    price: d.price,
+    change_pct: d.changePct,
+    momentum_score: d.score,
+    volume_ratio: d.volumeRatio,
+    pct_from_high: d.pctFromHigh,
+    roc: d.indicators.roc10,
+    indicators: {
+      rsi: d.indicators.rsi,
+      macd: d.indicators.macdLine,
+      macd_signal: d.indicators.macdSignal,
+      macd_hist: d.indicators.macdHist,
+      stoch_k: d.indicators.stochK,
+      stoch_d: d.indicators.stochD,
+      bb_upper: d.indicators.bbUpper,
+      bb_mid: d.indicators.bbMid,
+      bb_lower: d.indicators.bbLower,
+      bb_pct_b: d.indicators.bbPctB,
+      roc_10: d.indicators.roc10,
+      adx: d.indicators.adx,
+      di_plus: d.indicators.diPlus,
+      di_minus: d.indicators.diMinus,
+    },
+    ma_analysis: d.maItems,
+  };
 
   try {
-    const res = await fetch(`/api/momentum/${encodeURIComponent(symbol)}`);
-    const json = await res.json();
-    document.getElementById('loading').style.display = 'none';
-    if (!json.ok) throw new Error(json.error);
-    renderDetail(json.data);
+    const r = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+
+    const src = j.source === 'claude-ai'
+      ? '<span class="ai-badge">Claude AI</span>'
+      : '<span style="font-size:.7rem;color:var(--muted)">(規則引擎)</span>';
+
+    // Render summary as markdown-like text
+    const formatText = t => t
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+
+    const rows = j.source !== 'claude-ai' ? `
+      <div class="ai-row">
+        <div class="ai-box"><div class="albl">指標共振</div><div class="aval">${j.confluence||'—'}</div></div>
+        <div class="ai-box"><div class="albl">風險提示</div><div class="aval ${j.risk&&j.risk!=='無明顯風險訊號'?'neg':''}">${j.risk||'—'}</div></div>
+        ${j.support_resistance?.nearest_support?.length ? `<div class="ai-box"><div class="albl">近期支撐</div><div class="aval">${j.support_resistance.nearest_support.join(' / ')}</div></div>` : ''}
+        ${j.support_resistance?.nearest_resistance?.length ? `<div class="ai-box"><div class="albl">近期壓力</div><div class="aval">${j.support_resistance.nearest_resistance.join(' / ')}</div></div>` : ''}
+      </div>` : '';
+
+    body.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        ${badge(j.signal_class, j.signal)}
+        <span style="font-size:.8rem;color:var(--muted)">動能: ${j.score}</span>
+        ${src}
+      </div>
+      <div class="ai-content">${formatText(j.summary)}</div>
+      ${j.analysis ? `<div class="ai-content" style="margin-top:10px">${formatText(j.analysis)}</div>` : ''}
+      ${rows}`;
   } catch (e) {
-    document.getElementById('loading').style.display = 'none';
-    const err = document.getElementById('error-msg');
-    err.style.display = 'block';
-    err.textContent = `錯誤：${e.message}`;
+    body.innerHTML = `<div class="neg" style="font-size:.85rem">AI 分析失敗：${e.message}</div>`;
   }
 }
 
-function quickSearch(sym) {
-  searchStock(sym);
+// ══════════════════════════════════════════════════════
+// 7. Main flow
+// ══════════════════════════════════════════════════════
+
+async function search(sym) {
+  const symbol = (sym || document.getElementById('sym').value.trim()).toUpperCase();
+  if (!symbol) return;
+  document.getElementById('sym').value = symbol;
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('detail').style.display = 'none';
+  document.getElementById('errmsg').style.display = 'none';
+  document.getElementById('ai-panel').style.display = 'none';
+  destroyAll();
+
+  try {
+    const raw = await fetchOHLCV(symbol);
+    const d = computeAll(raw);
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('detail').style.display = 'block';
+    document.getElementById('upd').textContent = new Date().toLocaleTimeString('zh-TW');
+
+    renderPanel(d);
+    renderCharts(d);
+    renderIndicators(d);
+    renderMA(d);
+
+    // Fire AI analysis in background (non-blocking)
+    requestAI(d);
+  } catch (e) {
+    document.getElementById('loading').style.display = 'none';
+    const em = document.getElementById('errmsg');
+    em.style.display = 'block';
+    em.textContent = `錯誤：${e.message}`;
+  }
 }
 
-// ── Compare ───────────────────────────────────────────────────────────────
-function toggleCompare() {
-  const s = document.getElementById('compare-section');
+function qs(s) { search(s); }
+
+// ── Compare ───────────────────────────────────────────
+function toggleCmp() {
+  const s = document.getElementById('cmp-section');
   s.style.display = s.style.display === 'none' ? 'block' : 'none';
 }
 
-async function runCompare() {
-  const raw = document.getElementById('compare-input').value.trim();
-  if (!raw) return;
-  const wrap = document.getElementById('compare-table-wrap');
-  wrap.innerHTML = '<div style="color:var(--text-muted);padding:12px">載入中...</div>';
-  try {
-    const res = await fetch(`/api/compare?symbols=${encodeURIComponent(raw)}`);
-    const json = await res.json();
-    if (!json.ok) throw new Error('比較失敗');
-    const rows = json.results.map(r => `<tr onclick="quickSearch('${r.symbol}')">
-      <td><b>${r.symbol}</b></td>
-      <td style="color:var(--text-muted);font-size:.82rem">${r.name}</td>
-      <td>${fmt(r.price)}</td>
-      <td class="${pctClass(r.change_pct)}">${sign(r.change_pct)}${fmt(r.change_pct)}%</td>
-      <td>
-        <div class="score-bar-wrap">
-          <div class="score-bar"><div class="score-bar-fill" style="width:${r.momentum_score}%;background:${scoreColor(r.momentum_score)}"></div></div>
-          <span class="score-num" style="color:${scoreColor(r.momentum_score)}">${r.momentum_score}</span>
-        </div>
-      </td>
-      <td>${signalBadge(r.signal_class, r.signal)}</td>
-      <td>${fmt(r.rsi)}</td>
-      <td class="${pctClass(r.macd_hist)}">${fmt(r.macd_hist, 4)}</td>
-    </tr>`).join('');
-    const errRows = json.errors.map(e =>
-      `<tr><td>${e.symbol}</td><td colspan="7" class="neg">${e.error}</td></tr>`).join('');
-    wrap.innerHTML = `<table>
-      <thead><tr>
-        <th>代碼</th><th>名稱</th><th>價格</th><th>漲跌%</th>
-        <th style="min-width:160px">動能分數</th><th>信號</th><th>RSI</th><th>MACD柱</th>
-      </tr></thead>
-      <tbody>${rows}${errRows}</tbody>
-    </table>`;
-  } catch (e) {
-    wrap.innerHTML = `<div class="neg" style="padding:10px">${e.message}</div>`;
-  }
+async function runCmp() {
+  const syms = document.getElementById('cmp-in').value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  if (!syms.length) return;
+  const out = document.getElementById('cmp-out');
+  out.innerHTML = '<div style="color:var(--muted);padding:10px">載入中…</div>';
+
+  const results = await Promise.allSettled(syms.slice(0,8).map(async s => {
+    const raw = await fetchOHLCV(s);
+    return computeAll(raw);
+  }));
+
+  const ok = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+  const errs = results.filter(r => r.status === 'rejected').map((r, i) => ({ sym: syms[i], err: r.reason.message }));
+  ok.sort((a, b) => b.score - a.score);
+
+  const rows = ok.map(d => `<tr onclick="qs('${d.symbol}')">
+    <td><b>${d.symbol}</b></td>
+    <td style="color:var(--muted);font-size:.8rem">${d.name}</td>
+    <td>${fmt(d.price)}</td>
+    <td class="${pC(d.changePct)}">${sgn(d.changePct)}${fmt(d.changePct)}%</td>
+    <td><div class="score-wrap"><div class="sbar"><div class="sbar-fill" style="width:${d.score}%;background:${scoreColor(d.score)}"></div></div><span class="snum" style="color:${scoreColor(d.score)}">${d.score}</span></div></td>
+    <td>${badge(d.signalClass, d.signal)}</td>
+    <td>${fmt(d.indicators.rsi)}</td>
+    <td class="${pC(d.indicators.macdHist)}">${fmt(d.indicators.macdHist,4)}</td>
+    <td>${d.isDemo?'<span class="demo-tag">模擬</span>':''}</td>
+  </tr>`).join('');
+
+  const errRows = errs.map(e => `<tr><td>${e.sym}</td><td colspan="8" class="neg">${e.err}</td></tr>`).join('');
+
+  out.innerHTML = `<table>
+    <thead><tr><th>代碼</th><th>名稱</th><th>價格</th><th>漲跌%</th>
+    <th style="min-width:140px">動能分數</th><th>信號</th><th>RSI</th><th>MACD柱</th><th></th></tr></thead>
+    <tbody>${rows}${errRows}</tbody>
+  </table>`;
 }
 
-// ── Enter key ──────────────────────────────────────────────────────────────
-document.getElementById('symbol-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') searchStock();
-});
-document.addEventListener('DOMContentLoaded', () => {
-  // load NVDA on startup as demo
-  searchStock('NVDA');
-});
+document.getElementById('sym').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+window.addEventListener('DOMContentLoaded', () => search('NVDA'));
 </script>
 </body>
 </html>

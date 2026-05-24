@@ -1,4 +1,6 @@
 flask>=3.0
+requests>=2.31
 yfinance>=0.2.50
 pandas>=2.0
 numpy>=1.26
+anthropic>=0.40
