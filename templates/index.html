@@ -146,6 +146,52 @@ tbody td{padding:9px 10px}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .tab:hover:not(.active){color:var(--text)}
 
+/* ── Signal Radar ── */
+#sig-section{display:none}
+.sig-hero{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  padding:22px 26px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:20px;align-items:center}
+.sig-main{flex:1;min-width:200px}
+.sig-name{font-size:2rem;font-weight:800;margin-bottom:4px}
+.sig-desc{font-size:.92rem;color:var(--muted);margin-bottom:10px}
+.sig-meta{display:flex;gap:12px;flex-wrap:wrap;font-size:.8rem;color:var(--muted)}
+.market-open{color:var(--bull);font-weight:600}
+.market-closed{color:var(--muted)}
+
+.confluence-bar-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:120px}
+.confluence-bar{width:100%;height:10px;background:var(--border);border-radius:5px;overflow:hidden}
+.confluence-bar-fill{height:100%;border-radius:5px;transition:width .5s}
+.conf-label{font-size:.72rem;color:var(--muted)}
+
+.sig-counts{display:flex;gap:10px;flex-wrap:wrap}
+.sig-count-box{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:8px 14px;text-align:center;min-width:80px}
+.sig-count-box .cn{font-size:1.5rem;font-weight:700}
+.sig-count-box .cl{font-size:.72rem;color:var(--muted);margin-top:2px}
+
+.sig-reasons{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+.sig-reason-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.sig-reason-box h4{font-size:.78rem;font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em}
+.sig-reason-box ul{list-style:none;padding:0}
+.sig-reason-box li{font-size:.83rem;padding:4px 0;border-bottom:1px solid var(--border);line-height:1.4}
+.sig-reason-box li:last-child{border-bottom:none}
+
+.levels-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:14px}
+.level-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 15px}
+.level-card .lc-label{font-size:.7rem;color:var(--muted);margin-bottom:4px}
+.level-card .lc-val{font-size:1.1rem;font-weight:700}
+.level-card .lc-sub{font-size:.72rem;color:var(--muted);margin-top:2px}
+
+.refresh-row{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.refresh-badge{font-size:.75rem;padding:4px 10px;border-radius:6px;
+  background:var(--surface2);border:1px solid var(--border);color:var(--muted)}
+.countdown{font-size:.75rem;color:var(--accent);font-weight:600}
+.btn-refresh{padding:6px 14px;font-size:.82rem}
+
+@media(max-width:600px){
+  .sig-reasons{grid-template-columns:1fr}
+  .sig-hero{flex-direction:column}
+}
+
 /* ── Backtest ── */
 #bt-section{display:none}
 .bt-config{background:var(--surface);border:1px solid var(--border);border-radius:12px;
@@ -240,6 +286,7 @@ tbody td{padding:9px 10px}
   <!-- ── Tabs (shown after first load) ── -->
   <div class="tabs" id="tabs" style="display:none">
     <button class="tab active" onclick="switchTab('analysis')">動能分析</button>
+    <button class="tab" onclick="switchTab('signal')">訊號雷達</button>
     <button class="tab" onclick="switchTab('backtest')">策略回測</button>
   </div>
 
@@ -274,6 +321,59 @@ tbody td{padding:9px 10px}
       <table id="mat"><thead><tr>
         <th>均線</th><th>數值</th><th>偏離幅度</th><th>多空</th>
       </tr></thead><tbody id="matb"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── Signal Radar Section ── -->
+  <div id="sig-section">
+    <div class="refresh-row">
+      <button class="btn btn-primary btn-refresh" onclick="refreshSignal()">立即刷新</button>
+      <span class="refresh-badge" id="sig-market"></span>
+      <span class="refresh-badge">自動刷新：<span class="countdown" id="sig-countdown">60</span>秒</span>
+      <span class="refresh-badge" id="sig-updated"></span>
+    </div>
+
+    <div id="sig-hero" class="sig-hero" style="display:none">
+      <div class="sig-main">
+        <div class="sig-name" id="sig-name"></div>
+        <div class="sig-desc" id="sig-desc"></div>
+        <div class="sig-meta" id="sig-meta"></div>
+      </div>
+      <div class="confluence-bar-wrap">
+        <div class="conf-label">共振強度</div>
+        <div style="font-size:1.4rem;font-weight:700" id="sig-conf"></div>
+        <div class="confluence-bar">
+          <div class="confluence-bar-fill" id="sig-conf-fill"></div>
+        </div>
+      </div>
+      <div class="sig-counts">
+        <div class="sig-count-box">
+          <div class="cn pos" id="sig-bull-n"></div>
+          <div class="cl">多頭訊號</div>
+        </div>
+        <div class="sig-count-box">
+          <div class="cn neg" id="sig-bear-n"></div>
+          <div class="cl">空頭訊號</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sig-reasons" id="sig-reasons" style="display:none">
+      <div class="sig-reason-box">
+        <h4 style="color:var(--bull)">✅ 多頭因素</h4>
+        <ul id="sig-bull-list"></ul>
+      </div>
+      <div class="sig-reason-box">
+        <h4 style="color:var(--bear)">⚠️ 空頭風險</h4>
+        <ul id="sig-bear-list"></ul>
+      </div>
+    </div>
+
+    <div class="sec-title">關鍵價位</div>
+    <div class="levels-grid" id="sig-levels" style="display:none"></div>
+
+    <div id="sig-loading" style="text-align:center;padding:30px;color:var(--muted);display:none">
+      <div class="spinner"></div><div>分析訊號中…</div>
     </div>
   </div>
 
@@ -948,9 +1048,13 @@ document.getElementById('sym').addEventListener('keydown', e => { if (e.key === 
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab')[tab === 'analysis' ? 0 : 1].classList.add('active');
-  document.getElementById('detail').style.display    = tab === 'analysis' ? 'block' : 'none';
-  document.getElementById('bt-section').style.display = tab === 'backtest' ? 'block' : 'none';
+  const tabIdx = { analysis: 0, signal: 1, backtest: 2 };
+  document.querySelectorAll('.tab')[tabIdx[tab] ?? 0].classList.add('active');
+  document.getElementById('detail').style.display     = tab === 'analysis' ? 'block' : 'none';
+  document.getElementById('sig-section').style.display = tab === 'signal'   ? 'block' : 'none';
+  document.getElementById('bt-section').style.display  = tab === 'backtest'  ? 'block' : 'none';
+  if (tab === 'signal' && _lastComputedData) startSignalRadar();
+  else if (tab !== 'signal') { clearInterval(_sigTimer); _sigTimer = null; }
 }
 
 // ══════════════════════════════════════════════════════
@@ -987,6 +1091,9 @@ function updateBtParams() {
 // stored OHLCV from last search (sent to backtest)
 let _lastOHLCV = null;
 let _lastSymbol = null;
+let _lastComputedData = null;
+let _sigTimer = null;
+let _sigCountdown = 60;
 
 // Override search to also save OHLCV
 const _origSearch = search;
@@ -1011,6 +1118,7 @@ async function search(sym) {
       close:  o.close, volume: o.volume,
     }));
     _lastSymbol = d.symbol;
+    _lastComputedData = d;
 
     document.getElementById('loading').style.display = 'none';
     document.getElementById('detail').style.display = 'block';
@@ -1146,6 +1254,134 @@ function renderBacktest(d, strategy) {
     <td>${t.holding_days} 天</td>
     <td>${t.win ? '<span class="badge bullish">獲利</span>' : '<span class="badge bearish">虧損</span>'}</td>
   </tr>`).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// 10. Signal Radar
+// ══════════════════════════════════════════════════════
+
+function _sigPayload(d) {
+  return {
+    symbol: d.symbol,
+    price: d.price,
+    volume_ratio: d.volumeRatio,
+    momentum_score: d.score,
+    indicators: {
+      rsi: d.indicators.rsi,
+      macd: d.indicators.macdLine,
+      macd_signal: d.indicators.macdSignal,
+      macd_hist: d.indicators.macdHist,
+      stoch_k: d.indicators.stochK,
+      stoch_d: d.indicators.stochD,
+      bb_upper: d.indicators.bbUpper,
+      bb_mid: d.indicators.bbMid,
+      bb_lower: d.indicators.bbLower,
+      bb_pct_b: d.indicators.bbPctB,
+      adx: d.indicators.adx,
+      di_plus: d.indicators.diPlus,
+      di_minus: d.indicators.diMinus,
+    },
+    ma_analysis: d.maItems,
+  };
+}
+
+async function fetchSignal(d) {
+  const r = await fetch('/api/signals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(_sigPayload(d)),
+  });
+  return r.json();
+}
+
+async function fetchFreshData(symbol) {
+  try {
+    const raw = await fetchOHLCV(symbol);
+    return computeAll(raw);
+  } catch { return null; }
+}
+
+function renderSignal(s) {
+  document.getElementById('sig-loading').style.display = 'none';
+  document.getElementById('sig-hero').style.display = 'flex';
+  document.getElementById('sig-reasons').style.display = 'grid';
+  document.getElementById('sig-levels').style.display = 'grid';
+
+  // Hero
+  const color = scoreColor(s.confluence ?? 50);
+  document.getElementById('sig-name').textContent = s.signal;
+  document.getElementById('sig-name').style.color = `var(--${s.signal_class === 'bullish' ? 'bull' : s.signal_class === 'bearish' ? 'bear' : s.signal_class === 'mild-bullish' ? 'mbull' : s.signal_class === 'mild-bearish' ? 'mbear' : 'neutral'})`;
+  document.getElementById('sig-desc').textContent = s.description;
+  document.getElementById('sig-conf').textContent = (s.confluence ?? 0) + '%';
+  document.getElementById('sig-conf').style.color = color;
+  document.getElementById('sig-conf-fill').style.width = (s.confluence ?? 0) + '%';
+  document.getElementById('sig-conf-fill').style.background = color;
+  document.getElementById('sig-bull-n').textContent = s.bull_count ?? 0;
+  document.getElementById('sig-bear-n').textContent = s.bear_count ?? 0;
+
+  // Market status
+  const mkt = s.market || {};
+  const mktEl = document.getElementById('sig-market');
+  mktEl.textContent = `${mkt.exchange ?? ''} ${mkt.local_time ?? ''} ${mkt.is_open ? '開盤中' : '已收盤'}`;
+  mktEl.className = 'refresh-badge ' + (mkt.is_open ? 'market-open' : 'market-closed');
+
+  document.getElementById('sig-updated').textContent = '更新：' + (s.updated_at ?? '');
+  document.getElementById('sig-meta').innerHTML =
+    `<span>價格：<b>${fmt(s.price)}</b></span>` +
+    `<span>代碼：<b>${s.symbol}</b></span>`;
+
+  // Reasons
+  const bull = (s.reasons_bull || []);
+  const bear = (s.reasons_bear || []);
+  document.getElementById('sig-bull-list').innerHTML =
+    bull.length ? bull.map(r => `<li>✅ ${r}</li>`).join('') : '<li class="muted">無明顯多頭訊號</li>';
+  document.getElementById('sig-bear-list').innerHTML =
+    bear.length ? bear.map(r => `<li>⚠️ ${r}</li>`).join('') : '<li class="muted">無明顯空頭風險</li>';
+
+  // Key levels
+  const lv = s.levels || {};
+  const rr = lv.reward_pct && lv.risk_pct ? (lv.reward_pct / lv.risk_pct).toFixed(1) : '—';
+  document.getElementById('sig-levels').innerHTML = [
+    { label: '📍 進場參考區', val: fmt(s.price), sub: '當前市價' },
+    { label: '🛑 停損參考', val: fmt(lv.stop_loss), sub: `風險 ${lv.risk_pct ?? 0}%`, cls: 'neg' },
+    { label: '🎯 目標一', val: fmt(lv.take_profit?.[0]), sub: `報酬 ${lv.reward_pct ?? 0}%`, cls: 'pos' },
+    { label: '🎯 目標二', val: fmt(lv.take_profit?.[1]), sub: `風報比 1:${rr}`, cls: 'pos' },
+    { label: '📐 支撐位', val: (lv.supports || []).join(' / ') || '—', sub: '近期支撐' },
+    { label: '📐 壓力位', val: (lv.resistances || []).join(' / ') || '—', sub: '近期壓力' },
+  ].map(c => `<div class="level-card">
+    <div class="lc-label">${c.label}</div>
+    <div class="lc-val ${c.cls || ''}">${c.val || '—'}</div>
+    <div class="lc-sub">${c.sub}</div>
+  </div>`).join('');
+}
+
+async function refreshSignal() {
+  if (!_lastComputedData) return;
+  document.getElementById('sig-loading').style.display = 'block';
+
+  // Re-fetch fresh OHLCV to get latest price
+  const fresh = await fetchFreshData(_lastComputedData.symbol);
+  const d = fresh || _lastComputedData;
+  if (fresh) { _lastComputedData = fresh; _lastOHLCV = fresh.ohlcv?.map(o => ({
+    date: o.date?.toISOString?.()?.slice(0,10) ?? o.date, open: o.open,
+    high: o.high, low: o.low, close: o.close, volume: o.volume })) ?? _lastOHLCV; }
+
+  const s = await fetchSignal(d);
+  if (s.ok !== false) renderSignal(s);
+  _sigCountdown = 60;
+}
+
+function startSignalRadar() {
+  if (!_lastComputedData) return;
+  clearInterval(_sigTimer);
+  _sigCountdown = 60;
+  refreshSignal();
+  _sigTimer = setInterval(() => {
+    _sigCountdown--;
+    const el = document.getElementById('sig-countdown');
+    if (el) el.textContent = _sigCountdown;
+    if (_sigCountdown <= 0) { _sigCountdown = 60; refreshSignal(); }
+  }, 1000);
 }
 
 // Init backtest params and auto-load on page load

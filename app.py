@@ -7,6 +7,7 @@ import traceback, os
 import demo_data as _demo
 import analyzer
 import backtest as _bt
+import signals as _sig
 
 app = Flask(__name__)
 
@@ -81,6 +82,19 @@ def api_analyze():
     try:
         payload = request.json or {}
         result = analyzer.analyze(payload)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Signal detection endpoint ─────────────────────────────────────────────────
+
+@app.route("/api/signals", methods=["POST"])
+def api_signals():
+    try:
+        payload = request.json or {}
+        result = _sig.detect(payload)
         return jsonify({"ok": True, **result})
     except Exception as e:
         traceback.print_exc()
