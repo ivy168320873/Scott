@@ -391,8 +391,36 @@ tbody td{padding:9px 10px}
   color:var(--muted);font-weight:500;font-size:.74rem;text-transform:uppercase}
 .mtf-table td{padding:8px 10px;border-bottom:1px solid var(--border)}
 
-/* ── Trading Levels Card ── */
-.tl-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 22px;margin-bottom:14px}
+/* ── MTF table ── */
+.mtf-table{width:100%;border-collapse:collapse;font-size:.84rem}
+.mtf-table th{padding:6px 10px;text-align:left;border-bottom:1px solid var(--border);
+  color:var(--muted);font-weight:500;font-size:.74rem;text-transform:uppercase}
+.mtf-table td{padding:8px 10px;border-bottom:1px solid var(--border)}
+
+/* ── Money Flow Card ── */
+.mf-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:14px}
+.mf-card h3{font-size:.85rem;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:7px}
+.mf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:14px}
+.mf-stat{background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:11px 14px}
+.mf-stat .ms-lbl{font-size:.7rem;color:var(--muted);margin-bottom:4px}
+.mf-stat .ms-val{font-size:1.15rem;font-weight:700}
+.mf-stat .ms-sub{font-size:.72rem;margin-top:3px}
+.breakout-bar{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px}
+.bb-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.bb-label{font-size:.82rem;font-weight:600}
+.bb-score{font-size:1.4rem;font-weight:800}
+.bb-track{height:12px;background:var(--border);border-radius:6px;overflow:hidden;margin-bottom:8px}
+.bb-fill{height:100%;border-radius:6px;transition:width .6s ease}
+.bb-factors{display:flex;flex-wrap:wrap;gap:6px}
+.bb-factor{font-size:.72rem;padding:3px 8px;border-radius:5px;background:var(--surface);border:1px solid var(--border)}
+.mf-signal-box{border-radius:10px;padding:12px 16px;font-size:.85rem;line-height:1.6}
+
+/* ── Radar presets ── */
+.preset-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.preset-btn{padding:5px 12px;background:var(--surface2);border:1px solid var(--border);
+  color:var(--muted);border-radius:6px;cursor:pointer;font-size:.78rem;transition:all .15s}
+.preset-btn:hover{border-color:var(--accent);color:var(--accent)}
+</style>
 .tl-card h3{font-size:.85rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
 .tl-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
 .tl-box{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
@@ -569,6 +597,26 @@ tbody td{padding:9px 10px}
           停損以最近支撐位下方 1% 計算；目標以進出場風險金額的倍數計算。
         </div>
       </div>
+    </div>
+
+    <!-- Money Flow Card -->
+    <div class="mf-card" id="mf-card" style="display:none">
+      <h3>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+        </svg>
+        資金流向分析
+      </h3>
+      <div class="mf-grid" id="mf-grid"></div>
+      <div class="breakout-bar" id="breakout-bar">
+        <div class="bb-top">
+          <span class="bb-label">突破準備度</span>
+          <span class="bb-score" id="bb-score"></span>
+        </div>
+        <div class="bb-track"><div class="bb-fill" id="bb-fill"></div></div>
+        <div class="bb-factors" id="bb-factors"></div>
+      </div>
+      <div class="mf-signal-box" id="mf-signal-box"></div>
     </div>
 
     <!-- AI Analysis -->
@@ -928,6 +976,16 @@ tbody td{padding:9px 10px}
     <div id="vix-display" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap"></div>
     <div class="radar-watchlist">
       <h3>自選股清單 <span style="color:var(--muted);font-weight:400">（點選勾選/取消，掃描時只分析已勾選）</span></h3>
+      <div class="preset-row">
+        <span style="font-size:.76rem;color:var(--muted);align-self:center">快速選取：</span>
+        <button class="preset-btn" onclick="loadPreset('美股科技')">🇺🇸 美股科技</button>
+        <button class="preset-btn" onclick="loadPreset('美股金融ETF')">🇺🇸 金融/ETF</button>
+        <button class="preset-btn" onclick="loadPreset('台股大型')">🇹🇼 台股大型股</button>
+        <button class="preset-btn" onclick="loadPreset('台股ETF')">🇹🇼 台股ETF</button>
+        <button class="preset-btn" onclick="loadPreset('全部')">⚡ 全部（約50支）</button>
+        <button class="preset-btn" onclick="selectAllWatch(true)">全選</button>
+        <button class="preset-btn" onclick="selectAllWatch(false)">全消</button>
+      </div>
       <div class="wl-tags" id="wl-tags"></div>
       <div class="radar-add-row">
         <input id="wl-add-input" placeholder="輸入代碼新增…" onkeydown="if(event.key==='Enter')addWatchSym()">
@@ -1693,6 +1751,7 @@ async function search(sym) {
     renderMA(d);
     renderZone(d);
     renderTradingLevels(d);
+    renderMoneyFlow(d);
     requestAI(d);
     addToHistory(d.symbol);
     updateFavBtn();
@@ -3021,6 +3080,191 @@ async function loadVIX() {
 // ══════════════════════════════════════════════════════
 // Init backtest params and auto-load on page load
 // ══════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════
+// Money Flow Analysis (OBV / MFI / CMF + Breakout Score)
+// ══════════════════════════════════════════════════════
+
+function calcOBV(closes, volumes) {
+  const out = [0];
+  for (let i = 1; i < closes.length; i++) {
+    const prev = out[i - 1];
+    if (closes[i] > closes[i - 1])      out.push(prev + (volumes[i] || 0));
+    else if (closes[i] < closes[i - 1]) out.push(prev - (volumes[i] || 0));
+    else                                out.push(prev);
+  }
+  return out;
+}
+
+function calcMFI(highs, lows, closes, volumes, period = 14) {
+  const tp  = closes.map((c, i) => (highs[i] + lows[i] + c) / 3);
+  const pmf = new Array(tp.length).fill(0);
+  const nmf = new Array(tp.length).fill(0);
+  for (let i = 1; i < tp.length; i++) {
+    const mf = tp[i] * (volumes[i] || 0);
+    if (tp[i] >= tp[i - 1]) pmf[i] = mf; else nmf[i] = mf;
+  }
+  return tp.map((_, i) => {
+    if (i < period) return null;
+    const pos = pmf.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+    const neg = nmf.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+    return neg === 0 ? 100 : +(100 - 100 / (1 + pos / neg)).toFixed(2);
+  });
+}
+
+function calcCMF(highs, lows, closes, volumes, period = 20) {
+  return closes.map((_, i) => {
+    if (i < period - 1) return null;
+    let mfvSum = 0, volSum = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      const hl = highs[j] - lows[j];
+      const mfm = hl > 0 ? ((closes[j] - lows[j]) - (highs[j] - closes[j])) / hl : 0;
+      mfvSum += mfm * (volumes[j] || 0);
+      volSum += volumes[j] || 0;
+    }
+    return volSum > 0 ? +(mfvSum / volSum).toFixed(4) : 0;
+  });
+}
+
+function obvSlope(obvArr, period = 20) {
+  if (obvArr.length < period) return 0;
+  const slice = obvArr.slice(-period);
+  const base  = Math.abs(slice[0]) || 1;
+  return (slice[slice.length - 1] - slice[0]) / base * 100;
+}
+
+function calcBreakoutReadiness(d, obvSlp, mfi, cmf) {
+  const ind  = d.indicators;
+  const rsi  = ind.rsi ?? 50;
+  const bbW  = (ind.bbUpper && ind.bbLower && d.price)
+    ? (ind.bbUpper - ind.bbLower) / d.price : 0.1;
+  const vr   = d.volumeRatio ?? 1;
+  const factors = [];
+  let score = 0;
+
+  // BB squeeze (max 25)
+  if (bbW < 0.025)      { score += 25; factors.push({ label: 'BB極度壓縮', cls: 'pos' }); }
+  else if (bbW < 0.04)  { score += 18; factors.push({ label: 'BB壓縮中', cls: 'pos' }); }
+  else if (bbW < 0.06)  { score += 10; factors.push({ label: 'BB略縮', cls: 'pos' }); }
+
+  // OBV accumulation (max 20)
+  if (obvSlp > 15)      { score += 20; factors.push({ label: 'OBV強勁上升', cls: 'pos' }); }
+  else if (obvSlp > 5)  { score += 12; factors.push({ label: 'OBV緩升（積累中）', cls: 'pos' }); }
+  else if (obvSlp < -5) { score -=  5; factors.push({ label: 'OBV下降（出貨）', cls: 'neg' }); }
+
+  // MFI sweet spot (max 15)
+  if (mfi >= 45 && mfi <= 65)     { score += 15; factors.push({ label: `MFI健康(${mfi?.toFixed(0)})`, cls: 'pos' }); }
+  else if (mfi < 30)               { score +=  8; factors.push({ label: `MFI超賣(${mfi?.toFixed(0)})`, cls: 'pos' }); }
+  else if (mfi > 80)               { score -=  5; factors.push({ label: `MFI過熱(${mfi?.toFixed(0)})`, cls: 'neg' }); }
+
+  // CMF positive (max 15)
+  if (cmf > 0.15)       { score += 15; factors.push({ label: 'CMF強勁流入', cls: 'pos' }); }
+  else if (cmf > 0.05)  { score += 10; factors.push({ label: 'CMF小幅流入', cls: 'pos' }); }
+  else if (cmf < -0.1)  { score -=  8; factors.push({ label: 'CMF資金流出', cls: 'neg' }); }
+
+  // Near 52-week high / resistance (max 25)
+  if (d.pctFromHigh > -1.5)       { score += 25; factors.push({ label: '接近年高點', cls: 'pos' }); }
+  else if (d.pctFromHigh > -4)    { score += 15; factors.push({ label: '距高點<4%', cls: 'pos' }); }
+  else if (d.pctFromHigh > -8)    { score +=  8; factors.push({ label: '距高點<8%', cls: '' }); }
+
+  // Volume surge confirmation
+  if (vr > 1.5) { score += 5; factors.push({ label: `量能放大${vr.toFixed(1)}x`, cls: 'pos' }); }
+
+  return { score: Math.min(Math.max(score, 0), 100), factors };
+}
+
+function renderMoneyFlow(d) {
+  const card = document.getElementById('mf-card');
+  if (!d) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  const ohlcv   = _lastOHLCV || [];
+  const closes  = ohlcv.map(o => o.close);
+  const highs   = ohlcv.map(o => o.high);
+  const lows    = ohlcv.map(o => o.low);
+  const volumes = ohlcv.map(o => o.volume);
+
+  const obv  = calcOBV(closes, volumes);
+  const mfiA = calcMFI(highs, lows, closes, volumes);
+  const cmfA = calcCMF(highs, lows, closes, volumes);
+  const slp  = obvSlope(obv);
+  const mfi  = last(mfiA) ?? 50;
+  const cmf  = last(cmfA) ?? 0;
+
+  const { score, factors } = calcBreakoutReadiness(d, slp, mfi, cmf);
+
+  // Indicators grid
+  const obvTrendLabel = slp > 8  ? '強勁上升 ↑↑' :
+                        slp > 2  ? '緩步上升 ↑'  :
+                        slp < -8 ? '明顯下降 ↓↓' :
+                        slp < -2 ? '緩步下降 ↓'  : '橫盤 →';
+  const obvCls = slp > 2 ? 'pos' : slp < -2 ? 'neg' : 'muted';
+  const mfiCls = mfi < 30 ? 'pos' : mfi > 70 ? 'neg' : mfi > 45 ? 'pos' : 'muted';
+  const cmfCls = cmf > 0.05 ? 'pos' : cmf < -0.05 ? 'neg' : 'muted';
+
+  document.getElementById('mf-grid').innerHTML = [
+    { lbl: 'OBV 能量潮', val: obvTrendLabel, sub: `20日斜率 ${slp > 0 ? '+' : ''}${slp.toFixed(1)}%`, cls: obvCls },
+    { lbl: 'MFI 資金力道', val: fmt(mfi), sub: mfi < 30 ? '超賣區' : mfi > 70 ? '超買區' : mfi > 50 ? '偏多' : '偏空', cls: mfiCls },
+    { lbl: 'CMF 柴金資金流', val: (cmf > 0 ? '+' : '') + cmf.toFixed(3), sub: cmf > 0.1 ? '強力流入 🟢' : cmf > 0 ? '小幅流入' : cmf < -0.1 ? '強力流出 🔴' : '小幅流出', cls: cmfCls },
+    { lbl: '突破準備度', val: score + '%', sub: score >= 70 ? '⚡ 隨時可能突破' : score >= 50 ? '蓄勢中' : '尚未就緒', cls: score >= 60 ? 'pos' : score >= 40 ? '' : 'muted' },
+  ].map(s => `<div class="mf-stat">
+    <div class="ms-lbl">${s.lbl}</div>
+    <div class="ms-val ${s.cls}">${s.val}</div>
+    <div class="ms-sub ${s.cls}">${s.sub}</div>
+  </div>`).join('');
+
+  // Breakout bar
+  const barColor = score >= 70 ? '#3fb950' : score >= 50 ? '#e3b341' : '#8b949e';
+  document.getElementById('bb-score').textContent = score + '%';
+  document.getElementById('bb-score').style.color = barColor;
+  document.getElementById('bb-fill').style.width  = score + '%';
+  document.getElementById('bb-fill').style.background = barColor;
+  document.getElementById('bb-factors').innerHTML = factors.map(f =>
+    `<span class="bb-factor ${f.cls}">${f.label}</span>`).join('');
+
+  // Signal box
+  let sigBg, sigTxt;
+  if (score >= 75) {
+    sigBg = 'rgba(63,185,80,.12)'; sigTxt = `🚀 <b>高度突破準備（${score}%）</b><br>OBV持續上升（主力積累），CMF資金大量流入，布林帶極度壓縮——價格蓄勢待發，一旦突破壓力可能快速拉升。`;
+  } else if (score >= 55) {
+    sigBg = 'rgba(88,166,255,.1)'; sigTxt = `⚡ <b>中度突破準備（${score}%）</b><br>資金面偏多，布林帶收縮中。建議密切追蹤，等待成交量放大配合突破確認。`;
+  } else if (cmf < -0.1 && slp < -5) {
+    sigBg = 'rgba(248,81,73,.1)'; sigTxt = `📤 <b>主力出貨警示</b><br>OBV下降 + CMF大量流出，主力正在分批賣出，建議謹慎持有。`;
+  } else if (slp > 8 && d.score < 50) {
+    sigBg = 'rgba(227,179,65,.1)'; sigTxt = `🔍 <b>隱形積累訊號</b><br>價格橫盤但 OBV 持續上升，疑似主力悄悄買入，等待突破確認。`;
+  } else {
+    sigBg = 'rgba(139,148,158,.08)'; sigTxt = `📊 <b>中性觀望</b><br>資金流向無明顯偏向，建議等待更清晰的方向訊號。`;
+  }
+  const el = document.getElementById('mf-signal-box');
+  el.style.background = sigBg;
+  el.innerHTML = `<div style="font-size:.85rem;line-height:1.65">${sigTxt}</div>`;
+}
+
+// ── Expanded Watchlist Presets ─────────────────────────────
+const WATCHLIST_PRESETS = {
+  '美股科技': ['NVDA','AAPL','MSFT','AMZN','META','GOOGL','TSLA','AMD','AVGO','PLTR','ARM','SMCI','ORCL','ADBE','CRM','MRVL','TSM','MU'],
+  '美股金融ETF': ['JPM','BAC','GS','MS','V','MA','SPY','QQQ','IWM','SOXX','XLK','COIN','MSTR'],
+  '台股大型': ['2330.TW','2317.TW','2454.TW','2382.TW','2308.TW','3711.TW','2412.TW','2303.TW','2881.TW','2882.TW','2884.TW','2886.TW','2891.TW','1301.TW','1303.TW','6505.TW','3034.TW','2379.TW','3008.TW','2395.TW','2357.TW','2353.TW'],
+  '台股ETF': ['0050.TW','0056.TW','00878.TW','00881.TW'],
+};
+WATCHLIST_PRESETS['全部'] = [
+  ...new Set([...WATCHLIST_PRESETS['美股科技'], ...WATCHLIST_PRESETS['美股金融ETF'],
+              ...WATCHLIST_PRESETS['台股大型'], ...WATCHLIST_PRESETS['台股ETF']])
+];
+
+function loadPreset(name) {
+  const syms = WATCHLIST_PRESETS[name] || [];
+  // Merge into watchlist (add new, keep existing)
+  syms.forEach(s => { if (!_watchlist.includes(s)) _watchlist.push(s); });
+  // Set active to this preset only
+  _watchActive = [...syms];
+  saveWatchlist(); renderWatchlist();
+}
+
+function selectAllWatch(val) {
+  _watchActive = val ? [..._watchlist] : [];
+  saveWatchlist(); renderWatchlist();
+}
 
 window.addEventListener('DOMContentLoaded', () => {
   updateBtParams();
