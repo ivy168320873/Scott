@@ -140,7 +140,9 @@ tbody td{padding:9px 10px}
 .pos{color:var(--bull)} .neg{color:var(--bear)} .muted{color:var(--muted)}
 
 /* ── Tabs ── */
-.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0}
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0;
+  overflow-x:auto;white-space:nowrap;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
 .tab{padding:8px 18px;background:none;border:none;color:var(--muted);cursor:pointer;
   font-size:.9rem;font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -370,6 +372,22 @@ tbody td{padding:9px 10px}
 .radar-all-tbl{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:14px}
 .radar-all-tbl h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
 @media(max-width:800px){.radar-results{grid-template-columns:1fr}}
+
+/* ── Feature 8: Mobile CSS ── */
+@media(max-width:600px){
+  body{padding-bottom:20px}
+  .quick-btn{padding:6px 14px;font-size:.84rem}
+}
+@media(max-width:480px){
+  .search-row{flex-direction:column}
+  .search-row input{min-width:unset}
+}
+
+/* ── MTF table ── */
+.mtf-table{width:100%;border-collapse:collapse;font-size:.84rem}
+.mtf-table th{padding:6px 10px;text-align:left;border-bottom:1px solid var(--border);
+  color:var(--muted);font-weight:500;font-size:.74rem;text-transform:uppercase}
+.mtf-table td{padding:8px 10px;border-bottom:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -387,7 +405,11 @@ tbody td{padding:9px 10px}
   <div class="search-row">
     <input id="sym" type="text" placeholder="股票代碼：AAPL, NVDA, 2330.TW, 0050.TW …" autocomplete="off">
     <button class="btn btn-primary" onclick="search()">分析</button>
+    <button id="fav-btn" class="btn btn-secondary" onclick="toggleFav()" title="加入收藏" style="padding:9px 14px;font-size:1rem">☆</button>
     <button class="btn btn-secondary" onclick="toggleCmp()">比較模式</button>
+  </div>
+  <div id="history-row" class="quick-row" style="display:none;margin-bottom:8px">
+    <span style="color:var(--muted);font-size:.78rem;align-self:center">歷史：</span>
   </div>
 
   <div class="quick-row">
@@ -404,6 +426,9 @@ tbody td{padding:9px 10px}
     <button class="quick-btn" onclick="qs('0050.TW')">元大50</button>
     <button class="quick-btn" onclick="qs('SPY')">SPY</button>
     <button class="quick-btn" onclick="qs('QQQ')">QQQ</button>
+  </div>
+  <div id="fav-row" class="quick-row" style="display:none;margin-bottom:8px">
+    <span style="color:var(--neutral);font-size:.78rem;align-self:center">★ 我的收藏：</span>
   </div>
 
   <!-- Compare -->
@@ -432,6 +457,9 @@ tbody td{padding:9px 10px}
   </div>
 
   <div id="detail">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+      <button class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem" onclick="exportCSV()">📥 匯出CSV</button>
+    </div>
     <div class="ph" id="ph"></div>
 
     <!-- AI Analysis -->
@@ -486,6 +514,21 @@ tbody td{padding:9px 10px}
         綜合 RSI、布林%B、距MA200偏離度計算。&nbsp;
         <span id="zone-detail-el"></span>
       </div>
+    </div>
+
+    <!-- Feature 3: Relative Strength -->
+    <div class="ma-sec" id="rs-section" style="display:none">
+      <div class="sec-title">相對強弱對比（近60日）</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        <span id="rs-score-label" style="font-size:.84rem;color:var(--muted)"></span>
+      </div>
+      <canvas id="rs-canvas" height="140"></canvas>
+    </div>
+
+    <!-- Feature 4: Multi-Timeframe -->
+    <div class="ma-sec" id="mtf-section" style="display:none">
+      <div class="sec-title">多時間框架分析</div>
+      <div id="mtf-body"></div>
     </div>
   </div>
 
@@ -612,6 +655,7 @@ tbody td{padding:9px 10px}
       <button class="int-btn" onclick="selectInterval('5m')">5分</button>
       <button class="int-btn" onclick="selectInterval('1m')">1分</button>
       <button class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem" onclick="reloadKline()">刷新</button>
+      <button id="fib-btn" class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem" onclick="toggleFib()">費波納契</button>
       <span id="kline-demo-tag" class="demo-tag" style="display:none">模擬數據</span>
     </div>
     <div class="kline-chart-wrap">
@@ -622,6 +666,7 @@ tbody td{padding:9px 10px}
       <canvas id="kline-canvas" height="280"></canvas>
       <canvas id="kline-vol-canvas" height="70" style="margin-top:4px"></canvas>
     </div>
+    <div id="earnings-area" style="margin-bottom:14px"></div>
     <div class="sec-title">K 線形態偵測</div>
     <div id="pattern-area" style="margin-bottom:14px">
       <div style="color:var(--muted);font-size:.84rem;padding:8px 0">載入K線資料後自動偵測形態…</div>
@@ -770,6 +815,7 @@ tbody td{padding:9px 10px}
 
   <!-- ── Market Radar Section ── -->
   <div id="radar-section">
+    <div id="vix-display" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap"></div>
     <div class="radar-watchlist">
       <h3>自選股清單 <span style="color:var(--muted);font-weight:400">（點選勾選/取消，掃描時只分析已勾選）</span></h3>
       <div class="wl-tags" id="wl-tags"></div>
@@ -1448,6 +1494,7 @@ function switchTab(tab) {
   if (tab === 'position')                       { renderRegime(_lastComputedData); renderPositions(); }
   if (tab === 'alerts')                         renderAlerts();
   if (tab === 'kline'    && _lastSymbol)        loadNews(_lastSymbol);
+  if (tab === 'radar')                          loadVIX();
 }
 
 // ══════════════════════════════════════════════════════
@@ -1534,6 +1581,10 @@ async function search(sym) {
     renderMA(d);
     renderZone(d);
     requestAI(d);
+    addToHistory(d.symbol);
+    updateFavBtn();
+    loadRS(d.symbol);
+    loadMTF(d.symbol);
   } catch (e) {
     document.getElementById('loading').style.display = 'none';
     const em = document.getElementById('errmsg');
@@ -1952,6 +2003,7 @@ function radarStockCard(d, scoreKey) {
 async function runRadar() {
   const syms = _watchActive.slice(0, 25);
   if (!syms.length) { alert('請先勾選股票'); return; }
+  loadVIX();
 
   const prog = document.getElementById('radar-progress');
   const fill = document.getElementById('radar-progress-fill');
@@ -2123,6 +2175,7 @@ async function loadKline() {
 
   renderKlineChart(bars);
   detectPatterns(bars);
+  loadEarnings(_lastSymbol);
 }
 
 function renderKlineChart(bars) {
@@ -2134,40 +2187,11 @@ function renderKlineChart(bars) {
       ? `${d.getMonth()+1}/${d.getDate()}`
       : `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
   });
-  const vwap     = calcVWAP(recent);
-  const bodyData = recent.map(b => [Math.min(b.o, b.c), Math.max(b.o, b.c)]);
-  const colors   = recent.map(b => b.c >= b.o ? 'rgba(63,185,80,0.85)' : 'rgba(248,81,73,0.85)');
   const volData  = recent.map(b => b.v);
   const volCols  = recent.map(b => b.c >= b.o ? 'rgba(63,185,80,0.5)' : 'rgba(248,81,73,0.5)');
 
-  if (_charts['kline']) _charts['kline'].destroy();
-  _charts['kline'] = new Chart(document.getElementById('kline-canvas'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label: 'K線', data: bodyData, backgroundColor: colors, borderColor: colors,
-          borderWidth: 0, barPercentage: 0.6, _ohlcv: recent },
-        { type: 'line', label: 'VWAP', data: vwap, borderColor: '#e3b341',
-          borderWidth: 1.5, borderDash: [4,3], fill: false, pointRadius: 0, tension: 0.3 },
-      ],
-    },
-    options: {
-      ...CDef, maintainAspectRatio: false,
-      plugins: {
-        ...CDef.plugins,
-        tooltip: { mode: 'index', intersect: false,
-          callbacks: { label(ctx) {
-            if (ctx.datasetIndex === 0) {
-              const b = recent[ctx.dataIndex];
-              return b ? `開:${b.o?.toFixed(2)} 高:${b.h?.toFixed(2)} 低:${b.l?.toFixed(2)} 收:${b.c?.toFixed(2)}` : '';
-            }
-            return `VWAP: ${ctx.parsed.y?.toFixed(2)}`;
-          }}
-        }
-      }
-    },
-  });
+  // Delegate candlestick drawing to Fib-aware function
+  renderKlineChartWithFib(bars);
 
   if (_charts['kline-vol']) _charts['kline-vol'].destroy();
   _charts['kline-vol'] = new Chart(document.getElementById('kline-vol-canvas'), {
@@ -2486,13 +2510,413 @@ function renderRegime(d) {
   document.getElementById('regime-desc').textContent = desc;
 }
 
+// ══════════════════════════════════════════════════════
+// Feature 1: Favorites + Search History
+// ══════════════════════════════════════════════════════
+
+let _favorites = JSON.parse(localStorage.getItem('favorites') || '[]');
+let _searchHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+
+function saveFavorites() { localStorage.setItem('favorites', JSON.stringify(_favorites)); }
+function saveHistory() { localStorage.setItem('searchHistory', JSON.stringify(_searchHistory)); }
+
+function toggleFav() {
+  if (!_lastSymbol) return;
+  const idx = _favorites.indexOf(_lastSymbol);
+  if (idx >= 0) _favorites.splice(idx, 1);
+  else _favorites.push(_lastSymbol);
+  saveFavorites();
+  updateFavBtn();
+  renderFavRow();
+}
+
+function updateFavBtn() {
+  const btn = document.getElementById('fav-btn');
+  if (!btn) return;
+  const isFav = _lastSymbol && _favorites.includes(_lastSymbol);
+  btn.textContent = isFav ? '★' : '☆';
+  btn.style.color = isFav ? 'var(--neutral)' : '';
+}
+
+function addToHistory(sym) {
+  _searchHistory = _searchHistory.filter(s => s !== sym);
+  _searchHistory.unshift(sym);
+  if (_searchHistory.length > 10) _searchHistory.length = 10;
+  saveHistory();
+  renderHistoryRow();
+}
+
+function renderHistoryRow() {
+  const row = document.getElementById('history-row');
+  if (!_searchHistory.length) { row.style.display = 'none'; return; }
+  row.style.display = 'flex';
+  const chips = _searchHistory.map(s =>
+    `<button class="quick-btn" onclick="qs('${s}')" style="font-size:.78rem">${s}</button>`
+  ).join('');
+  row.innerHTML = `<span style="color:var(--muted);font-size:.78rem;align-self:center">歷史：</span>${chips}`;
+}
+
+function renderFavRow() {
+  const row = document.getElementById('fav-row');
+  if (!_favorites.length) { row.style.display = 'none'; return; }
+  row.style.display = 'flex';
+  const chips = _favorites.map(s =>
+    `<button class="quick-btn" onclick="qs('${s}')" style="color:var(--neutral);border-color:rgba(227,179,65,.4)">${s}</button>`
+  ).join('');
+  row.innerHTML = `<span style="color:var(--neutral);font-size:.78rem;align-self:center">★ 我的收藏：</span>${chips}`;
+}
+
+// ══════════════════════════════════════════════════════
+// Feature 2: Export CSV
+// ══════════════════════════════════════════════════════
+
+function exportCSV() {
+  if (!_lastComputedData) { alert('請先查詢一支股票'); return; }
+  const d = _lastComputedData;
+  const ind = d.indicators;
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  const timestamp = now.toLocaleString('zh-TW');
+
+  const headers = [
+    '代碼','名稱','價格','漲跌%','動能分數','訊號',
+    'RSI','MACD柱','布林%B','ADX','隨機K','隨機D','ROC10','量能比率','52週高','52週低',
+    ...d.maItems.map(m => m.label + '_值'),
+    ...d.maItems.map(m => m.label + '_偏離%'),
+    ...d.maItems.map(m => m.label + '_多空'),
+    '匯出時間'
+  ];
+
+  const vals = [
+    d.symbol, d.name, fmt(d.price), fmt(d.changePct), d.score, d.signal,
+    fmt(ind.rsi), fmt(ind.macdHist,4), fmt(ind.bbPctB,3), fmt(ind.adx),
+    fmt(ind.stochK), fmt(ind.stochD), fmt(ind.roc10), fmt(d.volumeRatio,2),
+    fmt(d.high52), fmt(d.low52),
+    ...d.maItems.map(m => fmt(m.value)),
+    ...d.maItems.map(m => fmt(m.pct)),
+    ...d.maItems.map(m => m.bullish ? '多頭' : '空頭'),
+    timestamp
+  ];
+
+  const csvContent = '﻿' + headers.join(',') + '\r\n' + vals.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${d.symbol}_分析報告_${dateStr}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ══════════════════════════════════════════════════════
+// Feature 3: Relative Strength vs Benchmark
+// ══════════════════════════════════════════════════════
+
+async function loadRS(symbol) {
+  const sec = document.getElementById('rs-section');
+  const isTW = symbol.endsWith('.TW') || symbol.endsWith('.TWO');
+  const benchmark = isTW ? '0050.TW' : 'SPY';
+  if (symbol === benchmark) { sec.style.display = 'none'; return; }
+
+  try {
+    const [stockRaw, benchRaw] = await Promise.all([
+      fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=3mo&interval=1d`).then(r=>r.json()).catch(()=>null),
+      fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(benchmark)}?range=3mo&interval=1d`).then(r=>r.json()).catch(()=>null),
+    ]);
+
+    const parseClose = j => {
+      const res = j?.chart?.result?.[0];
+      if (!res) return [];
+      const q = res.indicators.quote[0], ts = res.timestamp;
+      return ts.map((t,i) => ({ t, c: q.close[i] })).filter(d => d.c != null);
+    };
+
+    const sBars = parseClose(stockRaw);
+    const bBars = parseClose(benchRaw);
+    if (sBars.length < 5 || bBars.length < 5) { sec.style.display = 'none'; return; }
+
+    // Align dates: take last 60 available in each, normalize to 100
+    const sN = Math.min(sBars.length, 60);
+    const bN = Math.min(bBars.length, 60);
+    const sSlice = sBars.slice(-sN);
+    const bSlice = bBars.slice(-bN);
+    const sBase = sSlice[0].c, bBase = bSlice[0].c;
+    const sNorm = sSlice.map(d => +(d.c / sBase * 100).toFixed(2));
+    const bNorm = bSlice.map(d => +(d.c / bBase * 100).toFixed(2));
+
+    const labels = sSlice.map(d => {
+      const dt = new Date(d.t * 1000);
+      return `${dt.getMonth()+1}/${dt.getDate()}`;
+    });
+    const N = Math.min(labels.length, bNorm.length);
+
+    const sRet = sNorm[sNorm.length-1] - 100;
+    const bRet = bNorm[bNorm.length-1] - 100;
+    const rsScore = bRet !== 0 ? (sRet / Math.abs(bRet) * 100).toFixed(1) : '—';
+    const rsColor = sRet >= bRet ? 'var(--bull)' : 'var(--bear)';
+
+    document.getElementById('rs-score-label').innerHTML =
+      `RS評分：<b style="color:${rsColor}">${rsScore}</b> &nbsp;·&nbsp; ${symbol} ${sgn(sRet)}${sRet.toFixed(2)}% &nbsp;vs&nbsp; ${benchmark} ${sgn(bRet)}${bRet.toFixed(2)}%`;
+
+    if (_charts['rs-canvas']) _charts['rs-canvas'].destroy();
+    _charts['rs-canvas'] = new Chart(document.getElementById('rs-canvas'), {
+      type: 'line',
+      data: { labels: labels.slice(0, N), datasets: [
+        { label: symbol, data: sNorm.slice(0,N), borderColor: '#58a6ff', borderWidth: 2, fill: false, tension: 0.3, pointRadius: 0 },
+        { label: benchmark, data: bNorm.slice(0,N), borderColor: '#8b949e', borderWidth: 1.5, borderDash: [4,3], fill: false, tension: 0.3, pointRadius: 0 },
+      ]},
+      options: { ...CDef, maintainAspectRatio: false }
+    });
+    sec.style.display = 'block';
+  } catch { sec.style.display = 'none'; }
+}
+
+// ══════════════════════════════════════════════════════
+// Feature 4: Multi-Timeframe Analysis
+// ══════════════════════════════════════════════════════
+
+async function loadMTF(symbol) {
+  const sec = document.getElementById('mtf-section');
+  try {
+    const fetchTF = async (range, interval) => {
+      for (const host of ['query1','query2']) {
+        try {
+          const r = await fetch(`https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`);
+          if (r.ok) { const j = await r.json(); if (j?.chart?.result?.[0]?.indicators?.quote?.[0]) return j; }
+        } catch {}
+      }
+      return null;
+    };
+
+    const [wkJson, moJson] = await Promise.all([
+      fetchTF('2y','1wk'),
+      fetchTF('5y','1mo'),
+    ]);
+
+    const parseCloses = j => {
+      if (!j?.chart?.result?.[0]) return [];
+      const q = j.chart.result[0].indicators.quote[0];
+      return (q.close || []).filter(c => c != null);
+    };
+
+    const wkCloses = parseCloses(wkJson);
+    const moCloses = parseCloses(moJson);
+
+    const dailyCloses = _lastOHLCV ? _lastOHLCV.map(o=>o.close) : [];
+
+    const tfSummary = (closes, label) => {
+      if (closes.length < 30) return null;
+      const rsiArr = calcRSI(closes);
+      const rsiVal = last(rsiArr);
+      const { hist } = calcMACD(closes);
+      const macdDir = (last(hist) ?? 0) > 0 ? '↑ 多' : '↓ 空';
+      const macdColor = (last(hist) ?? 0) > 0 ? 'var(--bull)' : 'var(--bear)';
+      const ma20v = last(sma(closes, Math.min(20, Math.floor(closes.length/2))));
+      const ma60v = last(sma(closes, Math.min(60, Math.floor(closes.length*0.8))));
+      const cp = closes[closes.length-1];
+      const maBull = [ma20v, ma60v].filter(v=>v&&cp>v).length;
+      const maTotal = [ma20v, ma60v].filter(v=>v).length;
+      const maColor = maBull === maTotal ? 'var(--bull)' : maBull === 0 ? 'var(--bear)' : 'var(--neutral)';
+      const rsiColor = rsiVal>70?'var(--bear)':rsiVal<30?'var(--bull)':'var(--text)';
+      let judge, jColor;
+      const bullCount = (rsiVal<60&&rsiVal>40?0:rsiVal>=60?1:1) + ((last(hist)??0)>0?1:0) + (maBull>=1?1:0);
+      if (bullCount>=3){judge='偏多';jColor='var(--bull)';}
+      else if(bullCount<=1){judge='偏空';jColor='var(--bear)';}
+      else{judge='中性';jColor='var(--neutral)';}
+      return { label, rsiVal, rsiColor, macdDir, macdColor, maBull, maTotal, maColor, judge, jColor };
+    };
+
+    const rows = [
+      tfSummary(dailyCloses, '日線 (1D)'),
+      tfSummary(wkCloses,    '週線 (1W)'),
+      tfSummary(moCloses,    '月線 (1M)'),
+    ].filter(Boolean);
+
+    if (!rows.length) { sec.style.display = 'none'; return; }
+
+    document.getElementById('mtf-body').innerHTML = `
+      <table class="mtf-table">
+        <thead><tr><th>時間框架</th><th>RSI</th><th>MACD方向</th><th>均線多空</th><th>綜合判斷</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr>
+          <td><b>${r.label}</b></td>
+          <td style="color:${r.rsiColor}">${r.rsiVal!=null?r.rsiVal.toFixed(1):'—'}</td>
+          <td style="color:${r.macdColor}">${r.macdDir}</td>
+          <td style="color:${r.maColor}">${r.maBull}/${r.maTotal} 多頭</td>
+          <td style="color:${r.jColor};font-weight:700">${r.judge}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    sec.style.display = 'block';
+  } catch { sec.style.display = 'none'; }
+}
+
+// ══════════════════════════════════════════════════════
+// Feature 5: Fibonacci Retracement
+// ══════════════════════════════════════════════════════
+
+let _showFib = false;
+
+function calcFibLevels(bars) {
+  const recent = bars.slice(-100);
+  const highs = recent.map(b => b.h);
+  const lows  = recent.map(b => b.l);
+  const swingHigh = Math.max(...highs);
+  const swingLow  = Math.min(...lows);
+  const diff = swingHigh - swingLow;
+  return [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0].map(level => ({
+    level,
+    price: swingLow + diff * (1 - level),
+  }));
+}
+
+function toggleFib() {
+  _showFib = !_showFib;
+  const btn = document.getElementById('fib-btn');
+  if (btn) {
+    btn.style.borderColor = _showFib ? 'var(--neutral)' : '';
+    btn.style.color = _showFib ? 'var(--neutral)' : '';
+  }
+  if (_klineData) renderKlineChartWithFib(_klineData);
+}
+
+function fibColor(level) {
+  if (level === 0.618) return '#e3b341';
+  if (level === 0.5)   return '#d2a8ff';
+  if (level === 0.382) return 'rgba(88,166,255,.7)';
+  if (level === 0.236) return 'rgba(63,185,80,.7)';
+  return 'rgba(139,148,158,.5)';
+}
+
+function renderKlineChartWithFib(bars) {
+  const N = Math.min(bars.length, 120);
+  const recent = bars.slice(-N);
+  const labels = recent.map(b => {
+    const d = b.t;
+    return _klineInterval === '1d'
+      ? `${d.getMonth()+1}/${d.getDate()}`
+      : `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+  });
+  const vwap     = calcVWAP(recent);
+  const bodyData = recent.map(b => [Math.min(b.o, b.c), Math.max(b.o, b.c)]);
+  const colors   = recent.map(b => b.c >= b.o ? 'rgba(63,185,80,0.85)' : 'rgba(248,81,73,0.85)');
+
+  const datasets = [
+    { label: 'K線', data: bodyData, backgroundColor: colors, borderColor: colors,
+      borderWidth: 0, barPercentage: 0.6, _ohlcv: recent },
+    { type: 'line', label: 'VWAP', data: vwap, borderColor: '#e3b341',
+      borderWidth: 1.5, borderDash: [4,3], fill: false, pointRadius: 0, tension: 0.3 },
+  ];
+
+  if (_showFib && bars.length >= 10) {
+    const fibLevels = calcFibLevels(bars);
+    fibLevels.forEach(({ level, price }) => {
+      datasets.push({
+        type: 'line',
+        label: `Fib ${(level*100).toFixed(1)}%`,
+        data: new Array(recent.length).fill(price),
+        borderColor: fibColor(level),
+        borderWidth: level === 0.618 || level === 0.5 ? 1.5 : 1,
+        borderDash: [6, 4],
+        fill: false,
+        pointRadius: 0,
+        tension: 0,
+      });
+    });
+  }
+
+  if (_charts['kline']) _charts['kline'].destroy();
+  _charts['kline'] = new Chart(document.getElementById('kline-canvas'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      ...CDef, maintainAspectRatio: false,
+      plugins: {
+        ...CDef.plugins,
+        tooltip: { mode: 'index', intersect: false,
+          callbacks: { label(ctx) {
+            if (ctx.datasetIndex === 0) {
+              const b = recent[ctx.dataIndex];
+              return b ? `開:${b.o?.toFixed(2)} 高:${b.h?.toFixed(2)} 低:${b.l?.toFixed(2)} 收:${b.c?.toFixed(2)}` : '';
+            }
+            return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2)}`;
+          }}
+        }
+      }
+    },
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// Feature 6: Earnings Calendar
+// ══════════════════════════════════════════════════════
+
+async function loadEarnings(symbol) {
+  const area = document.getElementById('earnings-area');
+  area.innerHTML = '';
+  try {
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=calendarEvents`;
+    const r = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!r.ok) return;
+    const j = await r.json();
+    const cal = j?.quoteSummary?.result?.[0]?.calendarEvents;
+    if (!cal) return;
+    const parts = [];
+    const earnings = cal.earnings?.earningsDate;
+    if (earnings && earnings.length) {
+      const d = new Date(earnings[0].raw * 1000);
+      parts.push(`📅 下次財報日：<b>${d.toLocaleDateString('zh-TW')}</b>`);
+    }
+    const exDiv = cal.exDividendDate?.raw;
+    if (exDiv) {
+      const d = new Date(exDiv * 1000);
+      parts.push(`💰 除息日：<b>${d.toLocaleDateString('zh-TW')}</b>`);
+    }
+    const divDate = cal.dividendDate?.raw;
+    if (divDate) {
+      const d = new Date(divDate * 1000);
+      parts.push(`🏦 股息發放日：<b>${d.toLocaleDateString('zh-TW')}</b>`);
+    }
+    if (parts.length) {
+      area.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 15px;font-size:.84rem;display:flex;flex-wrap:wrap;gap:16px">${parts.map(p=>`<span>${p}</span>`).join('')}</div>`;
+    }
+  } catch {}
+}
+
+// ══════════════════════════════════════════════════════
+// Feature 7: VIX Fear Index
+// ══════════════════════════════════════════════════════
+
+async function loadVIX() {
+  const div = document.getElementById('vix-display');
+  try {
+    const raw = await fetchOHLCV('^VIX');
+    if (!raw || !raw.currentPrice) return;
+    const vix = raw.currentPrice;
+    let label, color;
+    if (vix < 15)      { label='市場平靜';   color='var(--bull)'; }
+    else if (vix < 25) { label='正常波動';   color='var(--neutral)'; }
+    else if (vix < 35) { label='警戒';       color='var(--mbear)'; }
+    else               { label='極度恐慌';   color='var(--bear)'; }
+    div.style.display = 'flex';
+    div.innerHTML = `
+      <span style="font-size:.8rem;color:var(--muted)">VIX 恐慌指數</span>
+      <span style="font-size:1.4rem;font-weight:700;color:${color}">${vix.toFixed(2)}</span>
+      <span style="font-size:.84rem;font-weight:600;color:${color}">${label}</span>
+      <span style="font-size:.74rem;color:var(--muted)">VIX &lt;15 平靜 · 15-25 正常 · 25-35 警戒 · &gt;35 極度恐慌</span>`;
+  } catch { div.style.display = 'none'; }
+}
+
+// ══════════════════════════════════════════════════════
 // Init backtest params and auto-load on page load
+// ══════════════════════════════════════════════════════
+
 window.addEventListener('DOMContentLoaded', () => {
   updateBtParams();
   document.getElementById('bt-strategy').addEventListener('change', updateBtParams);
   renderAlerts();
   renderPositions();
   renderWatchlist();
+  renderFavRow();
+  renderHistoryRow();
   search('NVDA');
 });
 </script>
