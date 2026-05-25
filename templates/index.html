@@ -413,6 +413,23 @@ tbody td{padding:9px 10px}
 .mct-warn{background:rgba(227,179,65,.12);color:#e3b341;border:1px solid rgba(227,179,65,.25)}
 .mct-bull{background:rgba(63,185,80,.1);color:var(--bull);border:1px solid rgba(63,185,80,.25)}
 .mct-info{background:var(--surface2);color:var(--muted);border:1px solid var(--border)}
+/* ── Auto Recommend Panel ── */
+.auto-rec-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:16px}
+.auto-rec-hdr{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.auto-rec-title{font-size:.9rem;font-weight:700}
+.ar-status{font-size:.7rem;padding:2px 9px;border-radius:10px;font-weight:600}
+.ar-status.scanning{background:rgba(88,166,255,.15);color:var(--accent)}
+.ar-status.ready{background:rgba(63,185,80,.15);color:var(--bull)}
+.auto-rec-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:9px;margin-bottom:4px}
+.auto-rec-card{border-radius:10px;padding:12px 14px;cursor:pointer;transition:transform .15s,border-color .2s}
+.auto-rec-card:hover{transform:translateY(-2px)}
+.arc-monster{background:linear-gradient(145deg,#1a0808,#231010);border:1.5px solid rgba(255,107,53,.3)}
+.arc-monster:hover{border-color:rgba(255,107,53,.7)}
+.arc-buy{background:linear-gradient(145deg,#081a0d,#0c1f10);border:1.5px solid rgba(63,185,80,.25)}
+.arc-buy:hover{border-color:rgba(63,185,80,.6)}
+.arc-sym{font-size:1rem;font-weight:800;margin-bottom:1px}
+.arc-price{font-size:.79rem;color:var(--muted);margin-bottom:6px}
+.arc-tags{display:flex;flex-wrap:wrap;gap:3px}
 .radar-all-tbl{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:14px}
 .radar-all-tbl h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
 @media(max-width:800px){.radar-results{grid-template-columns:1fr}}
@@ -529,6 +546,39 @@ tbody td{padding:9px 10px}
   </div>
   <div id="fav-row" class="quick-row" style="display:none;margin-bottom:8px">
     <span style="color:var(--neutral);font-size:.78rem;align-self:center">★ 我的收藏：</span>
+  </div>
+
+  <!-- ── Auto Recommend Panel ── -->
+  <div class="auto-rec-wrap" id="auto-rec-wrap">
+    <div class="auto-rec-hdr">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:1.05rem">🤖</span>
+        <span class="auto-rec-title">AI 自動推薦</span>
+        <span class="ar-status scanning" id="ar-status">初始化中…</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:.71rem;color:var(--muted)" id="ar-ts"></span>
+        <button class="btn btn-secondary" style="padding:4px 10px;font-size:.75rem" onclick="autoRecommend(true)">↻ 重新掃描</button>
+      </div>
+    </div>
+    <div id="ar-loading" style="text-align:center;padding:10px 0 4px;color:var(--muted);font-size:.82rem">
+      正在掃描精選股票，搜尋最具爆發潛力…
+      <div class="radar-progress" style="max-width:280px;margin:8px auto 0">
+        <div class="radar-progress-fill" id="ar-prog" style="width:0%"></div>
+      </div>
+    </div>
+    <div id="ar-cards" style="display:none">
+      <div style="font-size:.71rem;color:var(--muted);margin-bottom:7px;display:flex;align-items:center;gap:6px">
+        <span style="color:#ff6b35;font-weight:600">🎯 妖股候選</span>
+        <span>— 爆量 × 動能 × 突破形態 · 點擊開啟完整分析</span>
+      </div>
+      <div class="auto-rec-grid" id="ar-monster"></div>
+      <div style="font-size:.71rem;color:var(--muted);margin:10px 0 7px;display:flex;align-items:center;gap:6px">
+        <span style="color:var(--bull);font-weight:600">📈 價值買入機會</span>
+        <span>— 超賣回彈 · 均線支撐</span>
+      </div>
+      <div class="auto-rec-grid" id="ar-buy"></div>
+    </div>
   </div>
 
   <!-- Compare -->
@@ -2187,6 +2237,115 @@ function renderWatchlist() {
   }).join('');
 }
 
+// ══════════════════════════════════════════════════════
+// Auto Recommend — 自動掃描推薦
+// ══════════════════════════════════════════════════════
+
+const AUTO_SCAN_LIST = [
+  // 美股動能核心
+  'NVDA','AMD','PLTR','SMCI','ARM','META','TSLA','MSTR','COIN','MU',
+  'MRVL','AVGO','TSM','ORCL','SOXX','AXTI',
+  // 台股精選
+  '2330.TW','2454.TW','2382.TW','3711.TW','2317.TW',
+];
+
+async function autoRecommend(force = false) {
+  const TTL  = 30 * 60 * 1000;
+  const now  = Date.now();
+  const arStatus  = document.getElementById('ar-status');
+  const arLoading = document.getElementById('ar-loading');
+  const arCards   = document.getElementById('ar-cards');
+  const arProg    = document.getElementById('ar-prog');
+
+  if (!force) {
+    try {
+      const c = JSON.parse(localStorage.getItem('arCache') || 'null');
+      if (c && (now - c.ts) < TTL) { renderAutoRec(c.data); return; }
+    } catch {}
+  }
+
+  arStatus.textContent = '掃描中…'; arStatus.className = 'ar-status scanning';
+  arLoading.style.display = 'block'; arCards.style.display = 'none';
+  arProg.style.width = '0%';
+
+  const results = []; let done = 0;
+  for (let i = 0; i < AUTO_SCAN_LIST.length; i += 5) {
+    const batch = AUTO_SCAN_LIST.slice(i, i + 5);
+    const settled = await Promise.allSettled(batch.map(async sym => {
+      const raw = await fetchOHLCV(sym);
+      return computeAll(raw);
+    }));
+    settled.forEach(r => { if (r.status === 'fulfilled') results.push(r.value); });
+    done += batch.length;
+    arProg.style.width = Math.round(done / AUTO_SCAN_LIST.length * 100) + '%';
+  }
+
+  const scored = results.map(d => {
+    const mm = calcMonsterScore(d);
+    return {
+      symbol: d.symbol, name: d.name, price: d.price, changePct: d.changePct,
+      score: d.score, pctFromHigh: d.pctFromHigh, isDemo: d.isDemo,
+      monsterScore: mm.score, monsterMeta: mm,
+      buyScore: calcBuyScore(d), btScore: calcBreakoutScore(d),
+      indicators: { rsi: d.indicators.rsi, bbPctB: d.indicators.bbPctB },
+    };
+  });
+
+  try { localStorage.setItem('arCache', JSON.stringify({ ts: now, data: scored })); } catch {}
+  arLoading.style.display = 'none';
+  renderAutoRec(scored);
+}
+
+function renderAutoRec(scored) {
+  const monsterTop = [...scored].sort((a,b) => b.monsterScore - a.monsterScore).slice(0, 3);
+  const buyTop     = [...scored]
+    .filter(d => !monsterTop.some(m => m.symbol === d.symbol))
+    .sort((a,b) => b.buyScore - a.buyScore).slice(0, 2);
+
+  function arcCard(d, type) {
+    const chg = d.changePct;
+    const isMonster = type === 'monster';
+    const scoreVal  = isMonster ? d.monsterScore : d.buyScore;
+    const scoreClr  = isMonster
+      ? (scoreVal >= 50 ? '#ff3535' : scoreVal >= 30 ? '#ff6b35' : '#e3b341')
+      : (scoreVal >= 5  ? 'var(--bull)' : 'var(--accent)');
+    const tags = (d.monsterMeta?.tags || []).slice(0, 3);
+    const lbl  = isMonster ? '妖股分' : '買入分';
+    const rsiFmt = d.indicators?.rsi ? 'RSI ' + d.indicators.rsi.toFixed(0) : '';
+    return `<div class="auto-rec-card ${isMonster ? 'arc-monster' : 'arc-buy'}"
+        onclick="qs('${d.symbol}');switchTab('analysis')">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div class="arc-sym">${d.symbol}${d.isDemo ? ' <span style="font-size:.6rem;color:var(--muted);font-weight:400">[示範]</span>' : ''}</div>
+          <div class="arc-price">${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:1.5rem;font-weight:900;color:${scoreClr};line-height:1">${scoreVal}</div>
+          <div style="font-size:.62rem;color:var(--muted)">${lbl}</div>
+        </div>
+      </div>
+      <div class="arc-tags">
+        ${tags.map(t => `<span class="mct mct-${t.cls}">${t.t}</span>`).join('')}
+        ${!tags.length && rsiFmt ? `<span class="mct mct-info">${rsiFmt}</span>` : ''}
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('ar-monster').innerHTML =
+    monsterTop.filter(d => d.monsterScore >= 10).map(d => arcCard(d, 'monster')).join('') ||
+    '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無高妖股分候選，市場相對平靜</div>';
+
+  document.getElementById('ar-buy').innerHTML =
+    buyTop.filter(d => d.buyScore >= 2).map(d => arcCard(d, 'buy')).join('') ||
+    '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無明顯超賣股票</div>';
+
+  const ts = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('ar-ts').textContent = '更新：' + ts + ' · 每30分鐘自動刷新';
+  document.getElementById('ar-status').textContent = '已完成';
+  document.getElementById('ar-status').className = 'ar-status ready';
+  document.getElementById('ar-cards').style.display = 'block';
+}
+
 // ── 妖股獵手評分系統 ───────────────────────────────────
 function calcMonsterScore(d) {
   const c = d.chart, ind = d.indicators;
@@ -3576,6 +3735,12 @@ window.addEventListener('DOMContentLoaded', () => {
   renderFavRow();
   renderHistoryRow();
   search('NVDA');
+  // Auto recommend: start after initial NVDA load settles
+  setTimeout(() => {
+    autoRecommend();
+    // Auto-refresh every 30 minutes
+    setInterval(() => autoRecommend(true), 30 * 60 * 1000);
+  }, 3000);
 });
 
 // ══════════════════════════════════════════════════════
