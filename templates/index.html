@@ -322,6 +322,26 @@ tbody td{padding:9px 10px}
   padding:14px 18px;margin-top:4px;display:flex;flex-wrap:wrap;gap:20px}
 .psb-item .psb-lbl{font-size:.72rem;color:var(--muted);margin-bottom:3px}
 .psb-item .psb-val{font-size:1.05rem;font-weight:700}
+/* ── Portfolio Risk Card ── */
+.risk-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-top:14px}
+.risk-card h3{font-size:.85rem;color:var(--muted);margin-bottom:10px}
+.risk-overview{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin:12px 0}
+.risk-metric{background:var(--surface2);border-radius:8px;padding:10px 12px;text-align:center}
+.risk-metric .rm-val{font-size:1.15rem;font-weight:700}
+.risk-metric .rm-lbl{font-size:.68rem;color:var(--muted);margin-top:3px}
+.risk-light{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:.8rem;font-weight:600}
+.risk-light.green{background:#1a3a1e;color:var(--bull)}
+.risk-light.yellow{background:#2d2200;color:#e3b341}
+.risk-light.red{background:#2d1117;color:var(--bear)}
+.rebal-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:.81rem}
+.rebal-table th{color:var(--muted);font-weight:500;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)}
+.rebal-table td{padding:7px 8px;border-bottom:1px solid var(--border2);vertical-align:top}
+.adj-chip{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.74rem;font-weight:600;white-space:nowrap}
+.adj-hold{background:#1a2a1e;color:var(--bull)}
+.adj-reduce{background:#2d2200;color:#e3b341}
+.adj-add{background:#0d2240;color:#58a6ff}
+.adj-stop{background:#2d1117;color:var(--bear)}
+.adj-watch{background:#1a1a2e;color:var(--muted)}
 .regime-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;
   padding:16px 20px;margin-bottom:14px}
 .regime-card h3{font-size:.85rem;color:var(--muted);margin-bottom:12px}
@@ -952,6 +972,10 @@ tbody td{padding:9px 10px}
           <input id="pt-shares" type="number" placeholder="100" min="1">
         </div>
         <div class="calc-field">
+          <label>停損價格（選填）</label>
+          <input id="pt-stop" type="number" placeholder="例：138.00" step="0.01">
+        </div>
+        <div class="calc-field">
           <label>備註（選填）</label>
           <input id="pt-note" type="text" placeholder="例：突破買入">
         </div>
@@ -968,6 +992,28 @@ tbody td{padding:9px 10px}
       <div class="psb-item"><div class="psb-lbl">當前市值</div><div class="psb-val" id="ps-value"></div></div>
       <div class="psb-item"><div class="psb-lbl">未實現損益</div><div class="psb-val" id="ps-pnl"></div></div>
       <div class="psb-item"><div class="psb-lbl">總報酬率</div><div class="psb-val" id="ps-pct"></div></div>
+    </div>
+
+    <!-- ── Portfolio Risk & Rebalancing Card ── -->
+    <div class="risk-card" id="risk-card" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+        <h3 style="margin:0">持倉風控分析 &amp; 調倉建議</h3>
+        <div id="risk-light"></div>
+      </div>
+      <div class="risk-overview" id="risk-overview"></div>
+      <div id="risk-advice" style="margin-bottom:10px"></div>
+      <div class="sec-title" style="margin-bottom:6px">個別持倉建議</div>
+      <div style="overflow-x:auto">
+        <table class="rebal-table">
+          <thead><tr>
+            <th>股票</th><th>股數</th><th>倉位</th><th>損益%</th><th>單股風險</th><th>建議操作</th><th>說明</th>
+          </tr></thead>
+          <tbody id="rebal-tbody"></tbody>
+        </table>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:10px">
+        ※ 未設停損者以8%最大回撤估算風險；倉位比重依帳戶總資金計算
+      </div>
     </div>
   </div>
 
@@ -2590,14 +2636,21 @@ function calcPosition() {
 }
 
 function addPosition() {
-  const sym    = document.getElementById('pt-sym').value.trim().toUpperCase();
-  const entry  = parseFloat(document.getElementById('pt-entry').value);
-  const shares = parseInt(document.getElementById('pt-shares').value);
-  const note   = document.getElementById('pt-note').value.trim();
+  const sym      = document.getElementById('pt-sym').value.trim().toUpperCase();
+  const entry    = parseFloat(document.getElementById('pt-entry').value);
+  const shares   = parseInt(document.getElementById('pt-shares').value);
+  const stopLoss = parseFloat(document.getElementById('pt-stop').value) || 0;
+  const note     = document.getElementById('pt-note').value.trim();
   if (!sym || isNaN(entry) || isNaN(shares) || shares<=0) { alert('請填寫代碼、進場價格和股數'); return; }
-  _positions.push({ id: Date.now(), sym, entry, shares, note,
+  if (stopLoss && stopLoss >= entry) { alert('停損價格必須低於進場價格'); return; }
+  _positions.push({ id: Date.now(), sym, entry, shares, stopLoss, note,
     added: new Date().toLocaleString('zh-TW'), currentPrice: entry });
   savePositions();
+  document.getElementById('pt-sym').value='';
+  document.getElementById('pt-entry').value='';
+  document.getElementById('pt-shares').value='';
+  document.getElementById('pt-stop').value='';
+  document.getElementById('pt-note').value='';
   refreshPositionPrices();
 }
 
@@ -2635,7 +2688,7 @@ function renderPositions() {
     return `<div class="pos-item">
       <div class="pos-info">
         <div class="pos-sym">${p.sym} <span style="font-size:.78rem;color:var(--muted);font-weight:400">${p.shares}股</span></div>
-        <div class="pos-detail">成本：${p.entry.toFixed(2)} · 現價：${(p.currentPrice||p.entry).toFixed(2)}${p.note?' · '+p.note:''}</div>
+        <div class="pos-detail">成本：${p.entry.toFixed(2)} · 現價：${(p.currentPrice||p.entry).toFixed(2)}${p.stopLoss?' · 停損：'+p.stopLoss.toFixed(2):''}${p.note?' · '+p.note:''}</div>
       </div>
       <div class="pos-pnl">
         <div class="pnl-pct ${pnl>=0?'pos':'neg'}">${pnl>=0?'+':''}${pct}%</div>
@@ -2654,6 +2707,7 @@ function renderPositions() {
   document.getElementById('ps-pnl').className     = 'psb-val '+(totalPnl>=0?'pos':'neg');
   document.getElementById('ps-pct').textContent   = `${totalPnl>=0?'+':''}${totalPct}%`;
   document.getElementById('ps-pct').className     = 'psb-val '+(totalPnl>=0?'pos':'neg');
+  renderPortfolioRisk();
 }
 
 function renderRegime(d) {
@@ -2680,6 +2734,118 @@ function renderRegime(d) {
   document.getElementById('regime-name').style.color = color;
   document.getElementById('regime-sub').textContent  = sub;
   document.getElementById('regime-desc').textContent = desc;
+}
+
+// ── Portfolio Risk & Rebalancing ──────────────────────
+function renderPortfolioRisk() {
+  const card = document.getElementById('risk-card');
+  if (!_positions.length) { card.style.display='none'; return; }
+
+  const capital = parseFloat(document.getElementById('pc-capital').value) || 100000;
+
+  let totalValue = 0;
+  _positions.forEach(p => { totalValue += (p.currentPrice||p.entry) * p.shares; });
+
+  const exposure = capital > 0 ? totalValue / capital * 100 : 0;
+
+  const posMetrics = _positions.map(p => {
+    const cur = p.currentPrice || p.entry;
+    const mktVal = cur * p.shares;
+    const weight = totalValue > 0 ? mktVal / totalValue * 100 : 0;
+    const weightOfCap = capital > 0 ? mktVal / capital * 100 : 0;
+    const pnlPct = p.entry > 0 ? (cur - p.entry) / p.entry * 100 : 0;
+    const pnlAmt = mktVal - p.entry * p.shares;
+    const stopLoss = p.stopLoss || 0;
+    const atRisk = stopLoss > 0
+      ? Math.max(0, (cur - stopLoss) * p.shares)
+      : mktVal * 0.08;
+    const riskPct = capital > 0 ? atRisk / capital * 100 : 0;
+    return { ...p, cur, mktVal, weight, weightOfCap, pnlPct, pnlAmt, atRisk, riskPct, stopLoss };
+  });
+
+  const totalRisk   = posMetrics.reduce((s,m) => s + m.riskPct, 0);
+  const maxWeight   = Math.max(...posMetrics.map(m => m.weightOfCap));
+  const numPos      = _positions.length;
+
+  let riskClass, riskText;
+  if (maxWeight > 35 || totalRisk > 10 || exposure > 95) {
+    riskClass = 'red';  riskText = '⚠ 高風險';
+  } else if (maxWeight > 20 || totalRisk > 6 || exposure > 75) {
+    riskClass = 'yellow'; riskText = '● 中等風險';
+  } else {
+    riskClass = 'green'; riskText = '✓ 風險可控';
+  }
+
+  card.style.display = 'block';
+  document.getElementById('risk-light').innerHTML =
+    `<div class="risk-light ${riskClass}">${riskText}</div>`;
+
+  const fmt = (v,d=1) => v.toFixed(d);
+  const colorCls = (v, warn, danger) => v >= danger ? 'neg' : v >= warn ? 'warn' : 'pos';
+  document.getElementById('risk-overview').innerHTML = [
+    { val: fmt(exposure)+'%', lbl:'總曝險',    cls: colorCls(exposure, 70, 90) },
+    { val: fmt(maxWeight)+'%',lbl:'最大單股%', cls: colorCls(maxWeight, 20, 30) },
+    { val: fmt(totalRisk)+'%',lbl:'組合風險%', cls: colorCls(totalRisk, 5, 8) },
+    { val: numPos,            lbl:'持倉數量',  cls: numPos < 3 ? 'warn' : '' },
+    { val: '$'+Math.round(totalValue).toLocaleString(), lbl:'投組市值', cls:'' },
+  ].map(m => `<div class="risk-metric">
+    <div class="rm-val ${m.cls}">${m.val}</div>
+    <div class="rm-lbl">${m.lbl}</div>
+  </div>`).join('');
+
+  // Overall advice banner
+  const advices = [];
+  if (exposure > 90)    advices.push({ c:'neg', t:'⚠️ 總曝險超過90%，建議保留10–15%現金應對急回' });
+  if (maxWeight > 30)   advices.push({ c:'neg', t:'⚠️ 單股比重超過30%，集中度過高，建議分散' });
+  if (totalRisk > 8)    advices.push({ c:'neg', t:'🔴 組合風險超過8%，應縮小倉位或移近停損' });
+  if (numPos < 3)       advices.push({ c:'warn', t:'📌 持倉數量不足3支，分散效果有限' });
+  const missStop = posMetrics.filter(m => !m.stopLoss && m.pnlPct < -10);
+  if (missStop.length)  advices.push({ c:'warn', t:`⚠️ ${missStop.map(m=>m.sym).join('、')} 虧損逾10%且未設停損，建議立即設定` });
+  if (!advices.length)  advices.push({ c:'pos',  t:'✅ 整體持倉風控良好，維持現有配置' });
+  document.getElementById('risk-advice').innerHTML = advices.map(a =>
+    `<div class="bb-factor ${a.c}" style="margin-bottom:4px;padding:5px 10px;border-radius:6px">${a.t}</div>`
+  ).join('');
+
+  // Per-position rebalancing table
+  const targetMaxCap = 20; // target max per position = 20% of capital
+  document.getElementById('rebal-tbody').innerHTML = posMetrics.map(m => {
+    let cls, label, detail;
+    // Priority: stop loss breach > overweight > profit taking > missing stop > add > hold
+    if (m.stopLoss && m.cur <= m.stopLoss * 1.02) {
+      cls = 'adj-stop'; label = '⚠ 觸發停損';
+      detail = `現價${m.cur.toFixed(2)} ≤ 停損${m.stopLoss.toFixed(2)}，建議立即出場`;
+    } else if (m.weightOfCap > 30) {
+      const sell = Math.floor(m.shares * (1 - targetMaxCap / m.weightOfCap));
+      cls = 'adj-reduce'; label = '減倉';
+      detail = `比重${fmt(m.weightOfCap)}%過高，賣出約 ${sell} 股可降至~${targetMaxCap}%`;
+    } else if (m.weightOfCap > 20 && m.pnlPct > 20) {
+      const sell = Math.floor(m.shares * 0.25);
+      cls = 'adj-reduce'; label = '部分獲利';
+      detail = `漲幅${fmt(m.pnlPct)}%且比重${fmt(m.weightOfCap)}%偏高，可賣出~${sell}股鎖定利潤`;
+    } else if (!m.stopLoss && m.pnlPct < -12) {
+      cls = 'adj-watch'; label = '設停損';
+      detail = `已虧損${fmt(m.pnlPct)}%，建議在${(m.cur*0.95).toFixed(2)}設定停損`;
+    } else if (m.weightOfCap < 5 && m.pnlPct > 5) {
+      const add = Math.ceil((capital * 0.10 / m.cur) - m.shares);
+      cls = 'adj-add'; label = '可加倉';
+      detail = add > 0
+        ? `比重僅${fmt(m.weightOfCap)}%，趨勢正向，加 ${add} 股至~10%倉位`
+        : `持倉偏小但已達目標`;
+    } else {
+      cls = 'adj-hold'; label = '持有';
+      detail = `倉位${fmt(m.weightOfCap)}%，風險${fmt(m.riskPct)}%，維持現有配置`;
+    }
+    const stopDisplay = m.stopLoss ? m.stopLoss.toFixed(2) : `<span style="color:var(--muted)">未設</span>`;
+    return `<tr>
+      <td><strong>${m.sym}</strong><br><span style="font-size:.7rem;color:var(--muted)">${m.shares}股 @${m.cur.toFixed(2)}</span></td>
+      <td style="white-space:nowrap">停損：${stopDisplay}</td>
+      <td style="white-space:nowrap">${fmt(m.weightOfCap)}%</td>
+      <td class="${m.pnlPct>=0?'pos':'neg'}" style="white-space:nowrap">${m.pnlPct>=0?'+':''}${fmt(m.pnlPct)}%</td>
+      <td style="white-space:nowrap">${fmt(m.riskPct)}%</td>
+      <td><span class="adj-chip ${cls}">${label}</span></td>
+      <td style="font-size:.74rem;color:var(--muted);min-width:140px">${detail}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ══════════════════════════════════════════════════════
