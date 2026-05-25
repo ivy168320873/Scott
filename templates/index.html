@@ -324,6 +324,52 @@ tbody td{padding:9px 10px}
 .regime-body{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
 .regime-name{font-size:1.6rem;font-weight:800}
 .regime-desc{font-size:.84rem;color:var(--muted);line-height:1.5;flex:1;min-width:200px}
+
+/* ── Zone Thermometer ── */
+.zone-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:16px 20px;margin-bottom:14px}
+.zone-card h3{font-size:.8rem;color:var(--muted);margin-bottom:14px}
+.zone-track{position:relative;height:20px;border-radius:10px;
+  background:linear-gradient(90deg,#b22a24 0%,#f85149 8%,#3fb950 22%,#79c0ff 38%,#e3b341 52%,#f0883e 70%,#f85149 86%,#b22a24 100%);
+  margin-bottom:32px}
+.zone-marker{position:absolute;top:-5px;width:10px;height:30px;border-radius:5px;
+  background:#fff;box-shadow:0 0 8px rgba(0,0,0,.6);transform:translateX(-50%);transition:left .7s cubic-bezier(.4,0,.2,1)}
+.zone-marker-label{position:absolute;top:34px;transform:translateX(-50%);font-size:.75rem;
+  font-weight:700;white-space:nowrap}
+.zone-ticks{display:flex;justify-content:space-between;font-size:.62rem;color:var(--muted);margin-top:4px}
+
+/* ── Market Radar ── */
+#radar-section{display:none}
+.radar-watchlist{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px}
+.radar-watchlist h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
+.wl-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.wl-tag{padding:4px 10px;background:var(--surface2);border:1px solid var(--border);
+  color:var(--muted);border-radius:6px;font-size:.78rem;display:flex;align-items:center;gap:4px}
+.wl-tag.active{border-color:var(--accent);color:var(--accent);background:rgba(88,166,255,.1)}
+.wl-rm{border:none;background:none;color:var(--muted);cursor:pointer;font-size:.8rem;font-weight:700;padding:0 0 0 2px}
+.wl-rm:hover{color:var(--bear)}
+.radar-add-row{display:flex;gap:8px;margin-bottom:12px}
+.radar-add-row input{flex:1;max-width:160px;padding:7px 10px;background:var(--surface2);
+  border:1px solid var(--border);color:var(--text);border-radius:7px;font-size:.88rem;outline:none;
+  text-transform:uppercase}
+.radar-add-row input:focus{border-color:var(--accent)}
+.radar-progress{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:12px;display:none}
+.radar-progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .25s}
+.radar-results{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:4px}
+.radar-col h4{font-size:.78rem;font-weight:700;margin-bottom:10px;padding:8px 12px;border-radius:8px;text-transform:uppercase}
+.radar-col h4.buy-hdr{background:rgba(63,185,80,.15);color:var(--bull)}
+.radar-col h4.bt-hdr{background:rgba(88,166,255,.15);color:var(--accent)}
+.radar-col h4.hot-hdr{background:rgba(248,81,73,.15);color:var(--bear)}
+.radar-stock-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:11px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .15s}
+.radar-stock-card:hover{border-color:var(--accent)}
+.rsc-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.rsc-sym{font-weight:700;font-size:.92rem}
+.rsc-bars{display:flex;gap:5px;font-size:.7rem;color:var(--muted);flex-wrap:wrap;margin-top:3px}
+.rsc-bar{background:var(--surface2);padding:2px 7px;border-radius:4px}
+.radar-all-tbl{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:14px}
+.radar-all-tbl h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
+@media(max-width:800px){.radar-results{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -382,6 +428,7 @@ tbody td{padding:9px 10px}
     <button class="tab" onclick="switchTab('chips')">籌碼面</button>
     <button class="tab" onclick="switchTab('alerts')">警報</button>
     <button class="tab" onclick="switchTab('position')">部位管理</button>
+    <button class="tab" onclick="switchTab('radar')">市場雷達</button>
   </div>
 
   <div id="detail">
@@ -415,6 +462,30 @@ tbody td{padding:9px 10px}
       <table id="mat"><thead><tr>
         <th>均線</th><th>數值</th><th>偏離幅度</th><th>多空</th>
       </tr></thead><tbody id="matb"></tbody></table>
+    </div>
+
+    <!-- Zone Thermometer -->
+    <div class="zone-card" id="zone-card" style="display:none">
+      <h3>📊 價格溫度計 — 超賣 / 價值區 / 過熱區</h3>
+      <div style="position:relative">
+        <div class="zone-track">
+          <div class="zone-marker" id="zone-marker">
+            <div class="zone-marker-label" id="zone-marker-label"></div>
+          </div>
+        </div>
+        <div class="zone-ticks">
+          <span>深度超賣</span><span>超賣價值</span><span>偏低</span>
+          <span>中性</span><span>偏高</span><span>過熱</span><span>極度過熱</span>
+        </div>
+      </div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span id="zone-badge-el"></span>
+        <span id="zone-desc-el" style="font-size:.82rem;color:var(--muted)"></span>
+      </div>
+      <div style="margin-top:10px;font-size:.76rem;color:var(--muted)">
+        綜合 RSI、布林%B、距MA200偏離度計算。&nbsp;
+        <span id="zone-detail-el"></span>
+      </div>
     </div>
   </div>
 
@@ -694,6 +765,53 @@ tbody td{padding:9px 10px}
       <div class="psb-item"><div class="psb-lbl">當前市值</div><div class="psb-val" id="ps-value"></div></div>
       <div class="psb-item"><div class="psb-lbl">未實現損益</div><div class="psb-val" id="ps-pnl"></div></div>
       <div class="psb-item"><div class="psb-lbl">總報酬率</div><div class="psb-val" id="ps-pct"></div></div>
+    </div>
+  </div>
+
+  <!-- ── Market Radar Section ── -->
+  <div id="radar-section">
+    <div class="radar-watchlist">
+      <h3>自選股清單 <span style="color:var(--muted);font-weight:400">（點選勾選/取消，掃描時只分析已勾選）</span></h3>
+      <div class="wl-tags" id="wl-tags"></div>
+      <div class="radar-add-row">
+        <input id="wl-add-input" placeholder="輸入代碼新增…" onkeydown="if(event.key==='Enter')addWatchSym()">
+        <button class="btn btn-secondary" style="padding:7px 14px;font-size:.84rem" onclick="addWatchSym()">新增</button>
+        <button class="btn btn-primary" style="padding:7px 18px;font-size:.84rem" onclick="runRadar()">🔍 開始掃描</button>
+      </div>
+      <div class="radar-progress" id="radar-progress">
+        <div class="radar-progress-fill" id="radar-progress-fill"></div>
+      </div>
+      <div style="font-size:.74rem;color:var(--muted)">掃描時間約 5–15 秒，視網路速度而定。</div>
+    </div>
+
+    <div id="radar-results-wrap" style="display:none">
+      <div class="radar-results">
+        <div class="radar-col">
+          <h4 class="buy-hdr">🚀 強力買入推薦</h4>
+          <div id="radar-buy-list"></div>
+        </div>
+        <div class="radar-col">
+          <h4 class="bt-hdr">⚡ 準備突破</h4>
+          <div id="radar-bt-list"></div>
+        </div>
+        <div class="radar-col">
+          <h4 class="hot-hdr">🔥 過熱警示</h4>
+          <div id="radar-hot-list"></div>
+        </div>
+      </div>
+      <div class="radar-all-tbl">
+        <h3>全部掃描結果 <span id="radar-scan-time" style="font-weight:400;color:var(--muted)"></span></h3>
+        <div style="overflow-x:auto">
+          <table id="radar-all-table">
+            <thead><tr>
+              <th>代碼</th><th>名稱</th><th>價格</th><th>漲跌%</th>
+              <th>動能分數</th><th>訊號</th><th>RSI</th><th>溫度區間</th>
+              <th>買入分</th><th>突破分</th>
+            </tr></thead>
+            <tbody id="radar-all-tbody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1309,7 +1427,7 @@ document.getElementById('sym').addEventListener('keydown', e => { if (e.key === 
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','position'];
+  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','position','radar'];
   const idx = tabOrder.indexOf(tab);
   if (idx >= 0) document.querySelectorAll('.tab')[idx].classList.add('active');
 
@@ -1320,6 +1438,7 @@ function switchTab(tab) {
   document.getElementById('chips-section').style.display    = tab === 'chips'    ? 'block' : 'none';
   document.getElementById('alerts-section').style.display   = tab === 'alerts'   ? 'block' : 'none';
   document.getElementById('position-section').style.display = tab === 'position' ? 'block' : 'none';
+  document.getElementById('radar-section').style.display    = tab === 'radar'    ? 'block' : 'none';
 
   if (tab === 'signal' && _lastComputedData) startSignalRadar();
   else if (tab !== 'signal') { clearInterval(_sigTimer); _sigTimer = null; }
@@ -1413,6 +1532,7 @@ async function search(sym) {
     renderCharts(d);
     renderIndicators(d);
     renderMA(d);
+    renderZone(d);
     requestAI(d);
   } catch (e) {
     document.getElementById('loading').style.display = 'none';
@@ -1662,6 +1782,241 @@ function startSignalRadar() {
     if (el) el.textContent = _sigCountdown;
     if (_sigCountdown <= 0) { _sigCountdown = 60; refreshSignal(); }
   }, 1000);
+}
+
+// ══════════════════════════════════════════════════════
+// 11. Zone Thermometer
+// ══════════════════════════════════════════════════════
+
+const ZONES = [
+  { thr: 12, name:'深度超賣', color:'#b22a24', bg:'rgba(178,42,36,.18)', desc:'市場極度恐慌，歷史底部區，潛在反彈機率極高' },
+  { thr: 25, name:'超賣價值區', color:'#f85149', bg:'rgba(248,81,73,.18)', desc:'籌碼鬆動，逢低分批布局的好時機' },
+  { thr: 38, name:'偏低合理區', color:'#3fb950', bg:'rgba(63,185,80,.18)', desc:'股價偏低，多頭動能醞釀中' },
+  { thr: 52, name:'中性均衡區', color:'#e3b341', bg:'rgba(227,179,65,.18)', desc:'市場中性，等待方向明確' },
+  { thr: 65, name:'偏高警戒區', color:'#f0883e', bg:'rgba(240,136,62,.18)', desc:'追高風險提升，建議謹慎操作' },
+  { thr: 80, name:'過熱警戒區', color:'#f85149', bg:'rgba(248,81,73,.18)', desc:'短線超買，注意獲利了結' },
+  { thr: 100, name:'極度過熱區', color:'#b22a24', bg:'rgba(178,42,36,.18)', desc:'泡沫風險，建議逐步減倉' },
+];
+
+function calcZoneScore(rsi, bbPctB, ma200Pct) {
+  const rsiN   = Math.min(Math.max(rsi ?? 50, 0), 100);
+  const bbN    = Math.min(Math.max((bbPctB ?? 0.5) * 100, 0), 100);
+  const maN    = Math.min(Math.max(50 + (ma200Pct ?? 0) * 1.5, 0), 100);
+  return rsiN * 0.45 + bbN * 0.30 + maN * 0.25;
+}
+
+function zoneFromScore(score) {
+  return ZONES.find(z => score <= z.thr) || ZONES[ZONES.length - 1];
+}
+
+function renderZone(d) {
+  const card = document.getElementById('zone-card');
+  if (!d) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  const ma200Item = d.maItems.find(m => m.label.includes('200'));
+  const ma200Pct  = ma200Item ? (d.price / ma200Item.value - 1) * 100 : null;
+  const score     = calcZoneScore(d.indicators.rsi, d.indicators.bbPctB, ma200Pct);
+  const zone      = zoneFromScore(score);
+
+  // Position marker (0–100 → 2%–98% to avoid clipping)
+  const leftPct = 2 + score * 0.96;
+  const marker  = document.getElementById('zone-marker');
+  const mlabel  = document.getElementById('zone-marker-label');
+  marker.style.left  = leftPct + '%';
+  marker.style.background = zone.color;
+  mlabel.textContent = zone.name;
+  mlabel.style.color = zone.color;
+
+  const badgeEl = document.getElementById('zone-badge-el');
+  badgeEl.innerHTML = `<span style="background:${zone.bg};color:${zone.color};padding:4px 12px;border-radius:6px;font-size:.82rem;font-weight:700">${zone.name}</span>`;
+  document.getElementById('zone-desc-el').textContent = zone.desc;
+
+  const rsiV = d.indicators.rsi?.toFixed(1) ?? '—';
+  const bbV  = d.indicators.bbPctB != null ? (d.indicators.bbPctB * 100).toFixed(0) + '%' : '—';
+  const maV  = ma200Pct != null ? (ma200Pct > 0 ? '+' : '') + ma200Pct.toFixed(1) + '%' : '不足200日';
+  document.getElementById('zone-detail-el').textContent =
+    `RSI ${rsiV}  ·  布林%B ${bbV}  ·  距MA200 ${maV}  ·  綜合分數 ${score.toFixed(0)}/100`;
+}
+
+// ══════════════════════════════════════════════════════
+// 12-extra. Market Radar
+// ══════════════════════════════════════════════════════
+
+const DEFAULT_WATCHLIST = [
+  'NVDA','AAPL','MSFT','TSLA','AMZN','META','GOOGL','AMD','AVGO','PLTR',
+  'SPY','QQQ','ARM','SMCI','MSTR',
+  '2330.TW','2317.TW','2454.TW','2382.TW','0050.TW','3711.TW','6505.TW',
+];
+let _watchlist = JSON.parse(localStorage.getItem('radarWatchlist') || 'null') || [...DEFAULT_WATCHLIST];
+let _watchActive = JSON.parse(localStorage.getItem('radarActive') || 'null') || [...DEFAULT_WATCHLIST];
+
+function saveWatchlist() {
+  localStorage.setItem('radarWatchlist', JSON.stringify(_watchlist));
+  localStorage.setItem('radarActive', JSON.stringify(_watchActive));
+}
+
+function toggleWatchSym(sym) {
+  if (_watchActive.includes(sym)) _watchActive = _watchActive.filter(s => s !== sym);
+  else _watchActive.push(sym);
+  saveWatchlist(); renderWatchlist();
+}
+
+function removeWatchSym(sym, ev) {
+  ev.stopPropagation();
+  _watchlist = _watchlist.filter(s => s !== sym);
+  _watchActive = _watchActive.filter(s => s !== sym);
+  saveWatchlist(); renderWatchlist();
+}
+
+function addWatchSym() {
+  const sym = document.getElementById('wl-add-input').value.trim().toUpperCase();
+  if (!sym) return;
+  if (!_watchlist.includes(sym)) { _watchlist.push(sym); _watchActive.push(sym); }
+  saveWatchlist(); renderWatchlist();
+  document.getElementById('wl-add-input').value = '';
+}
+
+function renderWatchlist() {
+  document.getElementById('wl-tags').innerHTML = _watchlist.map(sym => {
+    const on = _watchActive.includes(sym);
+    return `<span class="wl-tag ${on?'active':''}" onclick="toggleWatchSym('${sym}')">
+      ${sym}<button class="wl-rm" onclick="removeWatchSym('${sym}',event)" title="移除">×</button>
+    </span>`;
+  }).join('');
+}
+
+function calcBuyScore(d) {
+  const ind = d.indicators;
+  const rsi = ind.rsi ?? 50, bbP = ind.bbPctB ?? 0.5, adx = ind.adx ?? 0;
+  let s = 0;
+  if (rsi < 30) s += 4; else if (rsi < 40) s += 2; else if (rsi < 50) s += 1;
+  if (bbP < 0.1) s += 3; else if (bbP < 0.25) s += 1;
+  if (ind.macdHist > 0) s += 2;
+  if (d.bullMa >= 3) s += 1;
+  if ((d.volumeRatio ?? 1) > 1.3) s += 1;
+  // Bonus: bouncing from oversold (rsi improving)
+  const ma200 = d.maItems.find(m => m.label.includes('200'));
+  if (ma200?.bullish) s += 1;
+  return s;
+}
+
+function calcBreakoutScore(d) {
+  const ind = d.indicators;
+  const rsi = ind.rsi ?? 50, adx = ind.adx ?? 0, vr = d.volumeRatio ?? 1;
+  let s = 0;
+  // Squeeze: narrow Bollinger bands
+  const bbW = ind.bbUpper && ind.bbLower && d.price
+    ? (ind.bbUpper - ind.bbLower) / d.price : 0.1;
+  if (bbW < 0.03) s += 4; else if (bbW < 0.05) s += 2;
+  // Near 52-week high
+  if (d.pctFromHigh > -2) s += 4; else if (d.pctFromHigh > -5) s += 2;
+  // Healthy momentum, not overheated
+  if (rsi >= 50 && rsi < 68) s += 2;
+  // Volume building
+  if (vr > 1.5) s += 2; else if (vr > 1.2) s += 1;
+  // Trend developing
+  if (adx > 20 && adx < 45) s += 1;
+  // MACD positive
+  if (ind.macdHist > 0) s += 1;
+  return s;
+}
+
+function calcHeatScore(d) {
+  const ind = d.indicators;
+  const rsi = ind.rsi ?? 50, bbP = ind.bbPctB ?? 0.5;
+  let s = 0;
+  if (rsi > 80) s += 4; else if (rsi > 70) s += 2;
+  if (bbP > 0.95) s += 3; else if (bbP > 0.85) s += 1;
+  if ((d.volumeRatio ?? 1) > 2) s += 2;
+  if (d.pctFromHigh > -1) s += 1;
+  return s;
+}
+
+function radarStockCard(d, scoreKey) {
+  const zone = zoneFromScore(calcZoneScore(d.indicators.rsi, d.indicators.bbPctB, d.pctFromHigh));
+  return `<div class="radar-stock-card" onclick="qs('${d.symbol}');switchTab('analysis')">
+    <div class="rsc-top">
+      <span class="rsc-sym">${d.symbol}</span>
+      <span class="${pC(d.changePct)}" style="font-size:.82rem">${sgn(d.changePct)}${fmt(d.changePct)}%</span>
+    </div>
+    <div style="font-size:.82rem;margin-bottom:4px">${fmt(d.price)} &nbsp;${badge(d.signalClass, d.signal)}</div>
+    <div class="rsc-bars">
+      <span class="rsc-bar">RSI ${fmt(d.indicators.rsi)}</span>
+      <span class="rsc-bar" style="color:${zone.color}">${zone.name}</span>
+      <span class="rsc-bar">${scoreKey}: ${d[scoreKey]}</span>
+    </div>
+  </div>`;
+}
+
+async function runRadar() {
+  const syms = _watchActive.slice(0, 25);
+  if (!syms.length) { alert('請先勾選股票'); return; }
+
+  const prog = document.getElementById('radar-progress');
+  const fill = document.getElementById('radar-progress-fill');
+  prog.style.display = 'block'; fill.style.width = '0%';
+
+  const startT = Date.now();
+  let done = 0;
+  const results = [];
+
+  // Batch fetch 5 at a time to avoid rate limiting
+  for (let i = 0; i < syms.length; i += 5) {
+    const batch = syms.slice(i, i + 5);
+    const settled = await Promise.allSettled(batch.map(async sym => {
+      const raw = await fetchOHLCV(sym);
+      return computeAll(raw);
+    }));
+    settled.forEach(r => { if (r.status === 'fulfilled') results.push(r.value); });
+    done += batch.length;
+    fill.style.width = Math.round(done / syms.length * 100) + '%';
+  }
+
+  prog.style.display = 'none';
+
+  // Score everything
+  const scored = results.map(d => ({
+    ...d,
+    buyScore: calcBuyScore(d),
+    btScore:  calcBreakoutScore(d),
+    heatScore: calcHeatScore(d),
+    zoneScore: calcZoneScore(d.indicators.rsi, d.indicators.bbPctB, d.pctFromHigh),
+  }));
+
+  const buyList  = [...scored].sort((a,b) => b.buyScore  - a.buyScore).slice(0, 5);
+  const btList   = [...scored].sort((a,b) => b.btScore   - a.btScore).slice(0, 5);
+  const hotList  = [...scored].sort((a,b) => b.heatScore - a.heatScore).slice(0, 5);
+  const allSorted = [...scored].sort((a,b) => b.score - a.score);
+
+  document.getElementById('radar-buy-list').innerHTML =
+    buyList.filter(d=>d.buyScore>2).map(d=>radarStockCard(d,'buyScore')).join('') || '<div style="color:var(--muted);font-size:.84rem">暫無符合條件</div>';
+  document.getElementById('radar-bt-list').innerHTML =
+    btList.filter(d=>d.btScore>3).map(d=>radarStockCard(d,'btScore')).join('')  || '<div style="color:var(--muted);font-size:.84rem">暫無符合條件</div>';
+  document.getElementById('radar-hot-list').innerHTML =
+    hotList.filter(d=>d.heatScore>2).map(d=>radarStockCard(d,'heatScore')).join('') || '<div style="color:var(--muted);font-size:.84rem">暫無過熱股票</div>';
+
+  const elapsed = ((Date.now() - startT) / 1000).toFixed(1);
+  document.getElementById('radar-scan-time').textContent = `共 ${results.length} 支 · 耗時 ${elapsed}s`;
+
+  document.getElementById('radar-all-tbody').innerHTML = allSorted.map(d => {
+    const zone = zoneFromScore(d.zoneScore);
+    return `<tr onclick="qs('${d.symbol}');switchTab('analysis')" style="cursor:pointer">
+      <td><b>${d.symbol}</b></td>
+      <td style="color:var(--muted);font-size:.8rem;max-width:120px;overflow:hidden;white-space:nowrap">${d.name}</td>
+      <td>${fmt(d.price)}</td>
+      <td class="${pC(d.changePct)}">${sgn(d.changePct)}${fmt(d.changePct)}%</td>
+      <td><div class="score-wrap"><div class="sbar"><div class="sbar-fill" style="width:${d.score}%;background:${scoreColor(d.score)}"></div></div>
+        <span class="snum" style="color:${scoreColor(d.score)}">${d.score}</span></div></td>
+      <td>${badge(d.signalClass, d.signal)}</td>
+      <td class="${d.indicators.rsi<30?'pos':d.indicators.rsi>70?'neg':''}">${fmt(d.indicators.rsi)}</td>
+      <td><span style="color:${zone.color};font-size:.78rem;font-weight:600">${zone.name}</span></td>
+      <td class="${d.buyScore>=4?'pos':''}">${d.buyScore}</td>
+      <td class="${d.btScore>=5?'pos':''}">${d.btScore}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('radar-results-wrap').style.display = 'block';
 }
 
 // ══════════════════════════════════════════════════════
@@ -2137,6 +2492,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('bt-strategy').addEventListener('change', updateBtParams);
   renderAlerts();
   renderPositions();
+  renderWatchlist();
   search('NVDA');
 });
 </script>
