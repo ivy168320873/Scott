@@ -235,6 +235,9 @@ tbody td{padding:9px 10px}
   .charts-grid{grid-template-columns:1fr}
   .price-card{grid-column:auto}
   .ph{flex-direction:column}
+  /* Fix chart jumping on mobile: lock container height, disable pointer events during scroll */
+  .chart-wrap{touch-action:pan-y;overflow:hidden}
+  .chart-card{contain:layout size}
 }
 
 /* ── K-Line Tab ── */
@@ -491,6 +494,84 @@ tbody td{padding:9px 10px}
     </div>
     <div class="ph" id="ph"></div>
 
+    <!-- Trading Levels (Buy / Stop / TP) — shown right under price panel -->
+    <div class="tl-card" id="tl-card" style="display:none">
+      <h3>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--bull)" stroke-width="2">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+        </svg>
+        操作建議價位
+        <span id="tl-signal-badge" style="margin-left:4px"></span>
+      </h3>
+
+      <div id="tl-wait" class="tl-wait" style="display:none">
+        <div class="tw-title" id="tl-wait-title"></div>
+        <div class="tw-desc" id="tl-wait-desc"></div>
+      </div>
+
+      <div id="tl-active" style="display:none">
+        <div class="tl-grid">
+          <div class="tl-box tl-buy">
+            <div class="tl-lbl">📈 建議買入區間</div>
+            <div class="tl-main pos" id="tl-buy-range"></div>
+            <div class="tl-sub" id="tl-buy-note"></div>
+          </div>
+          <div class="tl-box tl-stop">
+            <div class="tl-lbl">🛑 建議停損價位</div>
+            <div class="tl-main neg" id="tl-stop-price"></div>
+            <div class="tl-sub neg" id="tl-stop-pct"></div>
+          </div>
+        </div>
+
+        <div class="sec-title" style="margin-bottom:10px">🎯 獲利目標</div>
+        <div class="tl-targets">
+          <div class="tl-tp">
+            <div class="tp-rr">目標一（保守）</div>
+            <div class="tp-price" id="tp1-price"></div>
+            <div class="tp-pct" id="tp1-pct"></div>
+            <div style="font-size:.68rem;color:var(--muted)" id="tp1-rr"></div>
+          </div>
+          <div class="tl-tp">
+            <div class="tp-rr">目標二（積極）</div>
+            <div class="tp-price" id="tp2-price"></div>
+            <div class="tp-pct" id="tp2-pct"></div>
+            <div style="font-size:.68rem;color:var(--muted)" id="tp2-rr"></div>
+          </div>
+          <div class="tl-tp">
+            <div class="tp-rr">目標三（長線）</div>
+            <div class="tp-price" id="tp3-price"></div>
+            <div class="tp-pct" id="tp3-pct"></div>
+            <div style="font-size:.68rem;color:var(--muted)" id="tp3-rr"></div>
+          </div>
+        </div>
+
+        <div class="tl-bar-wrap">
+          <div class="tl-bar-lbl">價位視覺化（停損 → 現價 → 目標）</div>
+          <div class="tl-bar" id="tl-bar">
+            <div class="tl-zone-fill" id="tl-loss-zone" style="background:#f85149"></div>
+            <div class="tl-zone-fill" id="tl-gain-zone" style="background:#3fb950"></div>
+            <div class="tl-marker" id="tl-m-stop" style="background:#f85149">
+              <div class="tl-marker-label neg" id="tl-ml-stop"></div>
+            </div>
+            <div class="tl-marker" id="tl-m-now" style="background:#fff;width:4px">
+              <div class="tl-marker-label" style="color:#fff" id="tl-ml-now"></div>
+            </div>
+            <div class="tl-marker" id="tl-m-tp1" style="background:#e3b341">
+              <div class="tl-marker-label" style="color:var(--neutral)" id="tl-ml-tp1"></div>
+            </div>
+            <div class="tl-marker" id="tl-m-tp2" style="background:#f0883e">
+              <div class="tl-marker-label" style="color:var(--mbear)" id="tl-ml-tp2"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size:.76rem;color:var(--muted);margin-top:18px;line-height:1.6">
+          ⚠ 以上為技術面自動計算之參考價位，非投資建議。實際操作請結合基本面與個人風險承受度。<br>
+          停損以最近支撐位下方 1% 計算；目標以進出場風險金額的倍數計算。
+        </div>
+      </div>
+    </div>
+
     <!-- AI Analysis -->
     <div class="ai-panel" id="ai-panel" style="display:none">
       <h3>
@@ -503,12 +584,12 @@ tbody td{padding:9px 10px}
     <div class="charts-grid">
       <div class="chart-card price-card">
         <h3>價格走勢（近60日）含 MA20 / MA60</h3>
-        <canvas id="pc" height="180"></canvas>
+        <div class="chart-wrap" style="position:relative;height:180px"><canvas id="pc"></canvas></div>
       </div>
-      <div class="chart-card"><h3>RSI (14)</h3><canvas id="rc" height="150"></canvas></div>
-      <div class="chart-card"><h3>MACD (12, 26, 9)</h3><canvas id="mc" height="150"></canvas></div>
-      <div class="chart-card"><h3>布林通道 (20, 2)</h3><canvas id="bc" height="150"></canvas></div>
-      <div class="chart-card"><h3>成交量</h3><canvas id="vc" height="150"></canvas></div>
+      <div class="chart-card"><h3>RSI (14)</h3><div class="chart-wrap" style="position:relative;height:150px"><canvas id="rc"></canvas></div></div>
+      <div class="chart-card"><h3>MACD (12, 26, 9)</h3><div class="chart-wrap" style="position:relative;height:150px"><canvas id="mc"></canvas></div></div>
+      <div class="chart-card"><h3>布林通道 (20, 2)</h3><div class="chart-wrap" style="position:relative;height:150px"><canvas id="bc"></canvas></div></div>
+      <div class="chart-card"><h3>成交量</h3><div class="chart-wrap" style="position:relative;height:150px"><canvas id="vc"></canvas></div></div>
     </div>
 
     <div class="sec-title">動能指標</div>
@@ -560,86 +641,6 @@ tbody td{padding:9px 10px}
       <div id="mtf-body"></div>
     </div>
 
-    <!-- Trading Levels (Buy / Stop / TP) -->
-    <div class="tl-card" id="tl-card" style="display:none">
-      <h3>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--bull)" stroke-width="2">
-          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
-        </svg>
-        操作建議價位
-        <span id="tl-signal-badge" style="margin-left:4px"></span>
-      </h3>
-
-      <!-- Wait / neutral state -->
-      <div id="tl-wait" class="tl-wait" style="display:none">
-        <div class="tw-title" id="tl-wait-title"></div>
-        <div class="tw-desc" id="tl-wait-desc"></div>
-      </div>
-
-      <!-- Active buy/sell levels -->
-      <div id="tl-active" style="display:none">
-        <div class="tl-grid">
-          <div class="tl-box tl-buy">
-            <div class="tl-lbl">📈 建議買入區間</div>
-            <div class="tl-main pos" id="tl-buy-range"></div>
-            <div class="tl-sub" id="tl-buy-note"></div>
-          </div>
-          <div class="tl-box tl-stop">
-            <div class="tl-lbl">🛑 建議停損價位</div>
-            <div class="tl-main neg" id="tl-stop-price"></div>
-            <div class="tl-sub neg" id="tl-stop-pct"></div>
-          </div>
-        </div>
-
-        <div class="sec-title" style="margin-bottom:10px">🎯 獲利目標</div>
-        <div class="tl-targets">
-          <div class="tl-tp">
-            <div class="tp-rr">目標一（保守）</div>
-            <div class="tp-price" id="tp1-price"></div>
-            <div class="tp-pct" id="tp1-pct"></div>
-            <div style="font-size:.68rem;color:var(--muted)" id="tp1-rr"></div>
-          </div>
-          <div class="tl-tp">
-            <div class="tp-rr">目標二（積極）</div>
-            <div class="tp-price" id="tp2-price"></div>
-            <div class="tp-pct" id="tp2-pct"></div>
-            <div style="font-size:.68rem;color:var(--muted)" id="tp2-rr"></div>
-          </div>
-          <div class="tl-tp">
-            <div class="tp-rr">目標三（長線）</div>
-            <div class="tp-price" id="tp3-price"></div>
-            <div class="tp-pct" id="tp3-pct"></div>
-            <div style="font-size:.68rem;color:var(--muted)" id="tp3-rr"></div>
-          </div>
-        </div>
-
-        <!-- Visual price bar -->
-        <div class="tl-bar-wrap">
-          <div class="tl-bar-lbl">價位視覺化（停損 → 現價 → 目標）</div>
-          <div class="tl-bar" id="tl-bar">
-            <div class="tl-zone-fill" id="tl-loss-zone" style="background:#f85149"></div>
-            <div class="tl-zone-fill" id="tl-gain-zone" style="background:#3fb950"></div>
-            <div class="tl-marker" id="tl-m-stop"  style="background:#f85149">
-              <div class="tl-marker-label neg" id="tl-ml-stop"></div>
-            </div>
-            <div class="tl-marker" id="tl-m-now"   style="background:#fff;width:4px">
-              <div class="tl-marker-label" style="color:#fff" id="tl-ml-now"></div>
-            </div>
-            <div class="tl-marker" id="tl-m-tp1"   style="background:#e3b341">
-              <div class="tl-marker-label" style="color:var(--neutral)" id="tl-ml-tp1"></div>
-            </div>
-            <div class="tl-marker" id="tl-m-tp2"   style="background:#f0883e">
-              <div class="tl-marker-label" style="color:var(--mbear)" id="tl-ml-tp2"></div>
-            </div>
-          </div>
-        </div>
-
-        <div style="font-size:.76rem;color:var(--muted);margin-top:18px;line-height:1.6">
-          ⚠ 以上為技術面自動計算之參考價位，非投資建議。實際操作請結合基本面與個人風險承受度。<br>
-          停損以最近支撐位下方 1% 計算；目標以進出場風險金額的倍數計算。
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- ── Signal Radar Section ── -->
@@ -1267,6 +1268,7 @@ function signalLabel(score) {
 const _charts = {};
 function destroyAll() { Object.values(_charts).forEach(c => c.destroy()); Object.keys(_charts).forEach(k => delete _charts[k]); }
 
+const _isMobile = window.innerWidth <= 600;
 const CDef = {
   responsive: true, maintainAspectRatio: false,
   plugins: { legend: { labels: { color: '#8b949e', boxWidth: 10, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
@@ -1275,7 +1277,8 @@ const CDef = {
     y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } }
   },
   elements: { point: { radius: 0, hoverRadius: 3 } },
-  animation: { duration: 350 }
+  animation: _isMobile ? false : { duration: 350 },
+  resizeDelay: 100
 };
 
 function makeChart(id, config) {
