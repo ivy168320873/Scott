@@ -391,6 +391,28 @@ tbody td{padding:9px 10px}
 .rsc-sym{font-weight:700;font-size:.92rem}
 .rsc-bars{display:flex;gap:5px;font-size:.7rem;color:var(--muted);flex-wrap:wrap;margin-top:3px}
 .rsc-bar{background:var(--surface2);padding:2px 7px;border-radius:4px}
+/* ── Monster Stock Hunter ── */
+.monster-hdr{font-size:.88rem;font-weight:700;color:#ff6b35;margin:0;letter-spacing:.02em}
+.monster-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px;margin-bottom:4px}
+.monster-card{background:linear-gradient(145deg,#1a0808,#231010);border:1.5px solid rgba(255,107,53,.3);
+  border-radius:12px;padding:13px 15px;cursor:pointer;transition:border-color .2s,transform .15s;position:relative;overflow:hidden}
+.monster-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,#ff6b35,#ff3535)}
+.monster-card:hover{border-color:rgba(255,107,53,.8);transform:translateY(-2px)}
+.mc-rank{position:absolute;top:8px;right:11px;font-size:1.8rem;font-weight:900;color:rgba(255,107,53,.18);line-height:1}
+.mc-sym{font-size:1.05rem;font-weight:800;margin-bottom:2px}
+.mc-price{font-size:.79rem;color:var(--muted);margin-bottom:7px}
+.mc-score-bar{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.mc-score-num{font-size:1.55rem;font-weight:900;color:#ff6b35;line-height:1;min-width:38px}
+.mc-score-track{flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden}
+.mc-score-fill{height:100%;border-radius:3px}
+.mc-tags{display:flex;flex-wrap:wrap;gap:3px}
+.mct{font-size:.66rem;padding:2px 6px;border-radius:4px;font-weight:600}
+.mct-monster{background:rgba(255,40,40,.15);color:#ff5555;border:1px solid rgba(255,40,40,.25)}
+.mct-fire{background:rgba(255,107,53,.15);color:#ff6b35;border:1px solid rgba(255,107,53,.25)}
+.mct-warn{background:rgba(227,179,65,.12);color:#e3b341;border:1px solid rgba(227,179,65,.25)}
+.mct-bull{background:rgba(63,185,80,.1);color:var(--bull);border:1px solid rgba(63,185,80,.25)}
+.mct-info{background:var(--surface2);color:var(--muted);border:1px solid var(--border)}
 .radar-all-tbl{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:14px}
 .radar-all-tbl h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
 @media(max-width:800px){.radar-results{grid-template-columns:1fr}}
@@ -1044,6 +1066,17 @@ tbody td{padding:9px 10px}
     </div>
 
     <div id="radar-results-wrap" style="display:none">
+
+      <!-- Monster Stock Hunter -->
+      <div style="background:linear-gradient(135deg,rgba(255,107,53,.06),rgba(255,53,53,.03));border:1.5px solid rgba(255,107,53,.22);border-radius:14px;padding:16px 18px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="font-size:1.15rem">🎯</span>
+          <h4 class="monster-hdr">妖股獵手 TOP 5</h4>
+          <span style="font-size:.74rem;color:var(--muted);margin-left:4px">量能異常 × 爆發動能 × 突破型態 — 點擊查看完整分析</span>
+        </div>
+        <div id="monster-list" class="monster-grid"></div>
+      </div>
+
       <div class="radar-results">
         <div class="radar-col">
           <h4 class="buy-hdr">🚀 強力買入推薦</h4>
@@ -1065,7 +1098,7 @@ tbody td{padding:9px 10px}
             <thead><tr>
               <th>代碼</th><th>名稱</th><th>價格</th><th>漲跌%</th>
               <th>動能分數</th><th>訊號</th><th>RSI</th><th>溫度區間</th>
-              <th>買入分</th><th>突破分</th>
+              <th>買入分</th><th>突破分</th><th>妖股分</th>
             </tr></thead>
             <tbody id="radar-all-tbody"></tbody>
           </table>
@@ -2154,6 +2187,97 @@ function renderWatchlist() {
   }).join('');
 }
 
+// ── 妖股獵手評分系統 ───────────────────────────────────
+function calcMonsterScore(d) {
+  const c = d.chart, ind = d.indicators;
+  const closes = c.closes, vols = c.volumes;
+  const n = closes.length;
+  if (n < 10) return { score: 0, tags: [], volRatio: 1, ret1d: 0, ret5d: 0 };
+
+  let score = 0;
+  const tags = [];
+  const tag = (pts, t, cls) => { score += pts; tags.push({ t, cls }); };
+
+  // 1. 成交量爆炸 (35 pts) — 妖股最核心訊號
+  const avgVol = vols.slice(-21, -1).reduce((a, b) => a + b, 0) / Math.min(20, n - 1);
+  const curVol = vols[n - 1];
+  const vr = avgVol > 0 ? curVol / avgVol : 1;
+  if      (vr >= 8) tag(35, '🔥 爆量×' + vr.toFixed(0),  'monster');
+  else if (vr >= 5) tag(28, '🔥 暴量×' + vr.toFixed(1),  'fire');
+  else if (vr >= 3) tag(18, '📊 放量×' + vr.toFixed(1),  'warn');
+  else if (vr >= 2) tag(10, '📈 量增×' + vr.toFixed(1),  'info');
+
+  // 2. 價格動能爆發 (30 pts)
+  const ret1d  = n >= 2  ? (closes[n-1] - closes[n-2])  / closes[n-2]  * 100 : 0;
+  const ret5d  = n >= 6  ? (closes[n-1] - closes[n-6])  / closes[n-6]  * 100 : 0;
+  const ret10d = n >= 11 ? (closes[n-1] - closes[n-11]) / closes[n-11] * 100 : 0;
+  if      (ret1d >= 20)  tag(30, '💥 今日+' + ret1d.toFixed(0)  + '%', 'monster');
+  else if (ret1d >= 10)  tag(20, '⚡ 今日+' + ret1d.toFixed(0)  + '%', 'fire');
+  else if (ret5d >= 30)  tag(28, '🚀 5日+' + ret5d.toFixed(0)   + '%', 'monster');
+  else if (ret5d >= 15)  tag(18, '🚀 5日+' + ret5d.toFixed(0)   + '%', 'fire');
+  else if (ret5d >= 7)   tag(10, '📈 5日+' + ret5d.toFixed(0)   + '%', 'warn');
+  else if (ret10d >= 20) tag(12, '📈 10日+' + ret10d.toFixed(0) + '%', 'warn');
+
+  // 3. 52週高點突破 (20 pts) — 突破型妖股標誌
+  if      (d.pctFromHigh >= -0.5) tag(20, '⚡ 突破年高',  'fire');
+  else if (d.pctFromHigh >= -3)   tag(12, '🎯 逼近年高',  'warn');
+  else if (d.pctFromHigh >= -8)   score += 5;
+
+  // 4. RSI動能甜蜜點 (15 pts) — 強但未超買
+  const rsi = ind.rsi ?? 50;
+  if      (rsi >= 65 && rsi <= 82) tag(15, 'RSI動能' + rsi.toFixed(0), 'bull');
+  else if (rsi > 82)                tag(5,  'RSI超買' + rsi.toFixed(0), 'warn');
+  else if (rsi >= 55)               score += 8;
+
+  // 5. BB壓縮爆發 (15 pts) — 爆炸前的蓄力型態
+  const bbW = (ind.bbUpper && ind.bbLower && d.price)
+    ? (ind.bbUpper - ind.bbLower) / d.price : 0.1;
+  const bbP = ind.bbPctB ?? 0.5;
+  if      (bbW < 0.03 && bbP > 0.8)  tag(15, '💥 BB壓縮爆發', 'fire');
+  else if (bbW < 0.05 && bbP > 0.65) tag(8,  '⚡ BB壓縮突破', 'warn');
+
+  // 6. 連續上漲天數 (10 pts) — 趨勢慣性
+  let consec = 0;
+  for (let i = n - 1; i >= 1 && closes[i] > closes[i-1]; i--) consec++;
+  if      (consec >= 5) tag(10, '🔴 連漲' + consec + '日', 'fire');
+  else if (consec >= 3) tag(5,  '📈 連漲' + consec + '日', 'warn');
+
+  // 7. OBV斜率 — 資金默默吃貨 (10 pts)
+  const obv = calcOBV(closes, vols);
+  const slp = obvSlope(obv, 10);
+  if      (slp > 20) tag(10, '💰 OBV急漲', 'bull');
+  else if (slp > 8)  tag(5,  '💰 OBV上升', 'info');
+
+  // 8. ADX強勢趨勢 bonus (5 pts)
+  if (ind.adx > 35 && (ind.diPlus ?? 0) > (ind.diMinus ?? 0))
+    tag(5, 'ADX' + ind.adx.toFixed(0) + '強勢', 'bull');
+
+  return { score: Math.min(100, Math.round(score)), tags, volRatio: vr, ret1d, ret5d };
+}
+
+function monsterCard(d, rank) {
+  const m = d.monsterMeta;
+  const chg = d.changePct;
+  const fillColor = m.score >= 70 ? '#ff3535' : m.score >= 45 ? '#ff6b35' : '#e3b341';
+  const nameShort = (d.name || '').split(' ').slice(0, 2).join(' ');
+  return `<div class="monster-card" onclick="qs('${d.symbol}');switchTab('analysis')">
+    <div class="mc-rank">${rank}</div>
+    <div class="mc-sym">${d.symbol}</div>
+    <div class="mc-price">${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span>
+      ${nameShort ? `<span style="color:var(--border);margin:0 3px">·</span><span style="font-size:.72rem">${nameShort}</span>` : ''}
+    </div>
+    <div class="mc-score-bar">
+      <div class="mc-score-num">${m.score}</div>
+      <div class="mc-score-track">
+        <div class="mc-score-fill" style="width:${m.score}%;background:${fillColor}"></div>
+      </div>
+    </div>
+    <div class="mc-tags">${m.tags.slice(0, 5).map(t =>
+      `<span class="mct mct-${t.cls}">${t.t}</span>`).join('')}
+    </div>
+  </div>`;
+}
+
 function calcBuyScore(d) {
   const ind = d.indicators;
   const rsi = ind.rsi ?? 50, bbP = ind.bbPctB ?? 0.5, adx = ind.adx ?? 0;
@@ -2245,18 +2369,29 @@ async function runRadar() {
   prog.style.display = 'none';
 
   // Score everything
-  const scored = results.map(d => ({
-    ...d,
-    buyScore: calcBuyScore(d),
-    btScore:  calcBreakoutScore(d),
-    heatScore: calcHeatScore(d),
-    zoneScore: calcZoneScore(d.indicators.rsi, d.indicators.bbPctB, d.pctFromHigh),
-  }));
+  const scored = results.map(d => {
+    const monsterMeta = calcMonsterScore(d);
+    return {
+      ...d,
+      buyScore:    calcBuyScore(d),
+      btScore:     calcBreakoutScore(d),
+      heatScore:   calcHeatScore(d),
+      zoneScore:   calcZoneScore(d.indicators.rsi, d.indicators.bbPctB, d.pctFromHigh),
+      monsterScore: monsterMeta.score,
+      monsterMeta,
+    };
+  });
 
-  const buyList  = [...scored].sort((a,b) => b.buyScore  - a.buyScore).slice(0, 5);
-  const btList   = [...scored].sort((a,b) => b.btScore   - a.btScore).slice(0, 5);
-  const hotList  = [...scored].sort((a,b) => b.heatScore - a.heatScore).slice(0, 5);
-  const allSorted = [...scored].sort((a,b) => b.score - a.score);
+  const buyList     = [...scored].sort((a,b) => b.buyScore    - a.buyScore).slice(0, 5);
+  const btList      = [...scored].sort((a,b) => b.btScore     - a.btScore).slice(0, 5);
+  const hotList     = [...scored].sort((a,b) => b.heatScore   - a.heatScore).slice(0, 5);
+  const monsterList = [...scored].sort((a,b) => b.monsterScore - a.monsterScore).slice(0, 5);
+  const allSorted   = [...scored].sort((a,b) => b.score - a.score);
+
+  document.getElementById('monster-list').innerHTML =
+    monsterList.filter(d => d.monsterScore >= 15)
+      .map((d, i) => monsterCard(d, i + 1)).join('') ||
+    '<div style="color:var(--muted);font-size:.84rem;padding:8px 0">目前無明顯妖股特徵，建議擴大掃描範圍或等待市場機會</div>';
 
   document.getElementById('radar-buy-list').innerHTML =
     buyList.filter(d=>d.buyScore>2).map(d=>radarStockCard(d,'buyScore')).join('') || '<div style="color:var(--muted);font-size:.84rem">暫無符合條件</div>';
@@ -2282,6 +2417,7 @@ async function runRadar() {
       <td><span style="color:${zone.color};font-size:.78rem;font-weight:600">${zone.name}</span></td>
       <td class="${d.buyScore>=4?'pos':''}">${d.buyScore}</td>
       <td class="${d.btScore>=5?'pos':''}">${d.btScore}</td>
+      <td><span style="font-weight:700;color:${d.monsterScore>=50?'#ff6b35':d.monsterScore>=30?'#e3b341':'var(--muted)'}">${d.monsterScore}</span></td>
     </tr>`;
   }).join('');
 
