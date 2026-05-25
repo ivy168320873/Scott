@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import traceback, os
 import demo_data as _demo
 import analyzer
+import transcribe as _transcribe
 import backtest as _bt
 import signals as _sig
 import patterns as _pat
@@ -169,6 +170,33 @@ def api_news(symbol):
     except Exception:
         pass
     return jsonify({"ok": True, "news": []})
+
+
+# ── Audio Transcription page ───────────────────────────────────────────────────
+
+@app.route("/transcribe")
+def transcribe_page():
+    has_claude = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    has_openai = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    return render_template("transcribe.html", has_claude=has_claude, has_openai=has_openai)
+
+
+@app.route("/api/transcribe", methods=["POST"])
+def api_transcribe():
+    try:
+        if "audio" not in request.files:
+            return jsonify({"ok": False, "error": "請選擇一個音訊檔案"}), 400
+        f = request.files["audio"]
+        if not f.filename:
+            return jsonify({"ok": False, "error": "未收到檔案名稱"}), 400
+        file_bytes = f.read()
+        result = _transcribe.process(file_bytes, f.filename)
+        return jsonify({"ok": True, **result})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── Main page ──────────────────────────────────────────────────────────────────

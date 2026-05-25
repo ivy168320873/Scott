@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>錄音轉文字與內容分析</title>
+<style>
+:root {
+  --bg:#0d1117; --surface:#161b22; --surface2:#21262d; --border:#30363d;
+  --text:#e6edf3; --muted:#8b949e;
+  --accent:#58a6ff; --purple:#d2a8ff; --bull:#3fb950; --bear:#f85149;
+  --neutral:#e3b341;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 20px;
+  display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
+header h1{font-size:1.05rem;font-weight:600;color:var(--accent)}
+.badge{font-size:.7rem;padding:2px 7px;border-radius:4px;font-weight:600}
+.badge-purple{background:rgba(210,168,255,.15);color:var(--purple)}
+.badge-green{background:rgba(63,185,80,.15);color:var(--bull)}
+.badge-red{background:rgba(248,81,73,.15);color:var(--bear)}
+.back-link{color:var(--muted);font-size:.84rem;text-decoration:none;display:flex;align-items:center;gap:4px;margin-right:8px}
+.back-link:hover{color:var(--accent)}
+
+.container{max-width:960px;margin:0 auto;padding:24px 16px}
+
+/* Upload area */
+.upload-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;margin-bottom:20px}
+.upload-card h2{font-size:.95rem;font-weight:600;color:var(--muted);margin-bottom:16px;text-transform:uppercase;letter-spacing:.06em}
+
+.drop-zone{border:2px dashed var(--border);border-radius:12px;padding:40px 20px;text-align:center;
+  cursor:pointer;transition:all .2s;position:relative}
+.drop-zone:hover,.drop-zone.dragover{border-color:var(--accent);background:rgba(88,166,255,.05)}
+.drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.drop-icon{font-size:2.5rem;margin-bottom:12px;opacity:.5}
+.drop-title{font-size:1rem;font-weight:600;margin-bottom:6px}
+.drop-sub{font-size:.82rem;color:var(--muted);line-height:1.6}
+.format-tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:12px}
+.fmt{padding:3px 10px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:5px;font-size:.72rem;color:var(--muted)}
+
+.file-selected{display:none;background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;padding:12px 16px;margin-top:14px;display:none;
+  align-items:center;gap:12px}
+.file-icon{font-size:1.5rem}
+.file-info{flex:1}
+.file-name{font-size:.88rem;font-weight:600;word-break:break-all}
+.file-size{font-size:.75rem;color:var(--muted);margin-top:2px}
+.file-clear{background:none;border:1px solid var(--border);color:var(--muted);
+  padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.78rem;white-space:nowrap}
+.file-clear:hover{border-color:var(--bear);color:var(--bear)}
+
+.btn{padding:10px 24px;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:.92rem;transition:opacity .15s}
+.btn-primary{background:var(--accent);color:#000}
+.btn-primary:hover{opacity:.85}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed}
+.submit-row{margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+
+/* Progress */
+.progress-wrap{display:none;margin-top:16px}
+.progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:8px}
+.progress-fill{height:100%;background:var(--accent);border-radius:3px;
+  animation:indeterminate 1.5s ease-in-out infinite}
+@keyframes indeterminate{0%{width:0;margin-left:0}50%{width:60%;margin-left:20%}100%{width:0;margin-left:100%}}
+.progress-text{font-size:.82rem;color:var(--muted)}
+
+/* Error */
+.error-box{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:var(--bear);
+  border-radius:8px;padding:12px 16px;margin-top:14px;font-size:.86rem;display:none}
+
+/* Results */
+#results{display:none}
+.result-meta{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:14px 18px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.meta-item{display:flex;flex-direction:column;gap:2px}
+.meta-lbl{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.meta-val{font-size:1rem;font-weight:700}
+
+.result-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width:700px){.result-grid{grid-template-columns:1fr}}
+
+.result-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+.result-card h3{font-size:.82rem;font-weight:600;color:var(--muted);margin-bottom:12px;
+  text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:6px}
+.transcript-body{font-size:.88rem;line-height:1.85;white-space:pre-wrap;color:var(--text);
+  max-height:480px;overflow-y:auto;padding-right:4px}
+.transcript-body::-webkit-scrollbar{width:4px}
+.transcript-body::-webkit-scrollbar-track{background:transparent}
+.transcript-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+.analysis-body{font-size:.88rem;line-height:1.8;white-space:pre-wrap;color:var(--text);
+  max-height:480px;overflow-y:auto;padding-right:4px}
+.analysis-body::-webkit-scrollbar{width:4px}
+.analysis-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.analysis-body strong,.analysis-body b{color:var(--accent)}
+
+.copy-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);
+  padding:4px 12px;border-radius:6px;cursor:pointer;font-size:.76rem;transition:all .15s}
+.copy-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+.new-btn-row{display:flex;justify-content:center;margin-top:8px}
+
+/* info note */
+.info-note{background:rgba(88,166,255,.07);border:1px solid rgba(88,166,255,.2);border-radius:8px;
+  padding:10px 14px;font-size:.8rem;color:var(--muted);margin-bottom:20px;line-height:1.6}
+.info-note b{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <a href="/" class="back-link">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="15 18 9 12 15 6"/>
+    </svg>
+    返回股市分析
+  </a>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+    <line x1="8" y1="23" x2="16" y2="23"/>
+  </svg>
+  <h1>錄音轉文字 ＆ 內容分析</h1>
+  {% if has_openai %}<span class="badge badge-green">✦ Whisper API</span>{% else %}<span class="badge badge-red">⚠ 未設定 OpenAI Key</span>{% endif %}
+  {% if has_claude %}<span class="badge badge-purple">✦ Claude AI</span>{% endif %}
+</header>
+
+<div class="container">
+  <div class="info-note">
+    <b>使用說明：</b>上傳錄音檔案（MP3、M4A、WAV、OGG、FLAC、WEBM，最大 25MB），系統會自動用 <b>OpenAI Whisper</b> 將語音轉成文字，再由 <b>Claude AI</b> 分析並整理重點摘要、關鍵觀點與行動事項。
+  </div>
+
+  <div class="upload-card">
+    <h2>上傳錄音檔案</h2>
+
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="audio-file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,.ogg,.flac" onchange="onFileChange(event)">
+      <div class="drop-icon">🎙️</div>
+      <div class="drop-title">拖曳檔案到此處，或點擊選擇</div>
+      <div class="drop-sub">支援語言：繁體中文、英文、日文、韓文等多國語言<br>系統自動偵測語音語言</div>
+      <div class="format-tags">
+        <span class="fmt">MP3</span><span class="fmt">M4A</span><span class="fmt">WAV</span>
+        <span class="fmt">OGG</span><span class="fmt">FLAC</span><span class="fmt">WEBM</span>
+      </div>
+    </div>
+
+    <div class="file-selected" id="file-selected">
+      <div class="file-icon">🎵</div>
+      <div class="file-info">
+        <div class="file-name" id="file-name"></div>
+        <div class="file-size" id="file-size"></div>
+      </div>
+      <button class="file-clear" onclick="clearFile()">移除</button>
+    </div>
+
+    <div class="submit-row">
+      <button class="btn btn-primary" id="submit-btn" onclick="submitFile()" disabled>開始轉錄與分析</button>
+      <span style="font-size:.8rem;color:var(--muted)">處理時間約 10–60 秒，視檔案長度而定</span>
+    </div>
+
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill"></div></div>
+      <div class="progress-text" id="progress-text">正在上傳檔案…</div>
+    </div>
+
+    <div class="error-box" id="error-box"></div>
+  </div>
+
+  <div id="results">
+    <div class="result-meta">
+      <div class="meta-item"><div class="meta-lbl">字數</div><div class="meta-val" id="meta-chars"></div></div>
+      <div class="meta-item"><div class="meta-lbl">詞數</div><div class="meta-val" id="meta-words"></div></div>
+      <div class="meta-item"><div class="meta-lbl">檔案名稱</div><div class="meta-val" id="meta-file" style="font-size:.82rem;max-width:260px;word-break:break-all"></div></div>
+    </div>
+
+    <div class="result-grid">
+      <div class="result-card">
+        <h3>
+          📝 逐字稿
+          <span style="flex:1"></span>
+          <button class="copy-btn" onclick="copyText('transcript-body')">複製</button>
+        </h3>
+        <div class="transcript-body" id="transcript-body"></div>
+      </div>
+
+      <div class="result-card">
+        <h3>
+          🤖 AI 重點分析
+          <span style="flex:1"></span>
+          <button class="copy-btn" onclick="copyText('analysis-body')">複製</button>
+        </h3>
+        <div class="analysis-body" id="analysis-body"></div>
+      </div>
+    </div>
+
+    <div class="new-btn-row">
+      <button class="btn btn-primary" onclick="resetForm()">分析另一個檔案</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let selectedFile = null;
+
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const files = e.dataTransfer?.files;
+  if (files?.length) setFile(files[0]);
+});
+
+function onFileChange(e) {
+  const f = e.target.files?.[0];
+  if (f) setFile(f);
+}
+
+function setFile(f) {
+  selectedFile = f;
+  document.getElementById('file-name').textContent = f.name;
+  document.getElementById('file-size').textContent = formatBytes(f.size);
+  document.getElementById('file-selected').style.display = 'flex';
+  document.getElementById('submit-btn').disabled = false;
+  hideError();
+}
+
+function clearFile() {
+  selectedFile = null;
+  document.getElementById('audio-file').value = '';
+  document.getElementById('file-selected').style.display = 'none';
+  document.getElementById('submit-btn').disabled = true;
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-box');
+  el.textContent = '❌ ' + msg;
+  el.style.display = 'block';
+}
+
+function hideError() {
+  document.getElementById('error-box').style.display = 'none';
+}
+
+function setProgress(text) {
+  document.getElementById('progress-text').textContent = text;
+}
+
+async function submitFile() {
+  if (!selectedFile) return;
+  hideError();
+
+  document.getElementById('submit-btn').disabled = true;
+  document.getElementById('progress-wrap').style.display = 'block';
+  document.getElementById('results').style.display = 'none';
+  setProgress('正在上傳並轉錄語音，請稍候…');
+
+  const form = new FormData();
+  form.append('audio', selectedFile, selectedFile.name);
+
+  try {
+    setProgress('語音辨識中（Whisper API）…');
+    const resp = await fetch('/api/transcribe', { method: 'POST', body: form });
+    const data = await resp.json();
+
+    if (!data.ok) {
+      showError(data.error || '處理失敗，請重試');
+      return;
+    }
+
+    setProgress('AI 分析重點中…');
+    await new Promise(r => setTimeout(r, 300));
+
+    showResults(data);
+  } catch (e) {
+    showError('網路錯誤：' + e.message);
+  } finally {
+    document.getElementById('progress-wrap').style.display = 'none';
+    document.getElementById('submit-btn').disabled = false;
+  }
+}
+
+function showResults(data) {
+  document.getElementById('meta-chars').textContent = data.char_count.toLocaleString() + ' 字';
+  document.getElementById('meta-words').textContent = data.word_count.toLocaleString() + ' 詞';
+  document.getElementById('meta-file').textContent = selectedFile?.name || '';
+
+  document.getElementById('transcript-body').textContent = data.transcript;
+
+  const analysisEl = document.getElementById('analysis-body');
+  analysisEl.innerHTML = '';
+  const lines = (data.analysis || '').split('\n');
+  lines.forEach(line => {
+    const span = document.createElement('span');
+    const formatted = line
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>');
+    span.innerHTML = formatted + '\n';
+    analysisEl.appendChild(span);
+  });
+
+  document.getElementById('results').style.display = 'block';
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function copyText(elId) {
+  const el = document.getElementById(elId);
+  const text = el.textContent || el.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = el.closest('.result-card').querySelector('.copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = '已複製！';
+    setTimeout(() => btn.textContent = orig, 1500);
+  }).catch(() => {
+    const range = document.createRange();
+    range.selectNode(el);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    document.execCommand('copy');
+    window.getSelection().removeAllRanges();
+  });
+}
+
+function resetForm() {
+  clearFile();
+  document.getElementById('results').style.display = 'none';
+  hideError();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+</script>
+</body>
+</html>
