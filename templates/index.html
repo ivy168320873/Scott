@@ -430,6 +430,21 @@ tbody td{padding:9px 10px}
 .arc-sym{font-size:1rem;font-weight:800;margin-bottom:1px}
 .arc-price{font-size:.79rem;color:var(--muted);margin-bottom:6px}
 .arc-tags{display:flex;flex-wrap:wrap;gap:3px}
+/* sector badges */
+.ar-sector-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.ar-sector-badge{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;
+  border-radius:20px;font-size:.74rem;font-weight:600;cursor:pointer;border:1px solid transparent;white-space:nowrap}
+.ar-sector-hot{background:rgba(63,185,80,.12);color:var(--bull);border-color:rgba(63,185,80,.3)}
+.ar-sector-warm{background:rgba(227,179,65,.1);color:#e3b341;border-color:rgba(227,179,65,.25)}
+.ar-sector-cold{background:var(--surface2);color:var(--muted);border-color:var(--border)}
+/* arc card variants */
+.arc-leader{background:linear-gradient(145deg,#081a0d,#0c1e0e);border:1.5px solid rgba(63,185,80,.3)}
+.arc-leader:hover{border-color:rgba(63,185,80,.7)}
+.arc-laggard{background:linear-gradient(145deg,#080f1a,#0c1428);border:1.5px solid rgba(88,166,255,.3)}
+.arc-laggard:hover{border-color:rgba(88,166,255,.7)}
+/* section label */
+.ar-sec-lbl{font-size:.7rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;
+  margin-bottom:8px;display:flex;align-items:center;gap:5px}
 .radar-all-tbl{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:14px}
 .radar-all-tbl h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
 @media(max-width:800px){.radar-results{grid-template-columns:1fr}}
@@ -568,15 +583,20 @@ tbody td{padding:9px 10px}
       </div>
     </div>
     <div id="ar-cards" style="display:none">
-      <div style="font-size:.71rem;color:var(--muted);margin-bottom:7px;display:flex;align-items:center;gap:6px">
-        <span style="color:#ff6b35;font-weight:600">🎯 妖股候選</span>
-        <span>— 爆量 × 動能 × 突破形態 · 點擊開啟完整分析</span>
-      </div>
+      <!-- Hot Sectors -->
+      <div class="ar-sec-lbl">🔥 板塊溫度</div>
+      <div class="ar-sector-row" id="ar-sectors"></div>
+      <!-- Monster -->
+      <div class="ar-sec-lbl">🎯 妖股候選 <span style="font-weight:400;text-transform:none;letter-spacing:0">爆量×動能×突破 · 點擊查看完整分析</span></div>
       <div class="auto-rec-grid" id="ar-monster"></div>
-      <div style="font-size:.71rem;color:var(--muted);margin:10px 0 7px;display:flex;align-items:center;gap:6px">
-        <span style="color:var(--bull);font-weight:600">📈 價值買入機會</span>
-        <span>— 超賣回彈 · 均線支撐</span>
-      </div>
+      <!-- Leaders -->
+      <div class="ar-sec-lbl" style="margin-top:12px">👑 板塊龍頭 <span style="font-weight:400;text-transform:none;letter-spacing:0">各產業最強勢個股</span></div>
+      <div class="auto-rec-grid" id="ar-leaders"></div>
+      <!-- Laggards -->
+      <div class="ar-sec-lbl" style="margin-top:12px">📊 補漲候選 <span style="font-weight:400;text-transform:none;letter-spacing:0">板塊強但個股尚未跟漲</span></div>
+      <div class="auto-rec-grid" id="ar-laggards"></div>
+      <!-- Value Buys -->
+      <div class="ar-sec-lbl" style="margin-top:12px">💎 超賣反彈 <span style="font-weight:400;text-transform:none;letter-spacing:0">回調至支撐買入機會</span></div>
       <div class="auto-rec-grid" id="ar-buy"></div>
     </div>
   </div>
@@ -2238,16 +2258,25 @@ function renderWatchlist() {
 }
 
 // ══════════════════════════════════════════════════════
-// Auto Recommend — 自動掃描推薦
+// Auto Recommend — 自動掃描推薦（產業分類版）
 // ══════════════════════════════════════════════════════
 
-const AUTO_SCAN_LIST = [
-  // 美股動能核心
-  'NVDA','AMD','PLTR','SMCI','ARM','META','TSLA','MSTR','COIN','MU',
-  'MRVL','AVGO','TSM','ORCL','SOXX','AXTI',
-  // 台股精選
-  '2330.TW','2454.TW','2382.TW','3711.TW','2317.TW',
-];
+const SECTOR_STOCKS = {
+  '半導體AI晶片': { e:'💡', syms:['NVDA','AMD','AVGO','MRVL','MU','TSM','QCOM','ARM','SMCI','AMAT','KLAC','LRCX','ON','AXTI','INTC'] },
+  'AI雲端應用':   { e:'🤖', syms:['MSFT','PLTR','ORCL','META','GOOGL','CRM','NOW','AMZN','AI','SNOW','SOUN'] },
+  '台積電供應鏈': { e:'🇹🇼', syms:['2330.TW','2303.TW','2308.TW','3034.TW','2454.TW','2379.TW','2395.TW','2357.TW'] },
+  '台股電子代工': { e:'🏭', syms:['2317.TW','2382.TW','3711.TW','2353.TW','2301.TW','2308.TW'] },
+  '台股金融ETF':  { e:'🏦', syms:['2881.TW','2882.TW','2884.TW','2886.TW','0050.TW','0056.TW','00878.TW'] },
+  '加密區塊鏈':  { e:'₿',  syms:['COIN','MSTR','HOOD','CLSK'] },
+  '金融科技支付': { e:'💳', syms:['V','MA','PYPL','JPM','GS','MS'] },
+  '電動車新能源': { e:'⚡', syms:['TSLA','RIVN','NIO','LI','XPEV'] },
+  '太空創新科技': { e:'🚀', syms:['RKLB','LUNR','AAPL','ACHR','JOBY'] },
+  '生技醫療':     { e:'💊', syms:['LLY','NVO','MRNA','ISRG','REGN'] },
+  '大盤ETF':      { e:'📊', syms:['SPY','QQQ','SOXX','IWM','XLK','SOXL','ARKK'] },
+};
+
+// Derive unique scan list from sector map
+const AUTO_SCAN_LIST = [...new Set(Object.values(SECTOR_STOCKS).flatMap(s => s.syms))];
 
 async function autoRecommend(force = false) {
   const TTL  = 30 * 60 * 1000;
@@ -2260,7 +2289,7 @@ async function autoRecommend(force = false) {
   if (!force) {
     try {
       const c = JSON.parse(localStorage.getItem('arCache') || 'null');
-      if (c && (now - c.ts) < TTL) { renderAutoRec(c.data); return; }
+      if (c && (now - c.ts) < TTL) { renderAutoRec(c.data, c.sectorData); return; }
     } catch {}
   }
 
@@ -2280,6 +2309,8 @@ async function autoRecommend(force = false) {
     arProg.style.width = Math.round(done / AUTO_SCAN_LIST.length * 100) + '%';
   }
 
+  const resultMap = Object.fromEntries(results.map(d => [d.symbol, d]));
+
   const scored = results.map(d => {
     const mm = calcMonsterScore(d);
     return {
@@ -2291,45 +2322,113 @@ async function autoRecommend(force = false) {
     };
   });
 
-  try { localStorage.setItem('arCache', JSON.stringify({ ts: now, data: scored })); } catch {}
+  // Build sector summary
+  const scoredMap = Object.fromEntries(scored.map(d => [d.symbol, d]));
+  const sectorData = {};
+  for (const [name, cfg] of Object.entries(SECTOR_STOCKS)) {
+    const stocks = cfg.syms.map(s => scoredMap[s]).filter(Boolean);
+    if (!stocks.length) continue;
+    const avg = stocks.reduce((s, d) => s + d.score, 0) / stocks.length;
+    sectorData[name] = { e: cfg.e, avg: Math.round(avg), stocks };
+  }
+
+  try { localStorage.setItem('arCache', JSON.stringify({ ts: now, data: scored, sectorData })); } catch {}
   arLoading.style.display = 'none';
-  renderAutoRec(scored);
+  renderAutoRec(scored, sectorData);
 }
 
-function renderAutoRec(scored) {
-  const monsterTop = [...scored].sort((a,b) => b.monsterScore - a.monsterScore).slice(0, 3);
-  const buyTop     = [...scored]
-    .filter(d => !monsterTop.some(m => m.symbol === d.symbol))
-    .sort((a,b) => b.buyScore - a.buyScore).slice(0, 2);
+function renderAutoRec(scored, sectorData) {
+  sectorData = sectorData || {};
 
-  function arcCard(d, type) {
+  // ── Helper: render a card ──
+  function arcCard(d, type, extra) {
     const chg = d.changePct;
-    const isMonster = type === 'monster';
-    const scoreVal  = isMonster ? d.monsterScore : d.buyScore;
-    const scoreClr  = isMonster
+    const cls = { monster:'arc-monster', leader:'arc-leader', laggard:'arc-laggard', buy:'arc-buy' }[type] || 'arc-buy';
+    const scoreVal = type === 'monster' ? d.monsterScore
+      : type === 'buy' ? d.buyScore
+      : Math.round(d.score);
+    const scoreClr = type === 'monster'
       ? (scoreVal >= 50 ? '#ff3535' : scoreVal >= 30 ? '#ff6b35' : '#e3b341')
-      : (scoreVal >= 5  ? 'var(--bull)' : 'var(--accent)');
+      : type === 'leader' ? 'var(--bull)'
+      : type === 'laggard' ? '#58a6ff'
+      : (scoreVal >= 5 ? 'var(--bull)' : 'var(--accent)');
+    const lbl = { monster:'妖股分', leader:'動能分', laggard:'動能分', buy:'買入分' }[type];
     const tags = (d.monsterMeta?.tags || []).slice(0, 3);
-    const lbl  = isMonster ? '妖股分' : '買入分';
-    const rsiFmt = d.indicators?.rsi ? 'RSI ' + d.indicators.rsi.toFixed(0) : '';
-    return `<div class="auto-rec-card ${isMonster ? 'arc-monster' : 'arc-buy'}"
-        onclick="qs('${d.symbol}');switchTab('analysis')">
+    const extraBadge = extra ? `<span class="mct mct-info" style="font-size:.63rem">${extra}</span>` : '';
+    const rsiBadge = !tags.length ? `<span class="mct mct-info">RSI ${(d.indicators?.rsi||0).toFixed(0)}</span>` : '';
+    return `<div class="auto-rec-card ${cls}" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div>
-          <div class="arc-sym">${d.symbol}${d.isDemo ? ' <span style="font-size:.6rem;color:var(--muted);font-weight:400">[示範]</span>' : ''}</div>
+          <div class="arc-sym">${d.symbol}${d.isDemo?'<span style="font-size:.6rem;color:var(--muted);font-weight:400"> [示]</span>':''}</div>
           <div class="arc-price">${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div style="font-size:1.5rem;font-weight:900;color:${scoreClr};line-height:1">${scoreVal}</div>
-          <div style="font-size:.62rem;color:var(--muted)">${lbl}</div>
+          <div style="font-size:1.45rem;font-weight:900;color:${scoreClr};line-height:1">${scoreVal}</div>
+          <div style="font-size:.6rem;color:var(--muted)">${lbl}</div>
         </div>
       </div>
-      <div class="arc-tags">
-        ${tags.map(t => `<span class="mct mct-${t.cls}">${t.t}</span>`).join('')}
-        ${!tags.length && rsiFmt ? `<span class="mct mct-info">${rsiFmt}</span>` : ''}
+      <div class="arc-tags" style="margin-top:6px">
+        ${extraBadge}${tags.map(t=>`<span class="mct mct-${t.cls}">${t.t}</span>`).join('')}${rsiBadge}
       </div>
     </div>`;
   }
+
+  // ── Sector badges ──
+  const sectorsSorted = Object.entries(sectorData).sort((a,b) => b[1].avg - a[1].avg);
+  document.getElementById('ar-sectors').innerHTML = sectorsSorted.map(([name, s]) => {
+    const cls = s.avg >= 58 ? 'ar-sector-hot' : s.avg >= 50 ? 'ar-sector-warm' : 'ar-sector-cold';
+    const arrow = s.avg >= 58 ? '▲' : s.avg >= 50 ? '→' : '▼';
+    return `<span class="ar-sector-badge ${cls}">${s.e} ${name} ${arrow}${s.avg}</span>`;
+  }).join('');
+
+  // ── Monster top 3 ──
+  const monsterTop = [...scored].sort((a,b) => b.monsterScore - a.monsterScore).slice(0, 3);
+  document.getElementById('ar-monster').innerHTML =
+    monsterTop.filter(d => d.monsterScore >= 10).map(d => arcCard(d, 'monster')).join('') ||
+    '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無明顯妖股訊號，市場平靜</div>';
+
+  // ── Sector leaders: top scorer in each hot/warm sector ──
+  const used = new Set(monsterTop.map(d => d.symbol));
+  const leaders = [];
+  for (const [name, s] of sectorsSorted.filter(([,s]) => s.avg >= 50)) {
+    const best = [...s.stocks].filter(d => !used.has(d.symbol)).sort((a,b) => b.score - a.score)[0];
+    if (best) { leaders.push({ ...best, sectorName: name, sectorE: s.e }); used.add(best.symbol); }
+    if (leaders.length >= 3) break;
+  }
+  document.getElementById('ar-leaders').innerHTML =
+    leaders.map(d => arcCard(d, 'leader', `${d.sectorE} ${d.sectorName}龍頭`)).join('') ||
+    '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">各板塊尚無明顯強勢龍頭</div>';
+
+  // ── Laggards: hot sector but this stock score < sector avg - 12 ──
+  const laggards = [];
+  for (const [name, s] of sectorsSorted.filter(([,s]) => s.avg >= 55)) {
+    const lag = s.stocks
+      .filter(d => !used.has(d.symbol) && d.score < s.avg - 10 && d.score < 58)
+      .sort((a,b) => (s.avg - a.score) - (s.avg - b.score))
+      .slice(0, 1);
+    lag.forEach(d => {
+      laggards.push({ ...d, sectorName: name, sectorE: s.e, gap: Math.round(s.avg - d.score) });
+      used.add(d.symbol);
+    });
+    if (laggards.length >= 3) break;
+  }
+  document.getElementById('ar-laggards').innerHTML =
+    laggards.map(d => arcCard(d, 'laggard', `${d.sectorE}板塊落後${d.gap}分`)).join('') ||
+    '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無明顯補漲機會，板塊輪動平均</div>';
+
+  // ── Value buys: high buyScore not yet shown ──
+  const buyTop = [...scored].filter(d => !used.has(d.symbol))
+    .sort((a,b) => b.buyScore - a.buyScore).slice(0, 2);
+  document.getElementById('ar-buy').innerHTML =
+    buyTop.filter(d => d.buyScore >= 2).map(d => arcCard(d, 'buy')).join('') ||
+    '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無明顯超賣回彈機會</div>';
+
+  const ts = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('ar-ts').textContent = `更新：${ts} · 掃描 ${scored.length} 支 · 每30分自動刷新`;
+  document.getElementById('ar-status').textContent = '已完成';
+  document.getElementById('ar-status').className = 'ar-status ready';
+  document.getElementById('ar-cards').style.display = 'block';
+}
 
   document.getElementById('ar-monster').innerHTML =
     monsterTop.filter(d => d.monsterScore >= 10).map(d => arcCard(d, 'monster')).join('') ||
