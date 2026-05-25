@@ -235,9 +235,8 @@ tbody td{padding:9px 10px}
   .charts-grid{grid-template-columns:1fr}
   .price-card{grid-column:auto}
   .ph{flex-direction:column}
-  /* Fix chart jumping on mobile: lock container height, disable pointer events during scroll */
-  .chart-wrap{touch-action:pan-y;overflow:hidden}
-  .chart-card{contain:layout size}
+  /* Prevent chart cards from collapsing or growing on mobile */
+  .chart-card canvas{display:block;width:100%!important}
 }
 
 /* ── K-Line Tab ── */
@@ -584,12 +583,12 @@ tbody td{padding:9px 10px}
     <div class="charts-grid">
       <div class="chart-card price-card">
         <h3>價格走勢（近60日）含 MA20 / MA60</h3>
-        <div class="chart-wrap" style="position:relative;height:180px"><canvas id="pc"></canvas></div>
+        <canvas id="pc" height="180"></canvas>
       </div>
-      <div class="chart-card"><h3>RSI (14)</h3><div class="chart-wrap" style="position:relative;height:150px"><canvas id="rc"></canvas></div></div>
-      <div class="chart-card"><h3>MACD (12, 26, 9)</h3><div class="chart-wrap" style="position:relative;height:150px"><canvas id="mc"></canvas></div></div>
-      <div class="chart-card"><h3>布林通道 (20, 2)</h3><div class="chart-wrap" style="position:relative;height:150px"><canvas id="bc"></canvas></div></div>
-      <div class="chart-card"><h3>成交量</h3><div class="chart-wrap" style="position:relative;height:150px"><canvas id="vc"></canvas></div></div>
+      <div class="chart-card"><h3>RSI (14)</h3><canvas id="rc" height="150"></canvas></div>
+      <div class="chart-card"><h3>MACD (12, 26, 9)</h3><canvas id="mc" height="150"></canvas></div>
+      <div class="chart-card"><h3>布林通道 (20, 2)</h3><canvas id="bc" height="150"></canvas></div>
+      <div class="chart-card"><h3>成交量</h3><canvas id="vc" height="150"></canvas></div>
     </div>
 
     <div class="sec-title">動能指標</div>
@@ -1268,17 +1267,17 @@ function signalLabel(score) {
 const _charts = {};
 function destroyAll() { Object.values(_charts).forEach(c => c.destroy()); Object.keys(_charts).forEach(k => delete _charts[k]); }
 
-const _isMobile = window.innerWidth <= 600;
+const _isMobile = window.innerWidth <= 768;
 const CDef = {
-  responsive: true, maintainAspectRatio: false,
+  // On mobile: responsive:false stops Chart.js from resizing on scroll/address-bar hide
+  responsive: !_isMobile, maintainAspectRatio: false,
   plugins: { legend: { labels: { color: '#8b949e', boxWidth: 10, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
   scales: {
     x: { ticks: { color: '#8b949e', maxTicksLimit: 8, font: { size: 10 } }, grid: { color: '#21262d' } },
     y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } }
   },
   elements: { point: { radius: 0, hoverRadius: 3 } },
-  animation: _isMobile ? false : { duration: 350 },
-  resizeDelay: 100
+  animation: _isMobile ? false : { duration: 350 }
 };
 
 function makeChart(id, config) {
