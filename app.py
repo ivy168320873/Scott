@@ -8,6 +8,7 @@ import demo_data as _demo
 import analyzer
 import backtest as _bt
 import signals as _sig
+import patterns as _pat
 
 app = Flask(__name__)
 
@@ -132,6 +133,42 @@ def api_backtest():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Candlestick pattern endpoint ──────────────────────────────────────────────
+
+@app.route("/api/patterns", methods=["POST"])
+def api_patterns():
+    try:
+        payload = request.json or {}
+        ohlcv = payload.get("ohlcv", [])
+        result = _pat.detect(ohlcv)
+        return jsonify({"ok": True, "patterns": result})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── News proxy ─────────────────────────────────────────────────────────────────
+
+@app.route("/api/news/<symbol>")
+def api_news(symbol):
+    try:
+        r = _req.get(
+            f"https://query1.finance.yahoo.com/v1/finance/search",
+            params={"q": symbol, "newsCount": 8, "quotesCount": 0},
+            headers=YAHOO_HEADERS, timeout=8,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            news = data.get("news", [])
+            items = [{"title": n.get("title",""), "link": n.get("link",""),
+                      "publisher": n.get("publisher",""),
+                      "published": n.get("providerPublishTime",0)} for n in news]
+            return jsonify({"ok": True, "news": items})
+    except Exception:
+        pass
+    return jsonify({"ok": True, "news": []})
 
 
 # ── Main page ──────────────────────────────────────────────────────────────────
