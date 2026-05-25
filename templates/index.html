@@ -388,6 +388,35 @@ tbody td{padding:9px 10px}
 .mtf-table th{padding:6px 10px;text-align:left;border-bottom:1px solid var(--border);
   color:var(--muted);font-weight:500;font-size:.74rem;text-transform:uppercase}
 .mtf-table td{padding:8px 10px;border-bottom:1px solid var(--border)}
+
+/* ── Trading Levels Card ── */
+.tl-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 22px;margin-bottom:14px}
+.tl-card h3{font-size:.85rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.tl-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+.tl-box{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.tl-box .tl-lbl{font-size:.72rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
+.tl-box .tl-main{font-size:1.35rem;font-weight:800;line-height:1.2}
+.tl-box .tl-sub{font-size:.76rem;margin-top:4px}
+.tl-buy{border-color:rgba(63,185,80,.4)!important;background:rgba(63,185,80,.07)!important}
+.tl-stop{border-color:rgba(248,81,73,.4)!important;background:rgba(248,81,73,.07)!important}
+.tl-targets{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}
+.tl-tp{background:var(--surface2);border:1px solid rgba(227,179,65,.4);border-radius:10px;padding:12px 14px;text-align:center}
+.tl-tp .tp-rr{font-size:.68rem;color:var(--muted);margin-bottom:4px}
+.tl-tp .tp-price{font-size:1.1rem;font-weight:700;color:var(--neutral)}
+.tl-tp .tp-pct{font-size:.76rem;color:var(--bull);margin-top:2px}
+.tl-bar-wrap{margin-bottom:6px}
+.tl-bar-lbl{font-size:.72rem;color:var(--muted);margin-bottom:6px}
+.tl-bar{position:relative;height:28px;background:var(--surface2);border-radius:8px;overflow:visible;
+  border:1px solid var(--border)}
+.tl-zone-fill{position:absolute;top:0;height:100%;border-radius:6px;opacity:.35}
+.tl-marker{position:absolute;top:-4px;bottom:-4px;width:3px;border-radius:2px;transform:translateX(-50%)}
+.tl-marker-label{position:absolute;top:32px;transform:translateX(-50%);font-size:.65rem;
+  font-weight:700;white-space:nowrap}
+.tl-wait{background:rgba(227,179,65,.1);border:1px solid rgba(227,179,65,.3);border-radius:10px;
+  padding:14px 18px;text-align:center}
+.tl-wait .tw-title{font-size:1rem;font-weight:700;color:var(--neutral);margin-bottom:6px}
+.tl-wait .tw-desc{font-size:.84rem;color:var(--muted);line-height:1.5}
+@media(max-width:600px){.tl-grid{grid-template-columns:1fr}.tl-targets{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -529,6 +558,87 @@ tbody td{padding:9px 10px}
     <div class="ma-sec" id="mtf-section" style="display:none">
       <div class="sec-title">多時間框架分析</div>
       <div id="mtf-body"></div>
+    </div>
+
+    <!-- Trading Levels (Buy / Stop / TP) -->
+    <div class="tl-card" id="tl-card" style="display:none">
+      <h3>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--bull)" stroke-width="2">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+        </svg>
+        操作建議價位
+        <span id="tl-signal-badge" style="margin-left:4px"></span>
+      </h3>
+
+      <!-- Wait / neutral state -->
+      <div id="tl-wait" class="tl-wait" style="display:none">
+        <div class="tw-title" id="tl-wait-title"></div>
+        <div class="tw-desc" id="tl-wait-desc"></div>
+      </div>
+
+      <!-- Active buy/sell levels -->
+      <div id="tl-active" style="display:none">
+        <div class="tl-grid">
+          <div class="tl-box tl-buy">
+            <div class="tl-lbl">📈 建議買入區間</div>
+            <div class="tl-main pos" id="tl-buy-range"></div>
+            <div class="tl-sub" id="tl-buy-note"></div>
+          </div>
+          <div class="tl-box tl-stop">
+            <div class="tl-lbl">🛑 建議停損價位</div>
+            <div class="tl-main neg" id="tl-stop-price"></div>
+            <div class="tl-sub neg" id="tl-stop-pct"></div>
+          </div>
+        </div>
+
+        <div class="sec-title" style="margin-bottom:10px">🎯 獲利目標</div>
+        <div class="tl-targets">
+          <div class="tl-tp">
+            <div class="tp-rr">目標一（保守）</div>
+            <div class="tp-price" id="tp1-price"></div>
+            <div class="tp-pct" id="tp1-pct"></div>
+            <div style="font-size:.68rem;color:var(--muted)" id="tp1-rr"></div>
+          </div>
+          <div class="tl-tp">
+            <div class="tp-rr">目標二（積極）</div>
+            <div class="tp-price" id="tp2-price"></div>
+            <div class="tp-pct" id="tp2-pct"></div>
+            <div style="font-size:.68rem;color:var(--muted)" id="tp2-rr"></div>
+          </div>
+          <div class="tl-tp">
+            <div class="tp-rr">目標三（長線）</div>
+            <div class="tp-price" id="tp3-price"></div>
+            <div class="tp-pct" id="tp3-pct"></div>
+            <div style="font-size:.68rem;color:var(--muted)" id="tp3-rr"></div>
+          </div>
+        </div>
+
+        <!-- Visual price bar -->
+        <div class="tl-bar-wrap">
+          <div class="tl-bar-lbl">價位視覺化（停損 → 現價 → 目標）</div>
+          <div class="tl-bar" id="tl-bar">
+            <div class="tl-zone-fill" id="tl-loss-zone" style="background:#f85149"></div>
+            <div class="tl-zone-fill" id="tl-gain-zone" style="background:#3fb950"></div>
+            <div class="tl-marker" id="tl-m-stop"  style="background:#f85149">
+              <div class="tl-marker-label neg" id="tl-ml-stop"></div>
+            </div>
+            <div class="tl-marker" id="tl-m-now"   style="background:#fff;width:4px">
+              <div class="tl-marker-label" style="color:#fff" id="tl-ml-now"></div>
+            </div>
+            <div class="tl-marker" id="tl-m-tp1"   style="background:#e3b341">
+              <div class="tl-marker-label" style="color:var(--neutral)" id="tl-ml-tp1"></div>
+            </div>
+            <div class="tl-marker" id="tl-m-tp2"   style="background:#f0883e">
+              <div class="tl-marker-label" style="color:var(--mbear)" id="tl-ml-tp2"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size:.76rem;color:var(--muted);margin-top:18px;line-height:1.6">
+          ⚠ 以上為技術面自動計算之參考價位，非投資建議。實際操作請結合基本面與個人風險承受度。<br>
+          停損以最近支撐位下方 1% 計算；目標以進出場風險金額的倍數計算。
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1580,6 +1690,7 @@ async function search(sym) {
     renderIndicators(d);
     renderMA(d);
     renderZone(d);
+    renderTradingLevels(d);
     requestAI(d);
     addToHistory(d.symbol);
     updateFavBtn();
@@ -2919,6 +3030,144 @@ window.addEventListener('DOMContentLoaded', () => {
   renderHistoryRow();
   search('NVDA');
 });
+
+// ══════════════════════════════════════════════════════
+// Trading Levels — Buy Zone / Stop Loss / Take Profit
+// ══════════════════════════════════════════════════════
+
+function calcTradingLevels(d) {
+  const price = d.price;
+  const ind   = d.indicators;
+
+  const ma20  = d.maItems.find(m => m.label.includes('20'))?.value;
+  const ma60  = d.maItems.find(m => m.label.includes('60'))?.value;
+  const ma200 = d.maItems.find(m => m.label.includes('200'))?.value;
+
+  // Supports below price (candidates for stop reference)
+  const supports = [ind.bbLower, ma20, ma60, ma200]
+    .filter(v => v && v < price)
+    .sort((a, b) => b - a);   // descending: nearest first
+  const nearestSupport = supports[0] || price * 0.95;
+
+  // Resistances above price
+  const resistances = [ind.bbUpper, ma20, ma60]
+    .filter(v => v && v > price)
+    .sort((a, b) => a - b);   // ascending: nearest first
+  const nearestResistance = resistances[0] || price * 1.05;
+
+  // Stop loss: 1% below nearest support
+  const stopLoss   = +(nearestSupport * 0.99).toFixed(2);
+  const riskAmt    = price - stopLoss;
+  const riskPct    = (riskAmt / price * 100);
+
+  // Buy zone (only meaningful when signal is bullish/mild-bullish)
+  const isBullish  = d.score >= 52;
+  const isNeutral  = d.score >= 40 && d.score < 52;
+  const isBearish  = d.score < 40;
+
+  // Buy zone: between nearest support and current price (for bullish)
+  // For mild-bullish: slightly below current with a tighter range
+  const buyLow  = isBullish ? +(Math.max(nearestSupport, price * 0.988)).toFixed(2) : null;
+  const buyHigh = isBullish ? +(price * 1.005).toFixed(2) : null;
+
+  // Take profit targets based on R multiples
+  const tp = (mult) => +(price + riskAmt * mult).toFixed(2);
+  const pct = (target) => ((target - price) / price * 100).toFixed(1);
+
+  return {
+    price, stopLoss, riskAmt, riskPct,
+    buyLow, buyHigh,
+    isBullish, isNeutral, isBearish,
+    nearestSupport, nearestResistance,
+    targets: [
+      { price: tp(1.5), pct: pct(tp(1.5)), rr: '風報比 1 : 1.5' },
+      { price: tp(2.5), pct: pct(tp(2.5)), rr: '風報比 1 : 2.5' },
+      { price: tp(4.0), pct: pct(tp(4.0)), rr: '風報比 1 : 4.0' },
+    ],
+  };
+}
+
+function renderTradingLevels(d) {
+  const card = document.getElementById('tl-card');
+  if (!d) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  const lv   = calcTradingLevels(d);
+  const wait = document.getElementById('tl-wait');
+  const act  = document.getElementById('tl-active');
+
+  // Signal badge
+  document.getElementById('tl-signal-badge').innerHTML = badge(d.signalClass, d.signal);
+
+  if (lv.isBearish) {
+    // Bearish: show wait message
+    wait.style.display = 'block'; act.style.display = 'none';
+    document.getElementById('tl-wait-title').textContent = '⚠ 當前不建議買入';
+    document.getElementById('tl-wait-desc').textContent =
+      `訊號偏空（動能分數 ${d.score}），建議觀望。` +
+      `若打算逢低布局，可等 RSI 跌至 30 以下或價格測試支撐 ${fmt(lv.nearestSupport)} 後再評估進場。`;
+    return;
+  }
+
+  if (lv.isNeutral) {
+    wait.style.display = 'block'; act.style.display = 'none';
+    document.getElementById('tl-wait-title').textContent = '👀 中性偏觀望';
+    document.getElementById('tl-wait-desc').textContent =
+      `訊號中性（動能分數 ${d.score}），建議等待方向確認。` +
+      `突破 ${fmt(lv.nearestResistance)} 且有量配合時可考慮進場，停損設於 ${fmt(lv.stopLoss)}（-${lv.riskPct.toFixed(1)}%）。`;
+    return;
+  }
+
+  // Bullish: show full levels
+  wait.style.display = 'none'; act.style.display = 'block';
+
+  // Buy zone
+  document.getElementById('tl-buy-range').textContent = `${fmt(lv.buyLow)} – ${fmt(lv.buyHigh)}`;
+  document.getElementById('tl-buy-note').textContent  =
+    `現價 ${fmt(lv.price)} 已在買入區間${lv.price >= lv.buyLow && lv.price <= lv.buyHigh ? '內' : '附近'}`;
+
+  // Stop loss
+  document.getElementById('tl-stop-price').textContent = fmt(lv.stopLoss);
+  document.getElementById('tl-stop-pct').textContent   =
+    `跌幅 -${lv.riskPct.toFixed(1)}%  ·  參考支撐 ${fmt(lv.nearestSupport)}`;
+
+  // Take profit targets
+  lv.targets.forEach((t, i) => {
+    document.getElementById(`tp${i+1}-price`).textContent = fmt(t.price);
+    document.getElementById(`tp${i+1}-pct`).textContent   = `+${t.pct}%`;
+    document.getElementById(`tp${i+1}-rr`).textContent    = t.rr;
+  });
+
+  // Visual bar (map prices to %)
+  const barMin  = lv.stopLoss  * 0.998;
+  const barMax  = lv.targets[2].price * 1.002;
+  const barSpan = barMax - barMin;
+  const toLeft  = v => Math.max(0, Math.min(100, (v - barMin) / barSpan * 100));
+
+  const stopLeft = toLeft(lv.stopLoss);
+  const nowLeft  = toLeft(lv.price);
+  const tp1Left  = toLeft(lv.targets[0].price);
+  const tp2Left  = toLeft(lv.targets[1].price);
+
+  // Loss zone fill (stop → now)
+  const lz = document.getElementById('tl-loss-zone');
+  lz.style.left  = stopLeft + '%';
+  lz.style.width = Math.max(0, nowLeft - stopLeft) + '%';
+
+  // Gain zone fill (now → tp1)
+  const gz = document.getElementById('tl-gain-zone');
+  gz.style.left  = nowLeft + '%';
+  gz.style.width = Math.max(0, tp1Left - nowLeft) + '%';
+
+  const setMarker = (id, labelId, left, labelText) => {
+    document.getElementById(id).style.left         = left + '%';
+    document.getElementById(labelId).textContent   = labelText;
+  };
+  setMarker('tl-m-stop', 'tl-ml-stop', stopLeft, `停損\n${fmt(lv.stopLoss)}`);
+  setMarker('tl-m-now',  'tl-ml-now',  nowLeft,  `現價\n${fmt(lv.price)}`);
+  setMarker('tl-m-tp1',  'tl-ml-tp1',  tp1Left,  `目標一\n${fmt(lv.targets[0].price)}`);
+  setMarker('tl-m-tp2',  'tl-ml-tp2',  tp2Left,  `目標二\n${fmt(lv.targets[1].price)}`);
+}
 </script>
 </body>
 </html>
