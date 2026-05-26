@@ -2506,23 +2506,7 @@ function renderAutoRec(scored, sectorData) {
   renderSentiment(scored);
   renderHeatmap(sectorData);
   renderLeaderboard(scored);
-  const ts = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
   document.getElementById('ar-ts').textContent = `更新：${ts} · ${scored.length} 支 · 每30分自動刷新`;
-  document.getElementById('ar-status').textContent = '已完成';
-  document.getElementById('ar-status').className = 'ar-status ready';
-  document.getElementById('ar-cards').style.display = 'block';
-}
-
-  document.getElementById('ar-monster').innerHTML =
-    monsterTop.filter(d => d.monsterScore >= 10).map(d => arcCard(d, 'monster')).join('') ||
-    '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無高妖股分候選，市場相對平靜</div>';
-
-  document.getElementById('ar-buy').innerHTML =
-    buyTop.filter(d => d.buyScore >= 2).map(d => arcCard(d, 'buy')).join('') ||
-    '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無明顯超賣股票</div>';
-
-  const ts = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
-  document.getElementById('ar-ts').textContent = '更新：' + ts + ' · 每30分鐘自動刷新';
   document.getElementById('ar-status').textContent = '已完成';
   document.getElementById('ar-status').className = 'ar-status ready';
   document.getElementById('ar-cards').style.display = 'block';
