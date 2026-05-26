@@ -445,6 +445,37 @@ tbody td{padding:9px 10px}
 /* section label */
 .ar-sec-lbl{font-size:.7rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;
   margin-bottom:8px;display:flex;align-items:center;gap:5px}
+/* ── S/R Detection ── */
+.sr-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px}
+.sr-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.sr-level{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;border-radius:6px;margin-bottom:5px;font-size:.82rem;font-weight:600}
+.sr-res{background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149}
+.sr-sup{background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);color:#3fb950}
+.sr-tag{font-size:.68rem;padding:1px 6px;border-radius:4px;background:var(--surface2);color:var(--muted);font-weight:400}
+/* ── RSI Divergence ── */
+.div-alert{padding:7px 14px;border-radius:8px;font-size:.81rem;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.div-bull{background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.3);color:#3fb950}
+.div-bear{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:#f85149}
+/* ── Sector Heatmap ── */
+.hm-sector{margin-bottom:10px}
+.hm-sector-name{font-size:.66rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.hm-cells{display:flex;flex-wrap:wrap;gap:3px}
+.hm-cell{padding:3px 8px;border-radius:4px;font-size:.71rem;font-weight:700;cursor:pointer;transition:opacity .15s;white-space:nowrap;line-height:1.4}
+.hm-cell:hover{opacity:.72}
+/* ── Leaderboard ── */
+.lb-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:4px}
+.lb-col h4{font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:6px}
+.lb-item{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border2);font-size:.8rem}
+.lb-sym{font-weight:700;cursor:pointer}
+.lb-sym:hover{color:var(--accent)}
+/* ── Sentiment ── */
+.sent-track{flex:1;height:7px;background:var(--border);border-radius:4px;overflow:hidden}
+.sent-fill{height:100%;border-radius:4px;transition:width .8s}
+/* ── Custom scan ── */
+.custom-scan-row{display:flex;gap:6px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap}
+.custom-scan-row input{flex:1;min-width:80px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);border-radius:6px;font-size:.78rem;outline:none}
+.custom-scan-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .radar-all-tbl{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:14px}
 .radar-all-tbl h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
 @media(max-width:800px){.radar-results{grid-template-columns:1fr}}
@@ -576,6 +607,13 @@ tbody td{padding:9px 10px}
         <button class="btn btn-secondary" style="padding:4px 10px;font-size:.75rem" onclick="autoRecommend(true)">↻ 重新掃描</button>
       </div>
     </div>
+    <!-- Custom scan list -->
+    <div class="custom-scan-row">
+      <span style="font-size:.72rem;color:var(--muted);white-space:nowrap">＋自訂股票：</span>
+      <input id="custom-scan-input" placeholder="代碼如 AAPL, 2330.TW…" onkeydown="if(event.key==='Enter')addCustomScanSym()">
+      <button class="btn btn-secondary" style="padding:4px 10px;font-size:.75rem;white-space:nowrap" onclick="addCustomScanSym()">加入掃描</button>
+    </div>
+    <div class="custom-scan-tags" id="custom-scan-tags"></div>
     <div id="ar-loading" style="text-align:center;padding:10px 0 4px;color:var(--muted);font-size:.82rem">
       正在掃描精選股票，搜尋最具爆發潛力…
       <div class="radar-progress" style="max-width:280px;margin:8px auto 0">
@@ -583,11 +621,13 @@ tbody td{padding:9px 10px}
       </div>
     </div>
     <div id="ar-cards" style="display:none">
+      <!-- Market Sentiment -->
+      <div id="ar-sentiment" style="background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:12px"></div>
       <!-- Hot Sectors -->
       <div class="ar-sec-lbl">🔥 板塊溫度</div>
       <div class="ar-sector-row" id="ar-sectors"></div>
       <!-- Monster -->
-      <div class="ar-sec-lbl">🎯 妖股候選 <span style="font-weight:400;text-transform:none;letter-spacing:0">爆量×動能×突破 · 點擊查看完整分析</span></div>
+      <div class="ar-sec-lbl">🎯 妖股候選 <span style="font-weight:400;text-transform:none;letter-spacing:0">爆量×動能×突破</span></div>
       <div class="auto-rec-grid" id="ar-monster"></div>
       <!-- Leaders -->
       <div class="ar-sec-lbl" style="margin-top:12px">👑 板塊龍頭 <span style="font-weight:400;text-transform:none;letter-spacing:0">各產業最強勢個股</span></div>
@@ -598,6 +638,25 @@ tbody td{padding:9px 10px}
       <!-- Value Buys -->
       <div class="ar-sec-lbl" style="margin-top:12px">💎 超賣反彈 <span style="font-weight:400;text-transform:none;letter-spacing:0">回調至支撐買入機會</span></div>
       <div class="auto-rec-grid" id="ar-buy"></div>
+      <!-- Heatmap -->
+      <div class="ar-sec-lbl" style="margin-top:14px">
+        🌡 板塊熱力圖
+        <span style="font-weight:400;text-transform:none;letter-spacing:0">今日漲跌幅色溫 · 點擊查看</span>
+        <button class="btn btn-secondary" style="padding:2px 8px;font-size:.68rem;margin-left:6px" onclick="toggleHeatmap()">展開/收合</button>
+      </div>
+      <div id="ar-heatmap" style="display:none"></div>
+      <!-- Leaderboard -->
+      <div class="ar-sec-lbl" style="margin-top:14px">📊 今日強弱排行</div>
+      <div class="lb-cols">
+        <div class="lb-col">
+          <h4 style="color:var(--bull)">▲ 漲幅排行</h4>
+          <div id="ar-gainers"></div>
+        </div>
+        <div class="lb-col">
+          <h4 style="color:var(--bear)">▼ 跌幅排行</h4>
+          <div id="ar-losers"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -751,7 +810,23 @@ tbody td{padding:9px 10px}
     </div>
 
     <div class="sec-title">動能指標</div>
+    <div id="div-section" style="display:none"></div>
     <div class="ind-grid" id="ind-grid"></div>
+
+    <!-- Auto S/R Detection -->
+    <div class="sr-card" id="sr-card" style="display:none">
+      <div style="font-size:.78rem;font-weight:600;color:var(--muted);margin-bottom:12px">🎯 自動偵測支撐 / 阻力位（近60日樞軸）</div>
+      <div class="sr-grid">
+        <div>
+          <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#f85149;margin-bottom:7px">阻力位</div>
+          <div id="sr-res"></div>
+        </div>
+        <div>
+          <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:#3fb950;margin-bottom:7px">支撐位</div>
+          <div id="sr-sup"></div>
+        </div>
+      </div>
+    </div>
 
     <div class="ma-sec">
       <div class="sec-title">均線分析</div>
@@ -990,6 +1065,8 @@ tbody td{padding:9px 10px}
         </div>
         <div class="alert-field" style="align-self:flex-end">
           <button class="btn btn-primary" onclick="addAlert()">新增警報</button>
+          <button class="btn btn-secondary" onclick="resetTriggeredAlerts()" style="padding:7px 13px">重設已觸發</button>
+          <button class="btn btn-secondary" onclick="requestNotifPermission()" id="notif-perm-btn" style="padding:7px 13px">開啟推播通知</button>
         </div>
       </div>
       <div style="font-size:.76rem;color:var(--muted)">警報在每次刷新訊號雷達時自動檢查，並透過瀏覽器通知推送。</div>
@@ -1900,6 +1977,7 @@ async function search(sym) {
     renderZone(d);
     renderTradingLevels(d);
     renderMoneyFlow(d);
+    renderSR(d);
     requestAI(d);
     addToHistory(d.symbol);
     updateFavBtn();
@@ -2297,16 +2375,17 @@ async function autoRecommend(force = false) {
   arLoading.style.display = 'block'; arCards.style.display = 'none';
   arProg.style.width = '0%';
 
+  const fullScanList = [...new Set([...AUTO_SCAN_LIST, ..._customScanList])];
   const results = []; let done = 0;
-  for (let i = 0; i < AUTO_SCAN_LIST.length; i += 5) {
-    const batch = AUTO_SCAN_LIST.slice(i, i + 5);
+  for (let i = 0; i < fullScanList.length; i += 5) {
+    const batch = fullScanList.slice(i, i + 5);
     const settled = await Promise.allSettled(batch.map(async sym => {
       const raw = await fetchOHLCV(sym);
       return computeAll(raw);
     }));
     settled.forEach(r => { if (r.status === 'fulfilled') results.push(r.value); });
     done += batch.length;
-    arProg.style.width = Math.round(done / AUTO_SCAN_LIST.length * 100) + '%';
+    arProg.style.width = Math.round(done / fullScanList.length * 100) + '%';
   }
 
   const resultMap = Object.fromEntries(results.map(d => [d.symbol, d]));
@@ -2424,7 +2503,11 @@ function renderAutoRec(scored, sectorData) {
     '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無明顯超賣回彈機會</div>';
 
   const ts = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
-  document.getElementById('ar-ts').textContent = `更新：${ts} · 掃描 ${scored.length} 支 · 每30分自動刷新`;
+  renderSentiment(scored);
+  renderHeatmap(sectorData);
+  renderLeaderboard(scored);
+  const ts = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('ar-ts').textContent = `更新：${ts} · ${scored.length} 支 · 每30分自動刷新`;
   document.getElementById('ar-status').textContent = '已完成';
   document.getElementById('ar-status').className = 'ar-status ready';
   document.getElementById('ar-cards').style.display = 'block';
@@ -2443,6 +2526,224 @@ function renderAutoRec(scored, sectorData) {
   document.getElementById('ar-status').textContent = '已完成';
   document.getElementById('ar-status').className = 'ar-status ready';
   document.getElementById('ar-cards').style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════
+// RSI 背離偵測
+// ══════════════════════════════════════════════════════
+function detectDivergence(closes, rsiArr) {
+  const n = Math.min(closes.length, rsiArr.length);
+  if (n < 15) return null;
+  const lb = Math.min(n, 40);
+  const c = closes.slice(-lb), r = rsiArr.slice(-lb), N = c.length;
+
+  const lows = [], highs = [];
+  for (let i = 2; i < N - 2; i++) {
+    if (c[i] <= c[i-1] && c[i] <= c[i-2] && c[i] <= c[i+1] && c[i] <= c[i+2])
+      lows.push({ i, price: c[i], rsi: r[i] });
+    if (c[i] >= c[i-1] && c[i] >= c[i-2] && c[i] >= c[i+1] && c[i] >= c[i+2])
+      highs.push({ i, price: c[i], rsi: r[i] });
+  }
+
+  if (lows.length >= 2) {
+    const last = lows[lows.length-1], prev = lows[lows.length-2];
+    if (last.price < prev.price * 0.9985 && last.rsi > prev.rsi + 2)
+      return { type:'bullish', cls:'div-bull',
+        title: '📈 RSI底背離（看漲訊號）',
+        detail: `價格創新低 ${last.price.toFixed(2)} ↓ ${prev.price.toFixed(2)}，但RSI未跟跌 ${last.rsi.toFixed(0)} > ${prev.rsi.toFixed(0)}。歷史上此型態有較高機率出現反彈。` };
+  }
+  if (highs.length >= 2) {
+    const last = highs[highs.length-1], prev = highs[highs.length-2];
+    if (last.price > prev.price * 1.0015 && last.rsi < prev.rsi - 2)
+      return { type:'bearish', cls:'div-bear',
+        title: '📉 RSI頂背離（回調警告）',
+        detail: `價格創新高 ${last.price.toFixed(2)} ↑ ${prev.price.toFixed(2)}，但RSI走弱 ${last.rsi.toFixed(0)} < ${prev.rsi.toFixed(0)}。動能衰退，注意潛在回調風險。` };
+  }
+  return null;
+}
+
+// ══════════════════════════════════════════════════════
+// 自動支撐 / 阻力偵測
+// ══════════════════════════════════════════════════════
+function detectSR(highs, lows, closes) {
+  const n = Math.min(highs.length, lows.length, closes.length, 60);
+  const h = highs.slice(-n), l = lows.slice(-n), c = closes.slice(-n);
+  const cur = c[c.length-1];
+  const tol = cur * 0.02;
+
+  const pivots = [];
+  for (let i = 2; i < n-2; i++) {
+    if (h[i] >= h[i-1] && h[i] >= h[i-2] && h[i] >= h[i+1] && h[i] >= h[i+2])
+      pivots.push({ price: h[i], type: 'res', touches: 1 });
+    if (l[i] <= l[i-1] && l[i] <= l[i-2] && l[i] <= l[i+1] && l[i] <= l[i+2])
+      pivots.push({ price: l[i], type: 'sup', touches: 1 });
+  }
+
+  const merged = [];
+  pivots.sort((a,b) => a.price - b.price);
+  for (const p of pivots) {
+    const ex = merged.find(m => Math.abs(m.price - p.price) < tol && m.type === p.type);
+    if (ex) { ex.touches++; ex.price = (ex.price*(ex.touches-1)+p.price)/ex.touches; }
+    else merged.push({ ...p });
+  }
+
+  return {
+    resistances: merged.filter(m => m.type==='res' && m.price > cur*1.005)
+      .sort((a,b) => a.price-b.price).slice(0,3),
+    supports: merged.filter(m => m.type==='sup' && m.price < cur*0.995)
+      .sort((a,b) => b.price-a.price).slice(0,3),
+  };
+}
+
+function renderSR(d) {
+  const card = document.getElementById('sr-card');
+  const divSec = document.getElementById('div-section');
+  if (!d?.chart) { card.style.display='none'; divSec.style.display='none'; return; }
+
+  // Divergence
+  const div = detectDivergence(d.chart.closes, d.chart.rsi);
+  if (div) {
+    divSec.style.display = 'block';
+    divSec.innerHTML = `<div class="div-alert ${div.cls}">${div.title}</div>
+      <div style="font-size:.78rem;color:var(--muted);margin-bottom:10px;line-height:1.5">${div.detail}</div>`;
+  } else { divSec.style.display='none'; }
+
+  // S/R
+  const { supports, resistances } = detectSR(d.chart.highs, d.chart.lows, d.chart.closes);
+  const cur = d.price;
+
+  const lvEl = (lv, cls) => {
+    const dist = ((lv.price - cur) / cur * 100);
+    return `<div class="sr-level ${cls}">
+      <span>${lv.price.toFixed(2)}</span>
+      <span class="sr-tag">${dist>0?'+':''}${dist.toFixed(1)}% ${'●'.repeat(Math.min(lv.touches,3))}</span>
+    </div>`;
+  };
+
+  document.getElementById('sr-res').innerHTML = resistances.length
+    ? resistances.map(l => lvEl(l,'sr-res')).join('')
+    : '<div style="color:var(--muted);font-size:.78rem">未偵測到阻力位</div>';
+  document.getElementById('sr-sup').innerHTML = supports.length
+    ? supports.map(l => lvEl(l,'sr-sup')).join('')
+    : '<div style="color:var(--muted);font-size:.78rem">未偵測到支撐位</div>';
+
+  card.style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════
+// 市場情緒 + 熱力圖 + 強弱排行
+// ══════════════════════════════════════════════════════
+function renderSentiment(scored) {
+  const el = document.getElementById('ar-sentiment');
+  if (!el || !scored.length) return;
+  const bullPct = scored.filter(d => d.score >= 52).length / scored.length * 100;
+  const avgScore = scored.reduce((s,d)=>s+d.score,0)/scored.length;
+  const gainers = scored.filter(d=>d.changePct>0).length;
+  const losers  = scored.filter(d=>d.changePct<0).length;
+  let mood, moodColor;
+  if      (bullPct>=65){ mood='🚀 整體強勢多頭，市場動能充沛'; moodColor='#3fb950'; }
+  else if (bullPct>=52){ mood='📈 小幅偏多，謹慎樂觀';         moodColor='#3fb950'; }
+  else if (bullPct>=40){ mood='→  市場震盪，方向不明';          moodColor='#e3b341'; }
+  else                 { mood='📉 整體偏空，防禦為主';          moodColor='#f85149'; }
+
+  el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+    <span style="font-size:.82rem;font-weight:600;color:${moodColor}">${mood}</span>
+    <span style="font-size:.72rem;color:var(--muted)">掃描 ${scored.length} 支 · 均動能分 ${avgScore.toFixed(0)}</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+    <span style="font-size:.7rem;color:var(--muted);min-width:22px">多</span>
+    <div class="sent-track"><div class="sent-fill" style="width:${bullPct.toFixed(0)}%;background:${bullPct>=50?'#3fb950':'#f85149'}"></div></div>
+    <span style="font-size:.74rem;font-weight:700;color:${moodColor}">${bullPct.toFixed(0)}%</span>
+  </div>
+  <div style="font-size:.71rem;color:var(--muted)">今日 ${gainers} 漲 · ${losers} 跌 · ${scored.length-gainers-losers} 平</div>`;
+}
+
+function renderHeatmap(sectorData) {
+  const el = document.getElementById('ar-heatmap');
+  if (!el) return;
+  el.innerHTML = Object.entries(sectorData).map(([name, s]) => {
+    const cells = s.stocks.map(d => {
+      const pct = d.changePct || 0;
+      const intensity = Math.min(Math.abs(pct)/5, 1);
+      const bg = pct>0
+        ? `rgba(63,185,80,${0.2+intensity*0.75})`
+        : `rgba(248,81,73,${0.2+intensity*0.75})`;
+      return `<div class="hm-cell" style="background:${bg};color:#fff"
+        onclick="qs('${d.symbol}');switchTab('analysis')" title="${d.symbol}: ${pct>=0?'+':''}${pct.toFixed(1)}%">
+        ${d.symbol.replace('.TW','')}&nbsp;<span style="font-weight:400;font-size:.62rem">${pct>=0?'+':''}${pct.toFixed(1)}%</span>
+      </div>`;
+    }).join('');
+    return `<div class="hm-sector">
+      <div class="hm-sector-name">${s.e} ${name}</div>
+      <div class="hm-cells">${cells}</div>
+    </div>`;
+  }).join('');
+}
+
+function toggleHeatmap() {
+  const el = document.getElementById('ar-heatmap');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function renderLeaderboard(scored) {
+  const row = d => `<div class="lb-item">
+    <span class="lb-sym" onclick="qs('${d.symbol}');switchTab('analysis')">${d.symbol}</span>
+    <span class="${d.changePct>=0?'pos':'neg'}">${d.changePct>=0?'+':''}${d.changePct.toFixed(1)}%</span>
+  </div>`;
+  const g5 = [...scored].sort((a,b)=>b.changePct-a.changePct).slice(0,5);
+  const l5 = [...scored].sort((a,b)=>a.changePct-b.changePct).slice(0,5);
+  document.getElementById('ar-gainers').innerHTML = g5.map(row).join('');
+  document.getElementById('ar-losers').innerHTML  = l5.map(row).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// 自訂掃描清單
+// ══════════════════════════════════════════════════════
+let _customScanList = JSON.parse(localStorage.getItem('customScanList') || '[]');
+
+function addCustomScanSym() {
+  const input = document.getElementById('custom-scan-input');
+  const sym = input.value.trim().toUpperCase().replace(/[^A-Z0-9.]/g,'');
+  if (!sym) return;
+  if (!_customScanList.includes(sym)) {
+    _customScanList.push(sym);
+    localStorage.setItem('customScanList', JSON.stringify(_customScanList));
+  }
+  input.value = '';
+  renderCustomScanTags();
+}
+
+function removeCustomScanSym(sym) {
+  _customScanList = _customScanList.filter(s => s !== sym);
+  localStorage.setItem('customScanList', JSON.stringify(_customScanList));
+  renderCustomScanTags();
+}
+
+function renderCustomScanTags() {
+  document.getElementById('custom-scan-tags').innerHTML = _customScanList.map(s =>
+    `<span class="wl-tag active">${s}<button class="wl-rm" onclick="removeCustomScanSym('${s}')">×</button></span>`
+  ).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// 警報系統增強
+// ══════════════════════════════════════════════════════
+function resetTriggeredAlerts() {
+  _alerts.forEach(a => { a.triggered = false; });
+  saveAlerts(); renderAlerts();
+}
+
+async function requestNotifPermission() {
+  if (!('Notification' in window)) { alert('您的瀏覽器不支援推播通知'); return; }
+  const perm = await Notification.requestPermission();
+  const btn = document.getElementById('notif-perm-btn');
+  if (perm === 'granted') {
+    btn.textContent = '✓ 已開啟通知';
+    btn.style.color = 'var(--bull)';
+    new Notification('股市警報已啟用', { body: '當警報條件觸發時將自動通知您' });
+  } else {
+    btn.textContent = '通知已被封鎖';
+  }
 }
 
 // ── 妖股獵手評分系統 ───────────────────────────────────
@@ -3833,6 +4134,7 @@ window.addEventListener('DOMContentLoaded', () => {
   renderWatchlist();
   renderFavRow();
   renderHistoryRow();
+  renderCustomScanTags();
   search('NVDA');
   // Auto recommend: start after initial NVDA load settles
   setTimeout(() => {
