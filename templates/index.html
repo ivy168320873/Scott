@@ -551,6 +551,51 @@ tbody td{padding:9px 10px}
 .tl-wait .tw-title{font-size:1rem;font-weight:700;color:var(--neutral);margin-bottom:6px}
 .tl-wait .tw-desc{font-size:.84rem;color:var(--muted);line-height:1.5}
 @media(max-width:600px){.tl-grid{grid-template-columns:1fr}.tl-targets{grid-template-columns:1fr 1fr}}
+
+/* ── Extended Hours Panel ── */
+.ext-panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.ext-hdr{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:.82rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.ext-badge{padding:2px 8px;border-radius:4px;font-size:.72rem;font-weight:700}
+.ext-pre{background:rgba(91,192,190,.15);color:#5bc0be}
+.ext-post{background:rgba(240,136,62,.15);color:var(--mbear)}
+.ext-open{background:rgba(63,185,80,.15);color:var(--bull)}
+.ext-closed{background:rgba(139,148,158,.15);color:var(--muted)}
+.ext-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:10px}
+.ext-box{background:var(--surface2);border-radius:8px;padding:10px 12px}
+.ext-box .el{font-size:.7rem;color:var(--muted);margin-bottom:4px;text-transform:uppercase}
+.ext-box .ep{font-size:1.05rem;font-weight:700;margin-bottom:2px}
+.ext-box .ev{font-size:.72rem;color:var(--muted);margin-top:3px}
+.ext-sigs{display:flex;flex-wrap:wrap;gap:6px}
+.ext-sig{padding:4px 10px;border-radius:6px;font-size:.79rem;font-weight:600}
+.xs-high{background:rgba(248,81,73,.12);color:var(--bear);border:1px solid rgba(248,81,73,.25)}
+.xs-warn{background:rgba(227,179,65,.12);color:var(--neutral);border:1px solid rgba(227,179,65,.25)}
+.xs-info{background:rgba(88,166,255,.12);color:var(--accent);border:1px solid rgba(88,166,255,.25)}
+.xs-bull{background:rgba(63,185,80,.12);color:var(--bull);border:1px solid rgba(63,185,80,.25)}
+
+/* ── ORB Card ── */
+.orb-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.orb-hdr{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.orb-title{font-size:.82rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.orb-badge{padding:4px 12px;border-radius:6px;font-size:.82rem;font-weight:700}
+.orb-bs{background:rgba(63,185,80,.2);color:var(--bull)}
+.orb-bd{background:rgba(248,81,73,.2);color:var(--bear)}
+.orb-bw{background:rgba(227,179,65,.2);color:var(--neutral)}
+.orb-bn{background:var(--surface2);color:var(--muted)}
+.orb-bb{background:rgba(63,185,80,.12);color:var(--bull)}
+.orb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:10px}
+.orb-stat{background:var(--surface2);border-radius:7px;padding:8px 10px;text-align:center}
+.orb-stat .ol{font-size:.68rem;color:var(--muted);margin-bottom:3px}
+.orb-stat .ov{font-size:.9rem;font-weight:700}
+.gap-pill{display:inline-block;padding:2px 8px;border-radius:5px;font-size:.78rem;font-weight:600}
+.gap-u{background:rgba(63,185,80,.15);color:var(--bull)}
+.gap-d{background:rgba(248,81,73,.15);color:var(--bear)}
+.gap-f{background:var(--surface2);color:var(--muted)}
+.orb-bar-wrap{background:var(--surface2);border-radius:8px;padding:10px 14px;margin-bottom:10px}
+.orb-bar-lbl{font-size:.72rem;color:var(--muted);margin-bottom:6px}
+.orb-bar-track{position:relative;height:10px;background:var(--border);border-radius:5px;margin-bottom:8px}
+.orb-bar-rng{position:absolute;height:100%;border-radius:5px;background:rgba(88,166,255,.3);border:1px solid rgba(88,166,255,.5)}
+.orb-bar-mk{position:absolute;top:-4px;width:4px;height:18px;border-radius:2px;transform:translateX(-50%)}
+.orb-bar-lbls{display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -690,6 +735,38 @@ tbody td{padding:9px 10px}
       <button class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem" onclick="exportCSV()">📥 匯出CSV</button>
     </div>
     <div class="ph" id="ph"></div>
+
+    <!-- Extended Hours + Opening Signal Panels -->
+    <div id="ext-panel" style="display:none">
+      <div class="ext-panel">
+        <div class="ext-hdr">
+          <span class="ext-badge ext-closed" id="ext-badge">盤前</span>
+          延伸時段 &amp; 盤前盤後
+          <span style="margin-left:auto;font-size:.72rem;font-weight:400;color:var(--muted)" id="ext-time"></span>
+        </div>
+        <div class="ext-grid" id="ext-grid"></div>
+        <div class="ext-sigs" id="ext-sigs"></div>
+      </div>
+    </div>
+
+    <div class="orb-card" id="orb-card" style="display:none">
+      <div class="orb-hdr">
+        <span class="orb-title">📊 開盤訊號分析（15分鐘ORB + 跳空 + VWAP）</span>
+        <span class="orb-badge orb-bn" id="orb-badge"></span>
+      </div>
+      <div class="orb-grid" id="orb-grid"></div>
+      <div class="orb-bar-wrap" id="orb-bar-wrap" style="display:none">
+        <div class="orb-bar-lbl">價格位置（昨收 → 開盤區間 → 現價）</div>
+        <div class="orb-bar-track" id="orb-track">
+          <div class="orb-bar-rng" id="orb-rng"></div>
+          <div class="orb-bar-mk" id="orb-mk-prev" style="background:var(--muted)"></div>
+          <div class="orb-bar-mk" id="orb-mk-curr" style="background:var(--accent)"></div>
+          <div class="orb-bar-mk" id="orb-mk-vwap" style="background:var(--neutral);width:2px;opacity:.7"></div>
+        </div>
+        <div class="orb-bar-lbls" id="orb-lbls"></div>
+      </div>
+      <div id="orb-detail" style="font-size:.78rem;color:var(--muted);line-height:1.7"></div>
+    </div>
 
     <!-- Trading Levels (Buy / Stop / TP) — shown right under price panel -->
     <div class="tl-card" id="tl-card" style="display:none">
@@ -1890,6 +1967,230 @@ function updateBtParams() {
     </div>`).join('');
 }
 
+// ══════════════════════════════════════════════════════
+// Extended Hours & Opening Signal Analysis
+// ══════════════════════════════════════════════════════
+
+async function fetchExtendedHours(symbol) {
+  try {
+    const r = await fetch(`/api/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d&includePrePost=true`);
+    const j = await r.json();
+    const meta = j?.chart?.result?.[0]?.meta || {};
+    return {
+      prePrice:      meta.preMarketPrice       ?? null,
+      preChangePct:  meta.preMarketChangePercent ?? null,
+      postPrice:     meta.postMarketPrice      ?? null,
+      postChangePct: meta.postMarketChangePercent ?? null,
+      regularPrice:  meta.regularMarketPrice   ?? null,
+      regularVol:    meta.regularMarketVolume  ?? null,
+      prevClose:     meta.chartPreviousClose   ?? meta.previousClose ?? null,
+      marketState:   meta.marketState          ?? 'CLOSED',
+    };
+  } catch(e) { return null; }
+}
+
+async function fetchIntraday(symbol) {
+  try {
+    const r = await fetch(`/api/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d&includePrePost=false`);
+    const j = await r.json();
+    const res = j?.chart?.result?.[0];
+    if (!res) return null;
+    const ts = res.timestamp || [];
+    const q  = res.indicators?.quote?.[0] || {};
+    const bars = ts.map((t,i) => ({
+      time: new Date(t*1000),
+      open: q.open?.[i], high: q.high?.[i], low: q.low?.[i],
+      close: q.close?.[i], volume: q.volume?.[i],
+    })).filter(b => b.open != null && b.close != null);
+    return bars.length >= 3 ? bars : null;
+  } catch(e) { return null; }
+}
+
+function analyzeORB(bars, prevClose, dailyVol, volRatioNow) {
+  if (!bars || bars.length < 3) return null;
+  const openPrice = bars[0].open;
+  const gapPct    = prevClose ? (openPrice - prevClose) / prevClose * 100 : 0;
+
+  // Opening Range = first 3 bars (15 min)
+  const orBars = bars.slice(0, 3);
+  const orHigh = Math.max(...orBars.map(b => b.high));
+  const orLow  = Math.min(...orBars.map(b => b.low));
+  const orVol  = orBars.reduce((s,b) => s + (b.volume||0), 0);
+
+  const lastBar  = bars[bars.length-1];
+  const currPrice = lastBar.close;
+
+  // VWAP
+  let cumTP = 0, cumVol = 0;
+  bars.forEach(b => { const v = b.volume||0; cumTP += (b.high+b.low+b.close)/3*v; cumVol += v; });
+  const vwap = cumVol > 0 ? cumTP/cumVol : currPrice;
+
+  // Volume confirmation: compare first-15min vol vs expected (avg daily * 15/390)
+  const avgDailyVol = (dailyVol > 0 && volRatioNow > 0) ? dailyVol / volRatioNow : dailyVol;
+  const expected15  = avgDailyVol * 15 / 390;
+  const volRatio    = expected15 > 0 ? orVol / expected15 : 0;
+  const volOK       = volRatio > 1.5;
+
+  // Gap classification
+  let gapLabel = '平開', gapCls = 'gap-f';
+  if      (gapPct >  3) { gapLabel = `大跳空↑ +${gapPct.toFixed(2)}%`; gapCls = 'gap-u'; }
+  else if (gapPct >  0.5){ gapLabel = `小跳空↑ +${gapPct.toFixed(2)}%`; gapCls = 'gap-u'; }
+  else if (gapPct < -3) { gapLabel = `大跳空↓ ${gapPct.toFixed(2)}%`;  gapCls = 'gap-d'; }
+  else if (gapPct < -0.5){ gapLabel = `小跳空↓ ${gapPct.toFixed(2)}%`;  gapCls = 'gap-d'; }
+
+  const gapFilled = gapPct >  0.3 ? currPrice <= prevClose
+                  : gapPct < -0.3 ? currPrice >= prevClose : false;
+
+  const isORBUp   = currPrice > orHigh;
+  const isORBDown = currPrice < orLow;
+
+  // Gap fill probability (historical base rates)
+  let fillProb = '';
+  if (Math.abs(gapPct) > 0.5) {
+    const p = Math.abs(gapPct) < 2 ? 72 : Math.abs(gapPct) < 5 ? 44 : 21;
+    fillProb = `缺口歷史填補率 ≈ ${p}%`;
+  }
+
+  // Signal
+  let signal = '盤整觀望', sigCls = 'orb-bn';
+  if      (isORBUp   && volOK)  { signal = '✅ 真突破↑ 量價齊揚';  sigCls = 'orb-bs'; }
+  else if (isORBUp   && !volOK) { signal = '⚠ 假突破? 量能不足';   sigCls = 'orb-bw'; }
+  else if (isORBDown && volOK)  { signal = '❌ 真跌破↓ 空方主導';  sigCls = 'orb-bd'; }
+  else if (isORBDown && !volOK) { signal = '⚠ 假跌破? 量能偏弱';   sigCls = 'orb-bw'; }
+  else if (gapPct > 2 && currPrice < openPrice - (orHigh-orLow)*0.3) {
+    signal = '⚠ 高開低走 賣壓浮現'; sigCls = 'orb-bw';
+  } else if (gapPct < -2 && currPrice > openPrice + (orHigh-orLow)*0.3) {
+    signal = '📈 低開高走 積極接盤'; sigCls = 'orb-bb';
+  } else if (gapFilled) {
+    signal = '↩ 缺口填補 方向待定'; sigCls = 'orb-bn';
+  }
+
+  return {
+    gapPct, gapLabel, gapCls, gapFilled, fillProb,
+    openPrice, currPrice, vwap, aboveVwap: currPrice > vwap,
+    orHigh, orLow, orbPct: (orHigh-orLow)/orLow*100,
+    volRatio, volOK, isORBUp, isORBDown,
+    signal, sigCls, prevClose, barsCount: bars.length,
+  };
+}
+
+function renderExtendedPanel(ext) {
+  const wrap = document.getElementById('ext-panel');
+  if (!ext || (ext.prePrice == null && ext.postPrice == null)) {
+    wrap.style.display = 'none'; return;
+  }
+  const stateMap = {
+    PRE:     ['盤前',   'ext-pre'],
+    POST:    ['盤後',   'ext-post'],
+    REGULAR: ['盤中',   'ext-open'],
+    CLOSED:  ['已收盤', 'ext-closed'],
+    PREPRE:  ['盤前',   'ext-pre'],
+    POSTPOST:['盤後',   'ext-post'],
+  };
+  const [stateText, stateCls] = stateMap[ext.marketState] || ['延伸時段', 'ext-closed'];
+  const badge = document.getElementById('ext-badge');
+  badge.textContent = stateText;
+  badge.className   = `ext-badge ${stateCls}`;
+  document.getElementById('ext-time').textContent = new Date().toLocaleTimeString('zh-TW');
+
+  const boxes = [];
+  if (ext.regularPrice) boxes.push({ lbl:'正常盤', price: ext.regularPrice, chg: null });
+  if (ext.prePrice)  boxes.push({ lbl:'盤前', price: ext.prePrice,  chg: ext.preChangePct });
+  if (ext.postPrice) boxes.push({ lbl:'盤後', price: ext.postPrice, chg: ext.postChangePct });
+
+  document.getElementById('ext-grid').innerHTML = boxes.map(b => `
+    <div class="ext-box">
+      <div class="el">${b.lbl}</div>
+      <div class="ep">${b.price != null ? fmt(b.price) : '—'}</div>
+      ${b.chg != null ? `<div class="ep ${b.chg >= 0 ? 'pos':'neg'}" style="font-size:.88rem">${sgn(b.chg)}${fmt(Math.abs(b.chg))}%</div>` : ''}
+    </div>`).join('');
+
+  const chg = ext.preChangePct ?? ext.postChangePct;
+  const sigs = [];
+  if (chg != null) {
+    if      (chg >  5) sigs.push({ c:'xs-bull', t:`🚀 ${stateText}大漲 +${fmt(chg)}%` });
+    else if (chg >  2) sigs.push({ c:'xs-bull', t:`↑ ${stateText}上漲 +${fmt(chg)}%` });
+    else if (chg < -5) sigs.push({ c:'xs-high', t:`⚠ ${stateText}大跌 ${fmt(chg)}%` });
+    else if (chg < -2) sigs.push({ c:'xs-warn', t:`↓ ${stateText}下跌 ${fmt(chg)}%` });
+  }
+  // Estimated opening gap
+  const estSrc = ext.prePrice ?? ext.postPrice;
+  if (estSrc && ext.prevClose) {
+    const eg = (estSrc - ext.prevClose) / ext.prevClose * 100;
+    if (Math.abs(eg) > 5)       sigs.push({ c: eg>0?'xs-bull':'xs-high', t:`⚡ 預估缺口 ${sgn(eg)}${fmt(Math.abs(eg))}%` });
+    else if (Math.abs(eg) > 2)  sigs.push({ c:'xs-warn', t:`缺口預估 ${sgn(eg)}${fmt(Math.abs(eg))}%` });
+  }
+  if (sigs.length === 0) sigs.push({ c:'xs-info', t:'✓ 無異常訊號' });
+
+  document.getElementById('ext-sigs').innerHTML = sigs.map(s =>
+    `<div class="ext-sig ${s.c}">${s.t}</div>`).join('');
+  wrap.style.display = 'block';
+}
+
+function renderORBPanel(orb) {
+  const card = document.getElementById('orb-card');
+  if (!orb) { card.style.display = 'none'; return; }
+
+  document.getElementById('orb-badge').textContent = orb.signal;
+  document.getElementById('orb-badge').className   = `orb-badge ${orb.sigCls}`;
+
+  const stats = [
+    { l:'昨日收盤',  v: orb.prevClose ? fmt(orb.prevClose) : '—' },
+    { l:'開盤價',    v: fmt(orb.openPrice) },
+    { l:'現價',      v: fmt(orb.currPrice), c: orb.currPrice >= orb.openPrice ? 'pos':'neg' },
+    { l:'VWAP',      v: fmt(orb.vwap),      c: orb.aboveVwap ? 'pos':'neg' },
+    { l:'跳空幅度',  v: `<span class="gap-pill ${orb.gapCls}">${orb.gapLabel}</span>` },
+    { l:'ORB 上軌',  v: fmt(orb.orHigh) },
+    { l:'ORB 下軌',  v: fmt(orb.orLow) },
+    { l:'量能比率',  v: `${fmt(orb.volRatio,1)}x`, c: orb.volOK ? 'pos':'neg' },
+  ];
+  document.getElementById('orb-grid').innerHTML = stats.map(s =>
+    `<div class="orb-stat"><div class="ol">${s.l}</div><div class="ov ${s.c||''}">${s.v}</div></div>`).join('');
+
+  // Price bar
+  const barWrap = document.getElementById('orb-bar-wrap');
+  if (orb.prevClose) {
+    const lo = Math.min(orb.prevClose, orb.orLow,  orb.currPrice, orb.vwap) * 0.9985;
+    const hi = Math.max(orb.prevClose, orb.orHigh, orb.currPrice, orb.vwap) * 1.0015;
+    const r  = hi - lo;
+    if (r > 0) {
+      const p = v => ((v - lo) / r * 100).toFixed(1);
+      const rLeft = p(orb.orLow), rW = (p(orb.orHigh) - p(orb.orLow));
+      document.getElementById('orb-rng').style.cssText  = `left:${rLeft}%;width:${rW}%`;
+      document.getElementById('orb-mk-prev').style.left = p(orb.prevClose) + '%';
+      document.getElementById('orb-mk-curr').style.cssText =
+        `left:${p(orb.currPrice)}%;background:${orb.currPrice >= orb.openPrice ? 'var(--bull)':'var(--bear)'}`;
+      document.getElementById('orb-mk-vwap').style.left = p(orb.vwap) + '%';
+      document.getElementById('orb-lbls').innerHTML =
+        `<span>昨收 ${fmt(orb.prevClose)}</span>` +
+        `<span style="color:var(--accent)">ORB ${fmt(orb.orLow)}-${fmt(orb.orHigh)}</span>` +
+        `<span>現價 ${fmt(orb.currPrice)}</span>`;
+      barWrap.style.display = 'block';
+    }
+  } else { barWrap.style.display = 'none'; }
+
+  const details = [
+    `已累積 ${orb.barsCount} 根5分K｜ORB區間寬 ${orb.orbPct.toFixed(2)}%`,
+    orb.fillProb,
+    `現價${orb.aboveVwap ? '高於':'低於'} VWAP (${fmt(orb.vwap)}) → ${orb.aboveVwap ? '多方佔優':'空方佔優'}`,
+    orb.gapFilled ? '⚡ 缺口已填補，後續方向確認中' : '',
+  ].filter(Boolean).join('<br>');
+  document.getElementById('orb-detail').innerHTML = details;
+  card.style.display = 'block';
+}
+
+async function loadExtendedHours(d) {
+  const avgVol = d.volumeRatio > 0 ? d.volume / d.volumeRatio : d.volume;
+  const [ext, bars] = await Promise.all([
+    fetchExtendedHours(d.symbol),
+    fetchIntraday(d.symbol),
+  ]);
+  renderExtendedPanel(ext);
+  const orb = analyzeORB(bars, ext?.prevClose ?? d.price, avgVol, d.volumeRatio);
+  renderORBPanel(orb);
+}
+
+// ══════════════════════════════════════════════════════
 // stored OHLCV from last search (sent to backtest)
 let _lastOHLCV = null;
 let _lastSymbol = null;
@@ -1944,6 +2245,7 @@ async function search(sym) {
     renderMoneyFlow(d);
     renderSR(d);
     requestAI(d);
+    loadExtendedHours(d);   // non-blocking
     addToHistory(d.symbol);
     updateFavBtn();
     loadRS(d.symbol);
