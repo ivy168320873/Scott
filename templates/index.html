@@ -1784,39 +1784,6 @@ async function requestAI(d) {
 // 7. Main flow
 // ══════════════════════════════════════════════════════
 
-async function search(sym) {
-  const symbol = (sym || document.getElementById('sym').value.trim()).toUpperCase();
-  if (!symbol) return;
-  document.getElementById('sym').value = symbol;
-  document.getElementById('loading').style.display = 'block';
-  document.getElementById('detail').style.display = 'none';
-  document.getElementById('errmsg').style.display = 'none';
-  document.getElementById('ai-panel').style.display = 'none';
-  destroyAll();
-
-  try {
-    const raw = await fetchOHLCV(symbol);
-    const d = computeAll(raw);
-
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('detail').style.display = 'block';
-    document.getElementById('upd').textContent = new Date().toLocaleTimeString('zh-TW');
-
-    renderPanel(d);
-    renderCharts(d);
-    renderIndicators(d);
-    renderMA(d);
-
-    // Fire AI analysis in background (non-blocking)
-    requestAI(d);
-  } catch (e) {
-    document.getElementById('loading').style.display = 'none';
-    const em = document.getElementById('errmsg');
-    em.style.display = 'block';
-    em.textContent = `錯誤：${e.message}`;
-  }
-}
-
 function qs(s) { search(s); }
 
 // ── Compare ───────────────────────────────────────────
@@ -1930,8 +1897,6 @@ let _lastComputedData = null;
 let _sigTimer = null;
 let _sigCountdown = 60;
 
-// Override search to also save OHLCV
-const _origSearch = search;
 async function search(sym) {
   const symbol = (sym || document.getElementById('sym').value.trim()).toUpperCase();
   document.getElementById('sym').value = symbol || document.getElementById('sym').value;
