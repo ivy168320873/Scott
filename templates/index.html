@@ -638,6 +638,36 @@ tbody td{padding:9px 10px}
 .ic-pos-lbl{color:var(--muted)}
 .ic-pos-val{font-weight:700}
 .ic-kelly{font-size:.68rem;color:var(--muted);margin-top:4px;padding-top:4px;border-top:1px solid rgba(88,166,255,.15)}
+
+/* ── Sector Rotation ── */
+.rot-phase{display:flex;align-items:center;gap:10px;background:var(--surface2);border-radius:8px;padding:10px 14px;margin-bottom:10px}
+.rot-phase-icon{font-size:1.7rem;line-height:1}
+.rot-phase-name{font-size:.95rem;font-weight:700}
+.rot-phase-desc{font-size:.76rem;color:var(--muted);margin-top:2px}
+.rot-env{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px}
+.rot-env-item{display:flex;gap:8px;align-items:center;background:var(--surface2);border-radius:6px;padding:5px 10px;font-size:.76rem}
+.rot-env-tag{padding:1px 7px;border-radius:4px;font-size:.68rem;font-weight:600}
+.tag-riskon{background:rgba(63,185,80,.15);color:var(--bull)}
+.tag-riskoff{background:rgba(248,81,73,.15);color:var(--bear)}
+.tag-neutral{background:var(--border);color:var(--muted)}
+.rot-action{background:rgba(227,179,65,.1);border:1px solid rgba(227,179,65,.25);border-radius:7px;padding:8px 12px;font-size:.8rem;color:var(--neutral);margin-bottom:12px}
+.rot-sec-hdr{font-size:.72rem;color:var(--muted);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.rot-sectors{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+.rot-sector-row{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--surface2);border-radius:7px;cursor:pointer;transition:background .1s}
+.rot-sector-row:hover{background:var(--border)}
+.rot-rank{font-size:.7rem;color:var(--muted);min-width:16px;text-align:center}
+.rot-etf-info{display:flex;flex-direction:column;min-width:76px;font-size:.8rem;font-weight:600}
+.rot-etf-sub{font-size:.66rem;color:var(--muted);font-weight:400}
+.rot-bar-track{height:5px;background:var(--border);border-radius:3px;overflow:hidden;flex:1;min-width:40px}
+.rot-bar-fill{height:100%;border-radius:3px;transition:width .3s}
+.rot-nums{display:flex;flex-direction:column;align-items:flex-end;min-width:78px}
+.rot-mom{font-size:.88rem;min-width:18px;text-align:center}
+.rot-picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}
+.rot-pick-card{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 9px;cursor:pointer;text-align:center;transition:border-color .15s}
+.rot-pick-card:hover{border-color:var(--accent)}
+.rot-pick-sym{font-size:.85rem;font-weight:700;margin-bottom:2px}
+.rot-pick-sub{font-size:.7rem;margin-bottom:3px}
+.rot-pick-tag{font-size:.63rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -743,6 +773,9 @@ tbody td{padding:9px 10px}
         <span class="cap-hint">% · 系統自動計算建議股數與投入金額</span>
       </div>
       <div class="invest-grid" id="ar-invest"></div>
+      <!-- Sector Rotation -->
+      <div class="ar-sec-lbl" style="margin-top:14px">🔄 板塊輪動分析 <span style="font-weight:400;text-transform:none;letter-spacing:0">S&amp;P500 11大板塊相對強弱 · 市場階段偵測</span></div>
+      <div id="ar-rotation" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:4px"></div>
       <!-- Heatmap -->
       <div class="ar-sec-lbl" style="margin-top:14px">
         🌡 板塊熱力圖
@@ -2683,6 +2716,151 @@ const SECTOR_STOCKS = {
 // Derive unique scan list from sector map
 const AUTO_SCAN_LIST = [...new Set(Object.values(SECTOR_STOCKS).flatMap(s => s.syms))];
 
+// ── Sector ETFs (SPDR 11 sectors + benchmarks) ────────────────────────────────
+const SECTOR_ETF_LIST = [
+  { sym:'XLK',  name:'科技',      e:'💻', themes:['半導體AI晶片','AI雲端應用','台積電供應鏈'] },
+  { sym:'XLC',  name:'通訊服務',  e:'📡', themes:['AI雲端應用'] },
+  { sym:'XLY',  name:'非必需消費',e:'🛒', themes:['電動車新能源','太空創新科技'] },
+  { sym:'XLF',  name:'金融',      e:'🏦', themes:['金融科技支付','台股金融ETF'] },
+  { sym:'XLI',  name:'工業',      e:'🏭', themes:[] },
+  { sym:'XLV',  name:'醫療健康',  e:'💊', themes:['生技醫療'] },
+  { sym:'XLB',  name:'原材料',    e:'⛏', themes:[] },
+  { sym:'XLE',  name:'能源',      e:'⛽', themes:[] },
+  { sym:'XLRE', name:'房地產',    e:'🏠', themes:[] },
+  { sym:'XLP',  name:'必需消費',  e:'🏪', themes:[] },
+  { sym:'XLU',  name:'公用事業',  e:'💡', themes:[] },
+];
+const ROT_BENCHMARK = ['SPY','TLT','GLD'];
+
+function analyzeRotation(results) {
+  if (!results?.length) return null;
+  const rmap = Object.fromEntries(results.map(d => [d.symbol, d]));
+  const spy  = rmap['SPY'];
+  if (!spy || spy.isDemo) return null;
+
+  const ret = (d, days) => {
+    if (!d?.chart?.closes) return 0;
+    const c = d.chart.closes, n = c.length;
+    return n > days && c[n-1-days] > 0 ? (c[n-1] - c[n-1-days]) / c[n-1-days] * 100 : 0;
+  };
+
+  const spyR1w = ret(spy, 5);
+  const spyR1m = ret(spy, 21);
+  const spyR3m = ret(spy, 63);
+
+  const etfData = SECTOR_ETF_LIST.map(cfg => {
+    const d = rmap[cfg.sym];
+    if (!d || d.isDemo) return null;
+    const r1w = ret(d, 5), r1m = ret(d, 21), r3m = ret(d, 63);
+    const rs1w = r1w - spyR1w, rs1m = r1m - spyR1m, rs3m = r3m - spyR3m;
+    const rsi  = d.indicators.rsi ?? 50;
+    const slp  = obvSlope(calcOBV(d.chart.closes, d.chart.volumes), 10);
+    const rotScore = rs1w * 12 + rs1m * 6 + rs3m * 2 +
+                     (rsi > 60 ? 15 : rsi > 52 ? 8 : 0) +
+                     (d.bullMa >= 2 ? 10 : 0) + Math.min(slp * 0.4, 8);
+    // Momentum: is recent RS faster than its pace?
+    const mom = rs1w > rs1m / 4 ? '🚀' : rs1w < rs1m / 4 ? '↘' : '→';
+    return { ...cfg, price: d.price, r1w, r1m, rs1w, rs1m, rs3m, rsi, slp,
+             rotScore: Math.round(rotScore), mom };
+  }).filter(Boolean).sort((a, b) => b.rotScore - a.rotScore);
+
+  if (!etfData.length) return null;
+
+  // Market phase detection
+  const top3 = etfData.slice(0, 3).map(s => s.sym);
+  let phase = '混沌觀望', phaseE = '🔍', phaseDesc = '板塊訊號混雜，宜持幣觀察', phaseAction = '降低倉位，等待明確方向';
+
+  const has = (...syms) => syms.some(s => top3.includes(s));
+  if      (has('XLK','XLC'))          { phase='科技擴張期';phaseE='🚀';phaseDesc='科技/通訊主導，成長偏好上升';phaseAction='加碼AI半導體、雲端、通訊科技個股'; }
+  else if (has('XLY') && has('XLK'))  { phase='消費科技擴張期';phaseE='💎';phaseDesc='成長股全面升溫';phaseAction='佈局高動能成長股，科技+消費齊頭並進'; }
+  else if (has('XLE','XLB'))          { phase='原物料過熱期';phaseE='♨️';phaseDesc='能源/原材料領漲，景氣接近頂部';phaseAction='持有能源材料，但設緊停損，逢高減碼'; }
+  else if (has('XLU','XLP'))          { phase='全面防禦格局';phaseE='🛡';phaseDesc='資金湧入防禦型板塊，市場趨避風險';phaseAction='減持成長股，增配公用事業/必需消費/現金'; }
+  else if (has('XLF','XLI'))          { phase='復甦初期';phaseE='🌱';phaseDesc='金融/工業走強，景氣動能改善中';phaseAction='佈局金融、工業、早週期消費個股'; }
+  else if (has('XLV'))                { phase='醫療防禦期';phaseE='💊';phaseDesc='防禦性醫療板塊強勢';phaseAction='配置生技醫療，搭配部分現金等待方向'; }
+  else if (has('XLY'))                { phase='消費復甦期';phaseE='🛒';phaseDesc='非必需消費強勢，消費信心回升';phaseAction='關注電動車、媒體娛樂、科技消費個股'; }
+
+  // Benchmark extras
+  const tlt = rmap['TLT'], gld = rmap['GLD'];
+  const tltR1m = tlt && !tlt.isDemo ? ret(tlt, 21) : null;
+  const gldR1m = gld && !gld.isDemo ? ret(gld, 21) : null;
+
+  return { etfData, phase, phaseE, phaseDesc, phaseAction, spyR1w, spyR1m, spyR3m, tltR1m, gldR1m };
+}
+
+function renderRotation(rotData, scored, sectorData) {
+  const el = document.getElementById('ar-rotation');
+  if (!el || !rotData?.etfData?.length) { if (el) el.style.display = 'none'; return; }
+  const { etfData, phase, phaseE, phaseDesc, phaseAction, spyR1w, spyR1m, tltR1m, gldR1m } = rotData;
+
+  // Stock picks from top rotating sector themes
+  const topThemes = [...new Set(etfData.slice(0, 3).flatMap(s => s.themes))];
+  const picks = [];
+  for (const theme of topThemes) {
+    const sd = sectorData?.[theme];
+    if (!sd?.stocks?.length) continue;
+    [...sd.stocks].sort((a,b) => b.score - a.score).slice(0, 2).forEach(b => {
+      if (!picks.find(p => p.symbol === b.symbol)) picks.push({ ...b, theme });
+    });
+    if (picks.length >= 6) break;
+  }
+
+  const maxAbsRS = Math.max(...etfData.map(s => Math.abs(s.rs1m)), 1);
+
+  el.innerHTML = `
+    <div class="rot-phase">
+      <div class="rot-phase-icon">${phaseE}</div>
+      <div>
+        <div class="rot-phase-name ${etfData[0].rs1m > 0 ? 'pos' : 'neg'}">${phase}</div>
+        <div class="rot-phase-desc">${phaseDesc}</div>
+      </div>
+    </div>
+    <div class="rot-env">
+      <div class="rot-env-item">
+        <span style="font-weight:600">SPY</span>
+        <span class="${spyR1w>=0?'pos':'neg'}">${sgn(spyR1w)}${spyR1w.toFixed(2)}% 週</span>
+        <span class="${spyR1m>=0?'pos':'neg'}">${sgn(spyR1m)}${spyR1m.toFixed(2)}% 月</span>
+      </div>
+      ${tltR1m!=null?`<div class="rot-env-item">
+        <span style="font-weight:600">TLT 長債</span>
+        <span class="${tltR1m>=0?'pos':'neg'}">${sgn(tltR1m)}${tltR1m.toFixed(2)}% 月</span>
+        <span class="rot-env-tag ${tltR1m<-0.5?'tag-riskon':tltR1m>0.5?'tag-riskoff':'tag-neutral'}">${tltR1m<-0.5?'風險偏好':tltR1m>0.5?'避險模式':'中性'}</span>
+      </div>`:''}
+      ${gldR1m!=null?`<div class="rot-env-item">
+        <span style="font-weight:600">GLD 黃金</span>
+        <span class="${gldR1m>=0?'pos':'neg'}">${sgn(gldR1m)}${gldR1m.toFixed(2)}% 月</span>
+      </div>`:''}
+    </div>
+    <div class="rot-action">💡 操作方向：${phaseAction}</div>
+    <div class="rot-sec-hdr">板塊相對強弱排行（vs SPY）</div>
+    <div class="rot-sectors">
+      ${etfData.map((s, i) => {
+        const barW = Math.min(Math.abs(s.rs1m) / maxAbsRS * 100, 100).toFixed(1);
+        const barColor = s.rs1m >= 0 ? 'var(--bull)' : 'var(--bear)';
+        return `<div class="rot-sector-row" onclick="qs('${s.sym}');switchTab('analysis')">
+          <div class="rot-rank">${i+1}</div>
+          <div class="rot-etf-info">${s.e} ${s.name}<span class="rot-etf-sub">${s.sym}</span></div>
+          <div class="rot-bar-track" style="flex:1"><div class="rot-bar-fill" style="width:${barW}%;background:${barColor}"></div></div>
+          <div class="rot-nums">
+            <span class="${s.rs1m>=0?'pos':'neg'}" style="font-weight:700;font-size:.81rem">${sgn(s.rs1m)}${s.rs1m.toFixed(1)}%<span style="font-size:.65rem;opacity:.7"> 月RS</span></span>
+            <span class="${s.rs1w>=0?'pos':'neg'}" style="font-size:.72rem">${sgn(s.rs1w)}${s.rs1w.toFixed(1)}% 週</span>
+          </div>
+          <div class="rot-mom">${s.mom}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    ${picks.length?`
+      <div class="rot-sec-hdr" style="margin-top:4px">🎯 本輪換倉精選（強勢板塊個股）</div>
+      <div class="rot-picks">
+        ${picks.slice(0,6).map(d=>`
+          <div class="rot-pick-card" onclick="qs('${d.symbol}');switchTab('analysis')">
+            <div class="rot-pick-sym">${d.symbol}</div>
+            <div class="rot-pick-sub">${fmt(d.price)} <span class="${pC(d.changePct)}">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
+            <div class="rot-pick-tag">${d.theme}</div>
+          </div>`).join('')}
+      </div>`:''}`;
+  el.style.display = 'block';
+}
+
 async function autoRecommend(force = false) {
   const TTL = 30 * 60 * 1000;
   const now = Date.now();
@@ -2696,7 +2874,7 @@ async function autoRecommend(force = false) {
     try {
       const c = JSON.parse(localStorage.getItem('arCache') || 'null');
       if (c && (now - c.ts) < TTL) {
-        renderAutoRec(c.data, c.sectorData, c.nasdaqMeta);
+        renderAutoRec(c.data, c.sectorData, c.nasdaqMeta, c.rotData);
         return;
       }
     } catch {}
@@ -2754,7 +2932,8 @@ async function autoRecommend(force = false) {
     Object.values(SECTOR_STOCKS).flatMap(cfg => cfg.syms.filter(s => s.includes('.')))
   )];
   const fallback = deepCandidates.length ? [] : AUTO_SCAN_LIST;
-  const fullScanList = [...new Set([...deepCandidates, ...fallback, ...twSyms, ..._customScanList])];
+  const etfSyms = [...SECTOR_ETF_LIST.map(s => s.sym), ...ROT_BENCHMARK];
+  const fullScanList = [...new Set([...deepCandidates, ...fallback, ...twSyms, ...etfSyms, ..._customScanList])];
 
   const results = []; let done = 0;
   for (let i = 0; i < fullScanList.length; i += 5) {
@@ -2796,11 +2975,14 @@ async function autoRecommend(force = false) {
     sectorData[name] = { e: cfg.e, avg: Math.round(avg), stocks };
   }
 
+  const resultMap = Object.fromEntries(results.map(d => [d.symbol, d]));
+  const rotData = analyzeRotation(resultMap);
+
   try {
-    localStorage.setItem('arCache', JSON.stringify({ ts: now, data: scored, sectorData, nasdaqMeta }));
+    localStorage.setItem('arCache', JSON.stringify({ ts: now, data: scored, sectorData, nasdaqMeta, rotData }));
   } catch {}
   arLoading.style.display = 'none';
-  renderAutoRec(scored, sectorData, nasdaqMeta);
+  renderAutoRec(scored, sectorData, nasdaqMeta, rotData);
 }
 
 function renderNasdaqMeta(meta) {
@@ -2854,9 +3036,10 @@ function renderNasdaqMeta(meta) {
   el.style.display = 'block';
 }
 
-function renderAutoRec(scored, sectorData, nasdaqMeta) {
+function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
   sectorData = sectorData || {};
   renderNasdaqMeta(nasdaqMeta);
+  renderRotation(rotData, scored, sectorData);
 
   // ── Helper: render a card ──
   function arcCard(d, type, extra) {
@@ -3254,50 +3437,149 @@ function calcPreBreakoutScore(d) {
 }
 
 function calcInvestmentRating(d, preBreakScore) {
-  const lv = calcTradingLevels(d);
-  if (!lv || lv.isBearish) return null;
+  // ── Quality gate (professional filter) ─────────────────────────────────────
+  if (!d || d.price < 5) return null;                     // no penny stocks
+  if ((d.volumeRatio ?? 1) < 0.5) return null;            // insufficient liquidity
 
-  const composite = Math.round(
-    d.score               * 0.25 +
-    (preBreakScore || 0)  * 0.35 +
-    (d.indicators.macdHist > 0 ? 10 : 0) +
-    Math.min(calcBreakoutScore(d) * 7, 100) * 0.15 +
-    Math.min(calcBuyScore(d) * 8, 100) * 0.10 +
-    (d.volumeRatio > 1.3 ? 5 : 0)
-  );
-  if (composite < 35) return null;
+  const ind = d.indicators;
+  const c   = d.chart;
+  const closes = c.closes, highs = c.highs ?? [], lows = c.lows ?? [];
+  const vols = c.volumes, n = closes.length;
 
-  const conf = composite >= 68 ? { stars: '★★★', text: '高度確信', cls: 'pos'  }
-             : composite >= 50 ? { stars: '★★☆', text: '中度確信', cls: ''     }
-             :                   { stars: '★☆☆', text: '審慎留意', cls: 'muted' };
+  // ── ATR-based stop loss ─────────────────────────────────────────────────────
+  let atr = 0;
+  if (highs.length >= 15 && lows.length >= 15) {
+    const trs = [];
+    for (let i = 1; i < highs.length; i++)
+      trs.push(Math.max(highs[i]-lows[i], Math.abs(highs[i]-closes[i-1]), Math.abs(lows[i]-closes[i-1])));
+    atr = sma(trs, 14).slice(-1)[0] || (d.price * 0.02);
+  } else {
+    atr = d.price * 0.02;
+  }
 
-  const entryType =
-    d.pctFromHigh >= -3   ? '突破追入' :
-    d.indicators.rsi < 40 ? '逢低布局' :
-    d.indicators.rsi < 50 ? '回調買入' : '順勢入場';
+  // Structural stop: 1.2× ATR below recent 10-day low (not below MA60)
+  const ma60val = d.maItems.find(m => m.label.includes('60'))?.value ?? 0;
+  const ma20val = d.maItems.find(m => m.label.includes('20'))?.value ?? 0;
+  const ma200val = d.maItems.find(m => m.label.includes('200'))?.value ?? 0;
+  const recentLow10 = n >= 10 ? Math.min(...lows.slice(-10)) : d.price * 0.95;
+  const structStop = +(recentLow10 - atr * 0.5).toFixed(2);
+  const atrStop    = +(d.price - atr * 1.5).toFixed(2);
+  const stopLoss   = +Math.max(structStop, atrStop, d.price * 0.88).toFixed(2);
+  const riskAmt    = d.price - stopLoss;
+  const riskPct    = riskAmt / d.price * 100;
 
-  const rs = [];
-  if (d.score >= 65)                               rs.push('強勢動能');
-  if (preBreakScore >= 50)                         rs.push('即將噴發');
-  if (d.indicators.rsi >= 50 && d.indicators.rsi < 68) rs.push('RSI健康');
-  if (d.indicators.bbPctB > 0.7)                  rs.push('突破布林');
-  if (d.volumeRatio > 1.4)                         rs.push('放量確認');
-  if (d.pctFromHigh >= -3)                         rs.push('逼近年高');
-  if (d.indicators.macdHist > 0)                   rs.push('MACD看多');
-  if (d.bullMa >= 3)                               rs.push('均線多排');
+  // ── Trend quality scoring (0–30 pts) ───────────────────────────────────────
+  let trendPts = 0;
+  const aboveMA20  = ma20val  && d.price > ma20val;
+  const aboveMA60  = ma60val  && d.price > ma60val;
+  const aboveMA200 = ma200val && d.price > ma200val;
+  if      (aboveMA20 && aboveMA60 && aboveMA200) trendPts = 30;
+  else if (aboveMA20 && aboveMA60)               trendPts = 22;
+  else if (aboveMA20)                            trendPts = 12;
+  else if (aboveMA60)                            trendPts = 6;
+  // Still require at least price above MA20 for bullish consideration
+  if (!aboveMA20 && !aboveMA60) return null;
+
+  // ── Momentum quality (0–25 pts) ────────────────────────────────────────────
+  const rsi = ind.rsi ?? 50;
+  let momPts = 0;
+  if      (rsi >= 52 && rsi <= 68 && (ind.macdHist ?? 0) > 0) momPts = 25;
+  else if (rsi >= 45 && rsi <= 72 && (ind.macdHist ?? 0) > 0) momPts = 18;
+  else if (rsi >= 38 && rsi <= 75)                             momPts = 11;
+  else if (rsi < 35)                                           momPts = 7;  // reversal candidate
+
+  // ── ADX trend strength bonus (0–10 pts) ────────────────────────────────────
+  const adx = ind.adx ?? 0;
+  const diP = ind.diPlus ?? 0, diN = ind.diMinus ?? 0;
+  let adxPts = 0;
+  if      (adx > 25 && diP > diN) adxPts = 10;
+  else if (adx > 18 && diP > diN) adxPts = 6;
+  else if (adx > 12)              adxPts = 3;
+
+  // ── Volume confirmation (0–20 pts) ─────────────────────────────────────────
+  const vr = d.volumeRatio ?? 1;
+  let volPts = 0;
+  if      (vr > 1.8 && d.changePct > 0) volPts = 20;
+  else if (vr > 1.3 && d.changePct > 0) volPts = 14;
+  else if (vr > 1.0)                    volPts = 8;
+  else if (vr > 0.7)                    volPts = 4;
+
+  // OBV slope bonus
+  const obv = calcOBV(closes, vols);
+  const slp = obvSlope(obv, 10);
+  if (slp > 8) volPts = Math.min(volPts + 5, 20);
+
+  // ── Pre-breakout pattern (0–15 pts) ────────────────────────────────────────
+  const pbPts = Math.round((preBreakScore || 0) / 100 * 15);
+
+  // ── Composite score ─────────────────────────────────────────────────────────
+  const composite = Math.min(100, Math.round(trendPts + momPts + adxPts + volPts + pbPts));
+  if (composite < 42) return null;
+
+  // ── Risk/Reward check: require at least 1:1.8 ──────────────────────────────
+  const tp1price = +(d.price + riskAmt * 1.8).toFixed(2);
+  const tp2price = +(d.price + riskAmt * 3.0).toFixed(2);
+  const rr1 = riskAmt > 0 ? (tp1price - d.price) / riskAmt : 0;
+  if (rr1 < 1.5) return null;  // not worth the risk
+
+  // ── Entry type classification ───────────────────────────────────────────────
+  let entryType, setupCls;
+  if (d.pctFromHigh >= -2 && vr > 1.3) {
+    entryType = '突破年高入場'; setupCls = 'bull';
+  } else if (d.pctFromHigh >= -5 && (preBreakScore || 0) >= 50) {
+    entryType = '蓄勢突破在即'; setupCls = 'fire';
+  } else if (aboveMA60 && d.price <= ma20val * 1.015 && aboveMA20) {
+    entryType = '回測MA支撐'; setupCls = 'info';
+  } else if (rsi < 38 && aboveMA200 && (ind.macdHist ?? 0) > ind.macdHist * 0.5) {
+    entryType = '超賣反轉布局'; setupCls = 'warn';
+  } else if (adx > 22 && diP > diN && d.score >= 60) {
+    entryType = '趨勢強勢入場'; setupCls = 'bull';
+  } else {
+    entryType = '均線多排買進'; setupCls = 'info';
+  }
+
+  // ── Professional reason synthesis ──────────────────────────────────────────
+  const reasons = [];
+  if (d.pctFromHigh >= -3 && vr > 1.3) reasons.push('突破有量確認，籌碼集中');
+  else if (d.pctFromHigh >= -8 && (preBreakScore || 0) >= 45) reasons.push('BB壓縮蓄勢，突破在即');
+  else if (aboveMA20 && aboveMA60 && aboveMA200) reasons.push('三線多排，趨勢健康');
+  else if (aboveMA20 && aboveMA60) reasons.push('站上MA20/MA60，中期趨勢向上');
+
+  if (rsi >= 50 && rsi <= 65 && (ind.macdHist ?? 0) > 0) reasons.push('RSI健康+MACD金叉');
+  else if ((ind.macdHist ?? 0) > 0) reasons.push('MACD多頭排列');
+  if (adx > 22 && diP > diN) reasons.push(`ADX ${adx.toFixed(0)} 趨勢強勁`);
+  if (vr > 1.5 && d.changePct > 0) reasons.push(`量比 ${vr.toFixed(1)}x 放量推升`);
+  if (slp > 10) reasons.push('OBV主力持續吸籌');
+  if ((preBreakScore || 0) >= 60) reasons.push(`蓄勢指數 ${preBreakScore} 即將爆發`);
+  if (d.bullMa >= 4) reasons.push('五線全多排列');
+
+  // ── Confidence level ────────────────────────────────────────────────────────
+  const conf = composite >= 72 ? { stars: '★★★', text: '強力推薦', cls: 'pos',  action: '積極布局' }
+             : composite >= 58 ? { stars: '★★☆', text: '建議買入', cls: '',     action: '分批進場' }
+             :                   { stars: '★☆☆', text: '謹慎觀察', cls: 'muted', action: '小倉試水' };
+
+  // Buy zone: 0–1% below current for breakouts; at MA for pullbacks
+  let buyLow, buyHigh;
+  if (entryType.includes('突破') || entryType.includes('趨勢')) {
+    buyLow  = +(d.price * 0.998).toFixed(2);
+    buyHigh = +(d.price * 1.008).toFixed(2);
+  } else {
+    const support = Math.max(ma20val || 0, recentLow10);
+    buyLow  = +(Math.max(support, d.price * 0.985)).toFixed(2);
+    buyHigh = +(d.price * 1.003).toFixed(2);
+  }
 
   return {
-    composite,
-    conf,
-    entryType,
-    reason: rs.slice(0, 4).join(' · ') || '技術轉強',
-    entry:   lv.price,
-    stop:    lv.stopLoss,
-    riskPct: lv.riskPct,
-    buyLow:  lv.buyLow,
-    buyHigh: lv.buyHigh,
-    tp1:     lv.targets[0],
-    tp2:     lv.targets[1],
+    composite, conf, entryType, setupCls,
+    reason: reasons.slice(0, 3).join('；') || '技術面轉強，動能確認',
+    entry:   d.price,
+    stop:    stopLoss,
+    riskPct,
+    atr,
+    buyLow,
+    buyHigh,
+    tp1: { price: tp1price, pct: ((tp1price - d.price)/d.price*100).toFixed(1), rr: `風報比 1 : ${rr1.toFixed(1)}` },
+    tp2: { price: tp2price, pct: ((tp2price - d.price)/d.price*100).toFixed(1), rr: `風報比 1 : ${(riskAmt>0?(tp2price-d.price)/riskAmt:0).toFixed(1)}` },
   };
 }
 
@@ -3402,17 +3684,31 @@ function renderInvestmentPicks(scored, usedSet) {
   const { capital, riskPct, maxPosPct } = getCapSettings();
   const hasCapital = capital > 0;
 
-  const picks = [...scored]
+  // Separate strong buys from watch list
+  const allPicks = [...scored]
     .filter(d => d.investRating && !usedSet.has(d.symbol))
-    .sort((a, b) => b.investRating.composite - a.investRating.composite)
-    .slice(0, 6);
+    .sort((a, b) => b.investRating.composite - a.investRating.composite);
 
-  el.innerHTML = picks.map(d => {
+  const strongBuys = allPicks.filter(d => d.investRating.composite >= 65).slice(0, 5);
+  const watchList  = allPicks.filter(d => d.investRating.composite >= 52 && d.investRating.composite < 65).slice(0, 4);
+
+  function buildCard(d, rank) {
     const ir  = d.investRating;
     const entryTxt = ir.buyLow
       ? `$${fmt(ir.buyLow)} – $${fmt(ir.buyHigh)}`
       : `$${fmt(ir.entry)}`;
     const rrStr = ir.tp1?.rr || '';
+    const setupClr = { bull:'var(--bull)', fire:'var(--bear)', info:'var(--accent)', warn:'var(--neutral)' }[ir.setupCls] || 'var(--accent)';
+    const barW = Math.min(100, ir.composite);
+
+    // Quality score bar
+    const scoreBars = `
+      <div style="margin:6px 0 4px;display:flex;align-items:center;gap:6px">
+        <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
+          <div style="width:${barW}%;height:100%;background:${setupClr};border-radius:2px;transition:width .4s"></div>
+        </div>
+        <span style="font-size:.65rem;color:var(--muted);min-width:28px;text-align:right">${ir.composite}/100</span>
+      </div>`;
 
     // Position size block
     let posHtml = '';
@@ -3423,47 +3719,65 @@ function renderInvestmentPicks(scored, usedSet) {
         posHtml = `
         <div class="ic-pos">
           <div class="ic-pos-row">
-            <span class="ic-pos-lbl">建議投入金額</span>
-            <span class="ic-pos-val pos">$${ps.investAmt.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+            <span class="ic-pos-lbl">建議投入</span>
+            <span class="ic-pos-val pos">$${ps.investAmt.toLocaleString(undefined,{maximumFractionDigits:0})} (${ps.portPct.toFixed(1)}%${ps.capped?' 上限':''}) · ${ps.shares.toLocaleString()} 股</span>
           </div>
           <div class="ic-pos-row">
-            <span class="ic-pos-lbl">佔總資金</span>
-            <span class="ic-pos-val">${ps.portPct.toFixed(1)}%${ps.capped ? ' <span style="color:var(--neutral);font-size:.68rem">（上限）</span>' : ''}</span>
+            <span class="ic-pos-lbl">最大風險</span>
+            <span class="ic-pos-val neg">-$${ps.maxLoss.toLocaleString(undefined,{maximumFractionDigits:0})} · 佔資金 ${ps.actualRiskPct.toFixed(2)}%</span>
           </div>
-          <div class="ic-pos-row">
-            <span class="ic-pos-lbl">建議買入股數</span>
-            <span class="ic-pos-val">${ps.shares.toLocaleString()} 股</span>
-          </div>
-          <div class="ic-pos-row">
-            <span class="ic-pos-lbl">最大虧損</span>
-            <span class="ic-pos-val neg">-$${ps.maxLoss.toLocaleString(undefined,{maximumFractionDigits:0})} (${ps.actualRiskPct.toFixed(2)}%)</span>
-          </div>
-          <div class="ic-kelly">凱利建議倉位 ${kelly.half}%（半凱利）· 估算勝率 ${kelly.winRate}% · 僅供風管參考</div>
+          <div class="ic-kelly">🎯 ${ir.conf.action} · 半凱利倉位 ${kelly.half}% · 估算勝率 ${kelly.winRate}%</div>
         </div>`;
       }
     } else if (!hasCapital) {
-      posHtml = `<div style="font-size:.72rem;color:var(--muted);margin-top:7px;padding:6px 8px;background:var(--surface2);border-radius:5px">
-        📝 在上方輸入總資金，系統將自動計算建議股數與投入金額</div>`;
+      posHtml = `<div style="font-size:.72rem;color:var(--muted);margin-top:6px;padding:5px 8px;background:var(--surface2);border-radius:5px">
+        ← 輸入總資金自動計算建議倉位</div>`;
     }
+
+    const rankBadge = rank ? `<span style="font-size:.65rem;background:var(--accent);color:#fff;border-radius:10px;padding:1px 6px;margin-left:4px">#${rank}</span>` : '';
 
     return `<div class="invest-card" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div class="ic-top">
-        <div class="ic-sym">${d.symbol} <span class="${pC(d.changePct)}" style="font-size:.8rem">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
+        <div class="ic-sym">${d.symbol}${rankBadge} <span class="${pC(d.changePct)}" style="font-size:.78rem">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
         <span class="ic-stars">${ir.conf.stars}</span>
-        <span class="ic-score ${ir.conf.cls}">投資分 ${ir.composite}</span>
+        <span class="ic-score ${ir.conf.cls}">${ir.conf.text}</span>
       </div>
-      <div><span class="ic-type">${ir.entryType}</span></div>
+      <div style="display:flex;align-items:center;gap:6px;margin:3px 0">
+        <span class="ic-type" style="background:${setupClr}22;color:${setupClr}">${ir.entryType}</span>
+        <span style="font-size:.68rem;color:var(--muted)">ATR停損 ${fmt(ir.atr)}</span>
+      </div>
+      ${scoreBars}
       <div class="ic-levels">
         <div class="ic-row"><span class="il-lbl">進場區間</span><span class="il-val pos">${entryTxt}</span></div>
-        <div class="ic-row"><span class="il-lbl">停損價位</span><span class="il-val neg">$${fmt(ir.stop)} (-${ir.riskPct.toFixed(1)}%)</span></div>
-        <div class="ic-row"><span class="il-lbl">目標一</span><span class="il-val">$${fmt(ir.tp1.price)} (+${ir.tp1.pct}%)</span></div>
-        <div class="ic-row"><span class="il-lbl">目標二</span><span class="il-val">$${fmt(ir.tp2.price)} (+${ir.tp2.pct}%)</span></div>
-        <div class="ic-row"><span class="il-lbl">風報比</span><span class="il-val">${rrStr}</span></div>
+        <div class="ic-row"><span class="il-lbl">停損</span><span class="il-val neg">$${fmt(ir.stop)} (風險 ${ir.riskPct.toFixed(1)}%)</span></div>
+        <div class="ic-row"><span class="il-lbl">目標一 ${ir.tp1.rr.replace('風報比 ','')}</span><span class="il-val">$${fmt(ir.tp1.price)} <span style="color:var(--bull)">+${ir.tp1.pct}%</span></span></div>
+        <div class="ic-row"><span class="il-lbl">目標二 ${ir.tp2.rr.replace('風報比 ','')}</span><span class="il-val">$${fmt(ir.tp2.price)} <span style="color:var(--bull)">+${ir.tp2.pct}%</span></span></div>
       </div>
-      <div class="ic-reason">${ir.conf.text} · ${ir.reason}</div>
+      <div class="ic-reason">📊 ${ir.reason}</div>
       ${posHtml}
     </div>`;
-  }).join('') || '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無達門檻的投資機會，建議等待訊號確認</div>';
+  }
+
+  let html = '';
+
+  if (strongBuys.length) {
+    html += `<div style="font-size:.72rem;font-weight:700;color:var(--bull);margin:0 0 8px;letter-spacing:.04em">▶ 強力推薦 — 優先布局</div>`;
+    html += strongBuys.map((d, i) => buildCard(d, i + 1)).join('');
+  }
+
+  if (watchList.length) {
+    html += `<div style="font-size:.72rem;font-weight:700;color:var(--neutral);margin:${strongBuys.length ? 12 : 0}px 0 8px;letter-spacing:.04em">▷ 次選觀察 — 等待確認進場</div>`;
+    html += watchList.map(d => buildCard(d, null)).join('');
+  }
+
+  if (!html) {
+    html = `<div style="color:var(--muted);font-size:.82rem;padding:8px 0;text-align:center">
+      目前技術面未達專業投顧進場標準<br>
+      <span style="font-size:.72rem">（需三線多排 + 量能確認 + 風報比≥1:1.8）</span>
+    </div>`;
+  }
+
+  el.innerHTML = html;
 }
 
 function calcMonsterScore(d) {
