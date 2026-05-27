@@ -2700,17 +2700,17 @@ function renderWatchlist() {
 // ══════════════════════════════════════════════════════
 
 const SECTOR_STOCKS = {
-  '半導體AI晶片': { e:'💡', syms:['NVDA','AMD','AVGO','MRVL','MU','TSM','QCOM','ARM','SMCI','AMAT','KLAC','LRCX','ON','AXTI','INTC'] },
-  'AI雲端應用':   { e:'🤖', syms:['MSFT','PLTR','ORCL','META','GOOGL','CRM','NOW','AMZN','AI','SNOW','SOUN'] },
-  '台積電供應鏈': { e:'🇹🇼', syms:['2330.TW','2303.TW','2308.TW','3034.TW','2454.TW','2379.TW','2395.TW','2357.TW'] },
-  '台股電子代工': { e:'🏭', syms:['2317.TW','2382.TW','3711.TW','2353.TW','2301.TW','2308.TW'] },
-  '台股金融ETF':  { e:'🏦', syms:['2881.TW','2882.TW','2884.TW','2886.TW','0050.TW','0056.TW','00878.TW'] },
-  '加密區塊鏈':  { e:'₿',  syms:['COIN','MSTR','HOOD','CLSK'] },
-  '金融科技支付': { e:'💳', syms:['V','MA','PYPL','JPM','GS','MS'] },
-  '電動車新能源': { e:'⚡', syms:['TSLA','RIVN','NIO','LI','XPEV'] },
-  '太空創新科技': { e:'🚀', syms:['RKLB','LUNR','AAPL','ACHR','JOBY'] },
-  '生技醫療':     { e:'💊', syms:['LLY','NVO','MRNA','ISRG','REGN'] },
-  '大盤ETF':      { e:'📊', syms:['SPY','QQQ','SOXX','IWM','XLK','SOXL','ARKK'] },
+  '半導體AI晶片':   { e:'💡', syms:['NVDA','AMD','AVGO','MRVL','MU','TSM','QCOM','ARM','SMCI','AMAT','KLAC','LRCX','ASML','ON','INTC'] },
+  'AI雲端軟體':     { e:'🤖', syms:['MSFT','META','GOOGL','AMZN','PLTR','ORCL','NOW','CRM','SNOW','AI','SOUN','GOOG'] },
+  '網路安全':       { e:'🛡', syms:['CRWD','PANW','ZS','FTNT','S','OKTA','CYBR','TMUS'] },
+  '核能電力基建':   { e:'⚛', syms:['VST','CEG','CCJ','NNE','SMR','OKLO','NRG','ETR','TLN'] },
+  '國防航太':       { e:'🎯', syms:['LMT','RTX','NOC','GD','HII','RKLB','LUNR','ACHR','JOBY'] },
+  '量子運算機器人': { e:'🔬', syms:['IONQ','RGTI','QBTS','IBM','PATH','SYM','RCAT','QUBT'] },
+  '加密區塊鏈':     { e:'₿',  syms:['COIN','MSTR','HOOD','CLSK','RIOT','CIFR'] },
+  '電動車新能源':   { e:'⚡', syms:['TSLA','RIVN','NIO','LI','XPEV','CHPT','BLNK'] },
+  '生技醫療GLP1':   { e:'💊', syms:['LLY','NVO','MRNA','ISRG','REGN','ABBV','HIMS','SEZL'] },
+  '台積電供應鏈':   { e:'🇹🇼', syms:['2330.TW','2303.TW','2308.TW','3034.TW','2454.TW','2379.TW','2395.TW','2357.TW','2317.TW','2382.TW'] },
+  '大盤ETF':        { e:'📊', syms:['SPY','QQQ','SOXX','IWM','XLK','SOXL','ARKK','TQQQ'] },
 };
 
 // Derive unique scan list from sector map
@@ -2718,17 +2718,17 @@ const AUTO_SCAN_LIST = [...new Set(Object.values(SECTOR_STOCKS).flatMap(s => s.s
 
 // ── Sector ETFs (SPDR 11 sectors + benchmarks) ────────────────────────────────
 const SECTOR_ETF_LIST = [
-  { sym:'XLK',  name:'科技',      e:'💻', themes:['半導體AI晶片','AI雲端應用','台積電供應鏈'] },
-  { sym:'XLC',  name:'通訊服務',  e:'📡', themes:['AI雲端應用'] },
-  { sym:'XLY',  name:'非必需消費',e:'🛒', themes:['電動車新能源','太空創新科技'] },
-  { sym:'XLF',  name:'金融',      e:'🏦', themes:['金融科技支付','台股金融ETF'] },
-  { sym:'XLI',  name:'工業',      e:'🏭', themes:[] },
-  { sym:'XLV',  name:'醫療健康',  e:'💊', themes:['生技醫療'] },
+  { sym:'XLK',  name:'科技',      e:'💻', themes:['半導體AI晶片','AI雲端軟體','台積電供應鏈'] },
+  { sym:'XLC',  name:'通訊服務',  e:'📡', themes:['AI雲端軟體','網路安全'] },
+  { sym:'XLY',  name:'非必需消費',e:'🛒', themes:['電動車新能源'] },
+  { sym:'XLF',  name:'金融',      e:'🏦', themes:[] },
+  { sym:'XLI',  name:'工業',      e:'🏭', themes:['國防航太','量子運算機器人'] },
+  { sym:'XLV',  name:'醫療健康',  e:'💊', themes:['生技醫療GLP1'] },
   { sym:'XLB',  name:'原材料',    e:'⛏', themes:[] },
-  { sym:'XLE',  name:'能源',      e:'⛽', themes:[] },
+  { sym:'XLE',  name:'能源',      e:'⛽', themes:['核能電力基建'] },
   { sym:'XLRE', name:'房地產',    e:'🏠', themes:[] },
   { sym:'XLP',  name:'必需消費',  e:'🏪', themes:[] },
-  { sym:'XLU',  name:'公用事業',  e:'💡', themes:[] },
+  { sym:'XLU',  name:'公用事業',  e:'💡', themes:['核能電力基建'] },
 ];
 const ROT_BENCHMARK = ['SPY','TLT','GLD'];
 
