@@ -660,12 +660,14 @@ tbody td{padding:9px 10px}
     </div>
     <div class="custom-scan-tags" id="custom-scan-tags"></div>
     <div id="ar-loading" style="text-align:center;padding:10px 0 4px;color:var(--muted);font-size:.82rem">
-      正在掃描精選股票，搜尋最具爆發潛力…
-      <div class="radar-progress" style="max-width:280px;margin:8px auto 0">
+      <span id="ar-loading-text">正在抓取納斯達克全市場數據…</span>
+      <div class="radar-progress" style="max-width:320px;margin:8px auto 0">
         <div class="radar-progress-fill" id="ar-prog" style="width:0%"></div>
       </div>
     </div>
     <div id="ar-cards" style="display:none">
+      <!-- NASDAQ Market Overview -->
+      <div id="ar-nasdaq-meta" style="display:none;background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px"></div>
       <!-- Market Sentiment -->
       <div id="ar-sentiment" style="background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:12px"></div>
       <!-- Hot Sectors -->
@@ -2624,25 +2626,78 @@ const SECTOR_STOCKS = {
 const AUTO_SCAN_LIST = [...new Set(Object.values(SECTOR_STOCKS).flatMap(s => s.syms))];
 
 async function autoRecommend(force = false) {
-  const TTL  = 30 * 60 * 1000;
-  const now  = Date.now();
-  const arStatus  = document.getElementById('ar-status');
-  const arLoading = document.getElementById('ar-loading');
-  const arCards   = document.getElementById('ar-cards');
-  const arProg    = document.getElementById('ar-prog');
+  const TTL = 30 * 60 * 1000;
+  const now = Date.now();
+  const arStatus      = document.getElementById('ar-status');
+  const arLoading     = document.getElementById('ar-loading');
+  const arCards       = document.getElementById('ar-cards');
+  const arProg        = document.getElementById('ar-prog');
+  const arLoadingText = document.getElementById('ar-loading-text');
 
   if (!force) {
     try {
       const c = JSON.parse(localStorage.getItem('arCache') || 'null');
-      if (c && (now - c.ts) < TTL) { renderAutoRec(c.data, c.sectorData); return; }
+      if (c && (now - c.ts) < TTL) {
+        renderAutoRec(c.data, c.sectorData, c.nasdaqMeta);
+        return;
+      }
     } catch {}
   }
 
   arStatus.textContent = '掃描中…'; arStatus.className = 'ar-status scanning';
   arLoading.style.display = 'block'; arCards.style.display = 'none';
-  arProg.style.width = '0%';
+  arProg.style.width = '3%';
 
-  const fullScanList = [...new Set([...AUTO_SCAN_LIST, ..._customScanList])];
+  // ── Phase 1: NASDAQ screener (fast, server-cached 15 min) ─────────────────
+  let nasdaqMeta = null;
+  let deepCandidates = [];
+
+  arLoadingText.textContent = '正在抓取納斯達克全市場數據（3,000+ 支）…';
+  try {
+    const sr = await fetch('/api/nasdaq-screener');
+    const sj = await sr.json();
+    if (sj.ok && sj.stocks?.length > 0) {
+      const all = sj.stocks;
+
+      // Quick score: abs(pctchange) matters most, then volume depth
+      const qscored = all.map(s => {
+        const absPct = Math.abs(s.pctchange);
+        const qScore = absPct * 8 + Math.log10(Math.max(s.volume, 1)) * 6 +
+                       (s.marketCap > 1e9 ? 10 : s.marketCap > 1e8 ? 5 : 0);
+        return { ...s, qScore };
+      });
+
+      // NASDAQ breadth meta
+      const gainers = all.filter(s => s.pctchange > 0).length;
+      const losers  = all.filter(s => s.pctchange < 0).length;
+      nasdaqMeta = {
+        total: all.length,
+        gainers, losers, unchanged: all.length - gainers - losers,
+        topGainers: [...all].sort((a,b) => b.pctchange - a.pctchange).slice(0, 15),
+        topLosers:  [...all].sort((a,b) => a.pctchange - b.pctchange).slice(0, 15),
+      };
+
+      // Top 60 by quick score → deep scan candidates
+      deepCandidates = [...qscored]
+        .sort((a,b) => b.qScore - a.qScore)
+        .slice(0, 60)
+        .map(s => s.symbol);
+
+      arLoadingText.textContent = `已篩選 ${all.length.toLocaleString()} 支 → 精選 ${deepCandidates.length} 支深度分析…`;
+    }
+  } catch (e) {
+    arLoadingText.textContent = '納斯達克數據取得失敗，改用精選標的…';
+  }
+  arProg.style.width = '18%';
+
+  // ── Phase 2: deep OHLCV scan ───────────────────────────────────────────────
+  // Always include Taiwan stocks + custom list regardless of screener result
+  const twSyms = [...new Set(
+    Object.values(SECTOR_STOCKS).flatMap(cfg => cfg.syms.filter(s => s.includes('.')))
+  )];
+  const fallback = deepCandidates.length ? [] : AUTO_SCAN_LIST;
+  const fullScanList = [...new Set([...deepCandidates, ...fallback, ...twSyms, ..._customScanList])];
+
   const results = []; let done = 0;
   for (let i = 0; i < fullScanList.length; i += 5) {
     const batch = fullScanList.slice(i, i + 5);
@@ -2652,10 +2707,9 @@ async function autoRecommend(force = false) {
     }));
     settled.forEach(r => { if (r.status === 'fulfilled') results.push(r.value); });
     done += batch.length;
-    arProg.style.width = Math.round(done / fullScanList.length * 100) + '%';
+    arProg.style.width = Math.round(18 + done / fullScanList.length * 78) + '%';
+    arLoadingText.textContent = `深度分析中 ${done} / ${fullScanList.length}…`;
   }
-
-  const resultMap = Object.fromEntries(results.map(d => [d.symbol, d]));
 
   const scored = results.map(d => {
     const mm = calcMonsterScore(d);
@@ -2668,7 +2722,7 @@ async function autoRecommend(force = false) {
     };
   });
 
-  // Build sector summary
+  // Sector summary (from SECTOR_STOCKS — keeps TW + thematic sectors)
   const scoredMap = Object.fromEntries(scored.map(d => [d.symbol, d]));
   const sectorData = {};
   for (const [name, cfg] of Object.entries(SECTOR_STOCKS)) {
@@ -2678,13 +2732,67 @@ async function autoRecommend(force = false) {
     sectorData[name] = { e: cfg.e, avg: Math.round(avg), stocks };
   }
 
-  try { localStorage.setItem('arCache', JSON.stringify({ ts: now, data: scored, sectorData })); } catch {}
+  try {
+    localStorage.setItem('arCache', JSON.stringify({ ts: now, data: scored, sectorData, nasdaqMeta }));
+  } catch {}
   arLoading.style.display = 'none';
-  renderAutoRec(scored, sectorData);
+  renderAutoRec(scored, sectorData, nasdaqMeta);
 }
 
-function renderAutoRec(scored, sectorData) {
+function renderNasdaqMeta(meta) {
+  const el = document.getElementById('ar-nasdaq-meta');
+  if (!el || !meta) { if (el) el.style.display = 'none'; return; }
+
+  const gr = meta.total > 0 ? meta.gainers / meta.total : 0.5;
+  const gPct = (meta.gainers / meta.total * 100).toFixed(1);
+  const lPct = (meta.losers  / meta.total * 100).toFixed(1);
+  const uPct = (meta.unchanged / meta.total * 100).toFixed(1);
+  const health = gr > 0.62 ? '強勢多頭' : gr > 0.52 ? '偏多格局' : gr > 0.45 ? '多空拉鋸' : gr > 0.38 ? '偏弱' : '空頭主導';
+  const hcls  = gr > 0.55 ? 'pos' : gr > 0.45 ? '' : 'neg';
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <span style="font-size:.85rem;font-weight:700">🌐 NASDAQ 全市場</span>
+      <span class="${hcls}" style="font-weight:700;font-size:.82rem">${health}</span>
+      <span style="font-size:.72rem;color:var(--muted)">${meta.total.toLocaleString()} 支 ·
+        <span class="pos">▲ ${meta.gainers}</span> /
+        <span style="color:var(--muted)">${meta.unchanged}</span> /
+        <span class="neg">▼ ${meta.losers}</span>
+      </span>
+    </div>
+    <div style="display:flex;height:7px;border-radius:4px;overflow:hidden;margin-bottom:12px;gap:1px">
+      <div style="width:${gPct}%;background:var(--bull);border-radius:4px 0 0 4px"></div>
+      <div style="width:${uPct}%;background:var(--border)"></div>
+      <div style="width:${lPct}%;background:var(--bear);border-radius:0 4px 4px 0"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <div style="font-size:.68rem;color:var(--bull);font-weight:600;text-transform:uppercase;margin-bottom:5px">▲ 漲幅排行 Top 15</div>
+        ${meta.topGainers.map((s,i) => `
+          <div onclick="qs('${s.symbol}');switchTab('analysis')" style="cursor:pointer;display:flex;align-items:center;gap:5px;padding:3px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:.66rem;color:var(--muted);min-width:14px;text-align:right">${i+1}</span>
+            <span style="font-size:.79rem;font-weight:700;min-width:50px">${s.symbol}</span>
+            <span style="font-size:.7rem;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</span>
+            <span class="pos" style="font-size:.79rem;font-weight:700;white-space:nowrap">+${s.pctchange.toFixed(2)}%</span>
+          </div>`).join('')}
+      </div>
+      <div>
+        <div style="font-size:.68rem;color:var(--bear);font-weight:600;text-transform:uppercase;margin-bottom:5px">▼ 跌幅排行 Top 15</div>
+        ${meta.topLosers.map((s,i) => `
+          <div onclick="qs('${s.symbol}');switchTab('analysis')" style="cursor:pointer;display:flex;align-items:center;gap:5px;padding:3px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:.66rem;color:var(--muted);min-width:14px;text-align:right">${i+1}</span>
+            <span style="font-size:.79rem;font-weight:700;min-width:50px">${s.symbol}</span>
+            <span style="font-size:.7rem;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</span>
+            <span class="neg" style="font-size:.79rem;font-weight:700;white-space:nowrap">${s.pctchange.toFixed(2)}%</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  el.style.display = 'block';
+}
+
+function renderAutoRec(scored, sectorData, nasdaqMeta) {
   sectorData = sectorData || {};
+  renderNasdaqMeta(nasdaqMeta);
 
   // ── Helper: render a card ──
   function arcCard(d, type, extra) {
@@ -2773,7 +2881,8 @@ function renderAutoRec(scored, sectorData) {
   renderSentiment(scored);
   renderHeatmap(sectorData);
   renderLeaderboard(scored);
-  document.getElementById('ar-ts').textContent = `更新：${ts} · ${scored.length} 支 · 每30分自動刷新`;
+  const nasdaqTotal = nasdaqMeta?.total ? `NASDAQ ${nasdaqMeta.total.toLocaleString()} 支 · ` : '';
+  document.getElementById('ar-ts').textContent = `更新：${ts} · ${nasdaqTotal}深度分析 ${scored.length} 支`;
   document.getElementById('ar-status').textContent = '已完成';
   document.getElementById('ar-status').className = 'ar-status ready';
   document.getElementById('ar-cards').style.display = 'block';

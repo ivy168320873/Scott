@@ -3,6 +3,7 @@ import requests as _req
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone
+import time as _time
 import traceback, os
 import demo_data as _demo
 import analyzer
@@ -147,6 +148,66 @@ def api_patterns():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── NASDAQ Screener proxy ─────────────────────────────────────────────────────
+
+_screener_cache: dict = {"data": None, "ts": 0.0}
+
+@app.route("/api/nasdaq-screener")
+def nasdaq_screener():
+    """Return all NASDAQ-listed stocks with price/change/volume (15-min server cache)."""
+    global _screener_cache
+    TTL = 900  # 15 minutes
+    now = _time.time()
+
+    if _screener_cache["data"] and now - _screener_cache["ts"] < TTL:
+        return jsonify({"ok": True, "cached": True, **_screener_cache["data"]})
+
+    try:
+        r = _req.get(
+            "https://api.nasdaq.com/api/screener/stocks",
+            params={"tableonly": "true", "limit": "5000", "exchange": "NASDAQ", "download": "true"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://www.nasdaq.com/market-activity/stocks/screener",
+            },
+            timeout=25,
+        )
+        if r.status_code == 200:
+            rows = (r.json().get("data") or {}).get("table", {}).get("rows") or []
+            stocks = []
+            for row in rows:
+                try:
+                    sym = (row.get("symbol") or "").strip()
+                    if not sym or "/" in sym or "^" in sym or len(sym) > 6:
+                        continue
+                    price = float((row.get("lastsale") or "0").replace("$", "").replace(",", "") or 0)
+                    pct   = float((row.get("pctchange") or "0").replace("%", "").replace(",", "") or 0)
+                    vol   = int((row.get("volume") or "0").replace(",", "") or 0)
+                    mc    = float((row.get("marketCap") or "0").replace(",", "") or 0)
+                    if price < 1.0 or vol < 100_000:
+                        continue
+                    stocks.append({
+                        "symbol": sym,
+                        "name": (row.get("name") or "")[:60],
+                        "price": round(price, 4),
+                        "pctchange": round(pct, 4),
+                        "volume": vol,
+                        "marketCap": mc,
+                        "sector": row.get("sector") or "",
+                    })
+                except (ValueError, TypeError):
+                    continue
+            result = {"count": len(stocks), "stocks": stocks}
+            _screener_cache = {"data": result, "ts": now}
+            return jsonify({"ok": True, "cached": False, **result})
+    except Exception:
+        traceback.print_exc()
+
+    return jsonify({"ok": False, "error": "NASDAQ screener unavailable"}), 500
 
 
 # ── News proxy ─────────────────────────────────────────────────────────────────
