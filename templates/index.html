@@ -596,6 +596,35 @@ tbody td{padding:9px 10px}
 .orb-bar-rng{position:absolute;height:100%;border-radius:5px;background:rgba(88,166,255,.3);border:1px solid rgba(88,166,255,.5)}
 .orb-bar-mk{position:absolute;top:-4px;width:4px;height:18px;border-radius:2px;transform:translateX(-50%)}
 .orb-bar-lbls{display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted)}
+
+/* ── Pre-Breakout card ── */
+.pb-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;transition:border-color .15s}
+.pb-card:hover{border-color:var(--accent)}
+.pb-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px}
+.pb-sym{font-size:.92rem;font-weight:700}
+.pb-snum{font-size:1.5rem;font-weight:900;line-height:1;color:var(--accent);text-align:right}
+.pb-slbl{font-size:.6rem;color:var(--muted);text-align:right}
+.pb-bar{height:4px;background:var(--border);border-radius:2px;margin-bottom:5px;overflow:hidden}
+.pb-bar-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--accent),#58d6ff)}
+.pb-trig{font-size:.76rem;color:var(--neutral);margin-bottom:5px;font-weight:600}
+.pb-tags{display:flex;flex-wrap:wrap;gap:4px}
+
+/* ── Investment recommendation card ── */
+.invest-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(max-width:640px){.invest-grid{grid-template-columns:1fr}}
+.invest-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px 15px;cursor:pointer;transition:border-color .15s}
+.invest-card:hover{border-color:var(--accent)}
+.ic-top{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.ic-sym{font-size:.95rem;font-weight:700;flex:1}
+.ic-stars{color:var(--neutral);font-size:.88rem;letter-spacing:-.05em}
+.ic-score{font-size:.72rem;background:var(--surface2);padding:2px 7px;border-radius:4px;color:var(--muted);white-space:nowrap}
+.ic-type{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.7rem;font-weight:600;background:rgba(88,166,255,.15);color:var(--accent);margin-bottom:8px}
+.ic-levels{margin-bottom:6px}
+.ic-row{display:flex;justify-content:space-between;align-items:center;font-size:.77rem;padding:3px 0;border-bottom:1px solid var(--border)}
+.ic-row:last-child{border-bottom:none}
+.il-lbl{color:var(--muted);min-width:56px}
+.il-val{font-weight:600;text-align:right}
+.ic-reason{font-size:.71rem;color:var(--muted);line-height:1.5;padding-top:4px;border-top:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -685,6 +714,12 @@ tbody td{padding:9px 10px}
       <!-- Value Buys -->
       <div class="ar-sec-lbl" style="margin-top:12px">💎 超賣反彈 <span style="font-weight:400;text-transform:none;letter-spacing:0">回調至支撐買入機會</span></div>
       <div class="auto-rec-grid" id="ar-buy"></div>
+      <!-- Pre-Breakout -->
+      <div class="ar-sec-lbl" style="margin-top:14px">🔥 準備噴發 <span style="font-weight:400;text-transform:none;letter-spacing:0">BB壓縮蓄勢 · OBV積累 · 即將引爆</span></div>
+      <div class="auto-rec-grid" id="ar-prebreak"></div>
+      <!-- Investment Picks -->
+      <div class="ar-sec-lbl" style="margin-top:14px">💰 投資建議 <span style="font-weight:400;text-transform:none;letter-spacing:0">精選進場點位 含停損與獲利目標</span></div>
+      <div class="invest-grid" id="ar-invest"></div>
       <!-- Heatmap -->
       <div class="ar-sec-lbl" style="margin-top:14px">
         🌡 板塊熱力圖
@@ -2712,13 +2747,19 @@ async function autoRecommend(force = false) {
   }
 
   const scored = results.map(d => {
-    const mm = calcMonsterScore(d);
+    const mm  = calcMonsterScore(d);
+    const pbs = calcPreBreakoutScore(d);
+    const ir  = calcInvestmentRating(d, pbs.score);
     return {
       symbol: d.symbol, name: d.name, price: d.price, changePct: d.changePct,
       score: d.score, pctFromHigh: d.pctFromHigh, isDemo: d.isDemo,
       monsterScore: mm.score, monsterMeta: mm,
       buyScore: calcBuyScore(d), btScore: calcBreakoutScore(d),
-      indicators: { rsi: d.indicators.rsi, bbPctB: d.indicators.bbPctB },
+      indicators: { rsi: d.indicators.rsi, bbPctB: d.indicators.bbPctB,
+                    macdHist: d.indicators.macdHist },
+      volumeRatio: d.volumeRatio, bullMa: d.bullMa,
+      preBreakScore: pbs.score, preBreakMeta: pbs,
+      investRating: ir,
     };
   });
 
@@ -2876,6 +2917,9 @@ function renderAutoRec(scored, sectorData, nasdaqMeta) {
   document.getElementById('ar-buy').innerHTML =
     buyTop.filter(d => d.buyScore >= 2).map(d => arcCard(d, 'buy')).join('') ||
     '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無明顯超賣回彈機會</div>';
+
+  renderPreBreakout(scored, used);
+  renderInvestmentPicks(scored, used);
 
   const ts = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
   renderSentiment(scored);
@@ -3107,6 +3151,190 @@ async function requestNotifPermission() {
 }
 
 // ── 妖股獵手評分系統 ───────────────────────────────────
+// ══════════════════════════════════════════════════════
+// Pre-Breakout & Investment Analysis
+// ══════════════════════════════════════════════════════
+
+function calcPreBreakoutScore(d) {
+  const c   = d.chart;
+  const ind = d.indicators;
+  const closes = c.closes, vols = c.volumes;
+  const n = closes.length;
+  if (n < 20) return { score: 0, tags: [], triggerPrice: d.price };
+
+  let score = 0;
+  const tags = [];
+  const tag = (pts, t, cls) => { score += pts; if (t) tags.push({ t, cls }); };
+
+  // 1. BB squeeze (0-25 pts)
+  const bbW = (ind.bbUpper && ind.bbLower && d.price)
+    ? (ind.bbUpper - ind.bbLower) / d.price : 0.1;
+  if      (bbW < 0.025) tag(25, '⚡ BB極度壓縮', 'fire');
+  else if (bbW < 0.04)  tag(18, '▼ BB壓縮蓄勢', 'warn');
+  else if (bbW < 0.06)  tag(10, '▽ BB略收窄',   'info');
+
+  // 2. Volume accumulation: recent 5-day avg vs prior 5-day avg (0-20 pts)
+  const avg5  = vols.slice(-5).reduce((a,b) => a+b,0) / 5;
+  const avg10 = vols.slice(-10,-5).reduce((a,b) => a+b,0) / 5;
+  const priceRange5 = n >= 5
+    ? (Math.max(...closes.slice(-5)) - Math.min(...closes.slice(-5))) / d.price * 100 : 99;
+  if (avg10 > 0 && avg5 > avg10 * 1.4 && priceRange5 < 5)
+    tag(20, '💰 縮盤放量積累', 'fire');
+  else if (avg10 > 0 && avg5 > avg10 * 1.2)
+    tag(12, '量能漸增', 'warn');
+  else if (avg10 > 0 && avg5 < avg10 * 0.65)
+    tag(-5, '', ''); // volume drying — slight negative
+
+  // 3. RSI coiling zone 47-63 (0-20 pts)
+  const rsi = ind.rsi ?? 50;
+  if      (rsi >= 47 && rsi <= 63) tag(20, `RSI動能蓄積(${rsi.toFixed(0)})`, 'bull');
+  else if (rsi >= 37 && rsi <  47) tag(12, `RSI回測支撐(${rsi.toFixed(0)})`, 'info');
+  else if (rsi >  63 && rsi <= 72) tag(8,  `RSI偏強(${rsi.toFixed(0)})`,     'warn');
+
+  // 4. MACD histogram converging / crossing zero (0-15 pts)
+  const hist     = ind.macdHist   ?? 0;
+  const macdLine = ind.macdLine   ?? 0;
+  const macdSig  = ind.macdSignal ?? 0;
+  if      (hist > 0 && macdLine > macdSig)
+    tag(15, 'MACD金叉確認', 'bull');
+  else if (hist < 0 && macdLine > macdSig * 0.92 && Math.abs(hist) < 0.006 * d.price)
+    tag(12, 'MACD即將金叉', 'warn');
+  else if (hist > 0)
+    tag(8,  'MACD轉正', 'info');
+
+  // 5. Proximity to 52w high / key resistance (0-15 pts)
+  if      (d.pctFromHigh >= -2)   tag(15, '🎯 即將突破年高', 'fire');
+  else if (d.pctFromHigh >= -5)   tag(10, '接近關鍵阻力',    'warn');
+  else if (d.pctFromHigh >= -10)  tag(5,  '距阻力位適中',    'info');
+
+  // 6. OBV accumulation slope (0-10 pts)
+  const obv = calcOBV(closes, vols);
+  const slp = obvSlope(obv, 10);
+  if      (slp > 15) tag(10, '💰 OBV急升吃貨', 'bull');
+  else if (slp > 5)  tag(6,  '💰 OBV緩步積累', 'info');
+  else if (slp < -10) score -= 5;
+
+  // 7. MA alignment (0-5 pts)
+  if (d.bullMa >= 3) tag(5, 'MA多頭排列', 'info');
+
+  // Trigger: just above recent 10-day high
+  const recentHigh = Math.max(...closes.slice(-10));
+  const triggerPrice = Math.min(recentHigh * 1.005, d.price * 1.03);
+
+  return {
+    score: Math.min(100, Math.max(0, Math.round(score))),
+    tags: tags.filter(t => t.t),
+    triggerPrice,
+    bbWidth: bbW,
+    rsi,
+  };
+}
+
+function calcInvestmentRating(d, preBreakScore) {
+  const lv = calcTradingLevels(d);
+  if (!lv || lv.isBearish) return null;
+
+  const composite = Math.round(
+    d.score               * 0.25 +
+    (preBreakScore || 0)  * 0.35 +
+    (d.indicators.macdHist > 0 ? 10 : 0) +
+    Math.min(calcBreakoutScore(d) * 7, 100) * 0.15 +
+    Math.min(calcBuyScore(d) * 8, 100) * 0.10 +
+    (d.volumeRatio > 1.3 ? 5 : 0)
+  );
+  if (composite < 35) return null;
+
+  const conf = composite >= 68 ? { stars: '★★★', text: '高度確信', cls: 'pos'  }
+             : composite >= 50 ? { stars: '★★☆', text: '中度確信', cls: ''     }
+             :                   { stars: '★☆☆', text: '審慎留意', cls: 'muted' };
+
+  const entryType =
+    d.pctFromHigh >= -3   ? '突破追入' :
+    d.indicators.rsi < 40 ? '逢低布局' :
+    d.indicators.rsi < 50 ? '回調買入' : '順勢入場';
+
+  const rs = [];
+  if (d.score >= 65)                               rs.push('強勢動能');
+  if (preBreakScore >= 50)                         rs.push('即將噴發');
+  if (d.indicators.rsi >= 50 && d.indicators.rsi < 68) rs.push('RSI健康');
+  if (d.indicators.bbPctB > 0.7)                  rs.push('突破布林');
+  if (d.volumeRatio > 1.4)                         rs.push('放量確認');
+  if (d.pctFromHigh >= -3)                         rs.push('逼近年高');
+  if (d.indicators.macdHist > 0)                   rs.push('MACD看多');
+  if (d.bullMa >= 3)                               rs.push('均線多排');
+
+  return {
+    composite,
+    conf,
+    entryType,
+    reason: rs.slice(0, 4).join(' · ') || '技術轉強',
+    entry:   lv.price,
+    stop:    lv.stopLoss,
+    riskPct: lv.riskPct,
+    buyLow:  lv.buyLow,
+    buyHigh: lv.buyHigh,
+    tp1:     lv.targets[0],
+    tp2:     lv.targets[1],
+  };
+}
+
+function renderPreBreakout(scored, usedSet) {
+  const el = document.getElementById('ar-prebreak');
+  if (!el) return;
+  const top = [...scored]
+    .filter(d => !usedSet.has(d.symbol))
+    .sort((a, b) => b.preBreakScore - a.preBreakScore)
+    .slice(0, 6);
+  el.innerHTML = top.filter(d => d.preBreakScore >= 25).map(d => {
+    const pb = d.preBreakMeta;
+    const fillColor = d.preBreakScore >= 70 ? 'var(--bear)'
+                    : d.preBreakScore >= 50 ? 'var(--neutral)' : 'var(--accent)';
+    return `<div class="pb-card" onclick="qs('${d.symbol}');switchTab('analysis')">
+      <div class="pb-top">
+        <div>
+          <div class="pb-sym">${d.symbol}${d.isDemo?'<span style="font-size:.6rem;color:var(--muted)"> [示]</span>':''}</div>
+          <div style="font-size:.76rem;color:var(--muted)">${fmt(d.price)} <span class="${pC(d.changePct)}">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
+        </div>
+        <div><div class="pb-snum" style="color:${fillColor}">${d.preBreakScore}</div><div class="pb-slbl">噴發指數</div></div>
+      </div>
+      <div class="pb-bar"><div class="pb-bar-fill" style="width:${d.preBreakScore}%;background:${fillColor}"></div></div>
+      <div class="pb-trig">🎯 突破確認價：${fmt(pb.triggerPrice)}</div>
+      <div class="pb-tags">${pb.tags.slice(0,4).map(t => `<span class="mct mct-${t.cls}">${t.t}</span>`).join('')}</div>
+    </div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無明顯蓄勢型態，建議持續觀察</div>';
+}
+
+function renderInvestmentPicks(scored, usedSet) {
+  const el = document.getElementById('ar-invest');
+  if (!el) return;
+  const picks = [...scored]
+    .filter(d => d.investRating && !usedSet.has(d.symbol))
+    .sort((a, b) => b.investRating.composite - a.investRating.composite)
+    .slice(0, 6);
+  el.innerHTML = picks.map(d => {
+    const ir = d.investRating;
+    const entryTxt = ir.buyLow
+      ? `$${fmt(ir.buyLow)} – $${fmt(ir.buyHigh)}`
+      : `$${fmt(ir.entry)}`;
+    return `<div class="invest-card" onclick="qs('${d.symbol}');switchTab('analysis')">
+      <div class="ic-top">
+        <div class="ic-sym">${d.symbol} <span class="${pC(d.changePct)}" style="font-size:.8rem">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
+        <span class="ic-stars">${ir.conf.stars}</span>
+        <span class="ic-score ${ir.conf.cls}">投資分 ${ir.composite}</span>
+      </div>
+      <div><span class="ic-type">${ir.entryType}</span></div>
+      <div class="ic-levels">
+        <div class="ic-row"><span class="il-lbl">進場區間</span><span class="il-val pos">${entryTxt}</span></div>
+        <div class="ic-row"><span class="il-lbl">停損價位</span><span class="il-val neg">$${fmt(ir.stop)} (-${ir.riskPct.toFixed(1)}%)</span></div>
+        <div class="ic-row"><span class="il-lbl">目標一</span><span class="il-val">$${fmt(ir.tp1.price)} (+${ir.tp1.pct}%)</span></div>
+        <div class="ic-row"><span class="il-lbl">目標二</span><span class="il-val">$${fmt(ir.tp2.price)} (+${ir.tp2.pct}%)</span></div>
+        <div class="ic-row"><span class="il-lbl">風報比</span><span class="il-val">${ir.tp1.rr}</span></div>
+      </div>
+      <div class="ic-reason">${ir.conf.text} · ${ir.reason}</div>
+    </div>`;
+  }).join('') || '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無達門檻的投資機會，建議等待訊號確認</div>';
+}
+
 function calcMonsterScore(d) {
   const c = d.chart, ind = d.indicators;
   const closes = c.closes, vols = c.volumes;
