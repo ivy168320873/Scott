@@ -625,6 +625,19 @@ tbody td{padding:9px 10px}
 .il-lbl{color:var(--muted);min-width:56px}
 .il-val{font-weight:600;text-align:right}
 .ic-reason{font-size:.71rem;color:var(--muted);line-height:1.5;padding-top:4px;border-top:1px solid var(--border)}
+
+/* ── Capital Settings ── */
+.cap-settings{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;font-size:.79rem}
+.cap-settings label{color:var(--muted);white-space:nowrap}
+.cap-settings input{width:88px;padding:4px 7px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:5px;font-size:.79rem;outline:none}
+.cap-settings input:focus{border-color:var(--accent)}
+.cap-hint{font-size:.7rem;color:var(--muted)}
+/* ── Position Size inside invest card ── */
+.ic-pos{background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.18);border-radius:6px;padding:7px 10px;margin-top:6px}
+.ic-pos-row{display:flex;justify-content:space-between;font-size:.76rem;padding:2px 0}
+.ic-pos-lbl{color:var(--muted)}
+.ic-pos-val{font-weight:700}
+.ic-kelly{font-size:.68rem;color:var(--muted);margin-top:4px;padding-top:4px;border-top:1px solid rgba(88,166,255,.15)}
 </style>
 </head>
 <body>
@@ -719,6 +732,16 @@ tbody td{padding:9px 10px}
       <div class="auto-rec-grid" id="ar-prebreak"></div>
       <!-- Investment Picks -->
       <div class="ar-sec-lbl" style="margin-top:14px">💰 投資建議 <span style="font-weight:400;text-transform:none;letter-spacing:0">精選進場點位 含停損與獲利目標</span></div>
+      <div class="cap-settings">
+        <label>💵 總資金</label>
+        <input id="ar-capital" type="number" placeholder="100000" min="1000" step="1000" oninput="saveCapSettings();reRenderInvest()">
+        <label>每筆風險</label>
+        <input id="ar-risk-pct" type="number" value="2" min="0.5" max="10" step="0.5" oninput="saveCapSettings();reRenderInvest()">
+        <span class="cap-hint">%</span>
+        <label>單倉上限</label>
+        <input id="ar-max-pos" type="number" value="15" min="5" max="50" step="5" oninput="saveCapSettings();reRenderInvest()">
+        <span class="cap-hint">% · 系統自動計算建議股數與投入金額</span>
+      </div>
       <div class="invest-grid" id="ar-invest"></div>
       <!-- Heatmap -->
       <div class="ar-sec-lbl" style="margin-top:14px">
@@ -3304,18 +3327,125 @@ function renderPreBreakout(scored, usedSet) {
   }).join('') || '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無明顯蓄勢型態，建議持續觀察</div>';
 }
 
+// ── Capital Settings helpers ──────────────────────────────────────────────────
+function getCapSettings() {
+  return {
+    capital:   parseFloat(document.getElementById('ar-capital')?.value)  || 0,
+    riskPct:   parseFloat(document.getElementById('ar-risk-pct')?.value) || 2,
+    maxPosPct: parseFloat(document.getElementById('ar-max-pos')?.value)  || 15,
+  };
+}
+
+function saveCapSettings() {
+  try { localStorage.setItem('capSettings', JSON.stringify(getCapSettings())); } catch {}
+  // keep 部位管理 calculator in sync
+  const c = getCapSettings().capital;
+  const pcCap = document.getElementById('pc-capital');
+  if (pcCap && c) pcCap.value = c;
+}
+
+function loadCapSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('capSettings') || 'null');
+    if (!s) return;
+    const e = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+    e('ar-capital',  s.capital);
+    e('ar-risk-pct', s.riskPct);
+    e('ar-max-pos',  s.maxPosPct);
+    e('pc-capital',  s.capital); // sync to position tab
+  } catch {}
+}
+
+function calcPositionSize(capital, riskPct, maxPosPct, entry, stop) {
+  if (!capital || !entry || !stop || entry <= stop) return null;
+  const riskDollar  = capital * riskPct / 100;
+  const riskPerShr  = entry - stop;
+  let shares    = Math.floor(riskDollar / riskPerShr);
+  let investAmt = shares * entry;
+  let portPct   = investAmt / capital * 100;
+  const capped  = portPct > maxPosPct;
+  if (capped) {
+    shares    = Math.floor(capital * maxPosPct / 100 / entry);
+    investAmt = shares * entry;
+    portPct   = investAmt / capital * 100;
+  }
+  const maxLoss       = shares * riskPerShr;
+  const actualRiskPct = maxLoss / capital * 100;
+  return { shares, investAmt, portPct, maxLoss, actualRiskPct, capped };
+}
+
+function calcKelly(composite, rrStr) {
+  // Estimate win rate: composite 35→40%, 100→70%
+  const winRate = 0.38 + (Math.min(composite, 100) - 35) / 65 * 0.32;
+  const rr = parseFloat((rrStr || '').replace(/[^0-9.]/g, '')) || 1.5;
+  const k = (winRate * (1 + rr) - 1) / rr;
+  return {
+    full:    (Math.max(0, k) * 100).toFixed(1),
+    half:    (Math.max(0, k * 0.5) * 100).toFixed(1),
+    winRate: (winRate * 100).toFixed(0),
+  };
+}
+
+let _lastScoredInvest = null;
+let _lastUsedInvest   = null;
+
+function reRenderInvest() {
+  if (_lastScoredInvest && _lastUsedInvest) renderInvestmentPicks(_lastScoredInvest, _lastUsedInvest);
+}
+
 function renderInvestmentPicks(scored, usedSet) {
+  _lastScoredInvest = scored;
+  _lastUsedInvest   = usedSet;
   const el = document.getElementById('ar-invest');
   if (!el) return;
+
+  const { capital, riskPct, maxPosPct } = getCapSettings();
+  const hasCapital = capital > 0;
+
   const picks = [...scored]
     .filter(d => d.investRating && !usedSet.has(d.symbol))
     .sort((a, b) => b.investRating.composite - a.investRating.composite)
     .slice(0, 6);
+
   el.innerHTML = picks.map(d => {
-    const ir = d.investRating;
+    const ir  = d.investRating;
     const entryTxt = ir.buyLow
       ? `$${fmt(ir.buyLow)} – $${fmt(ir.buyHigh)}`
       : `$${fmt(ir.entry)}`;
+    const rrStr = ir.tp1?.rr || '';
+
+    // Position size block
+    let posHtml = '';
+    if (hasCapital && ir.stop < ir.entry) {
+      const ps = calcPositionSize(capital, riskPct, maxPosPct, ir.entry, ir.stop);
+      if (ps && ps.shares > 0) {
+        const kelly = calcKelly(ir.composite, rrStr);
+        posHtml = `
+        <div class="ic-pos">
+          <div class="ic-pos-row">
+            <span class="ic-pos-lbl">建議投入金額</span>
+            <span class="ic-pos-val pos">$${ps.investAmt.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+          </div>
+          <div class="ic-pos-row">
+            <span class="ic-pos-lbl">佔總資金</span>
+            <span class="ic-pos-val">${ps.portPct.toFixed(1)}%${ps.capped ? ' <span style="color:var(--neutral);font-size:.68rem">（上限）</span>' : ''}</span>
+          </div>
+          <div class="ic-pos-row">
+            <span class="ic-pos-lbl">建議買入股數</span>
+            <span class="ic-pos-val">${ps.shares.toLocaleString()} 股</span>
+          </div>
+          <div class="ic-pos-row">
+            <span class="ic-pos-lbl">最大虧損</span>
+            <span class="ic-pos-val neg">-$${ps.maxLoss.toLocaleString(undefined,{maximumFractionDigits:0})} (${ps.actualRiskPct.toFixed(2)}%)</span>
+          </div>
+          <div class="ic-kelly">凱利建議倉位 ${kelly.half}%（半凱利）· 估算勝率 ${kelly.winRate}% · 僅供風管參考</div>
+        </div>`;
+      }
+    } else if (!hasCapital) {
+      posHtml = `<div style="font-size:.72rem;color:var(--muted);margin-top:7px;padding:6px 8px;background:var(--surface2);border-radius:5px">
+        📝 在上方輸入總資金，系統將自動計算建議股數與投入金額</div>`;
+    }
+
     return `<div class="invest-card" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div class="ic-top">
         <div class="ic-sym">${d.symbol} <span class="${pC(d.changePct)}" style="font-size:.8rem">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
@@ -3328,9 +3458,10 @@ function renderInvestmentPicks(scored, usedSet) {
         <div class="ic-row"><span class="il-lbl">停損價位</span><span class="il-val neg">$${fmt(ir.stop)} (-${ir.riskPct.toFixed(1)}%)</span></div>
         <div class="ic-row"><span class="il-lbl">目標一</span><span class="il-val">$${fmt(ir.tp1.price)} (+${ir.tp1.pct}%)</span></div>
         <div class="ic-row"><span class="il-lbl">目標二</span><span class="il-val">$${fmt(ir.tp2.price)} (+${ir.tp2.pct}%)</span></div>
-        <div class="ic-row"><span class="il-lbl">風報比</span><span class="il-val">${ir.tp1.rr}</span></div>
+        <div class="ic-row"><span class="il-lbl">風報比</span><span class="il-val">${rrStr}</span></div>
       </div>
       <div class="ic-reason">${ir.conf.text} · ${ir.reason}</div>
+      ${posHtml}
     </div>`;
   }).join('') || '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無達門檻的投資機會，建議等待訊號確認</div>';
 }
@@ -4723,6 +4854,7 @@ window.addEventListener('DOMContentLoaded', () => {
   renderFavRow();
   renderHistoryRow();
   renderCustomScanTags();
+  loadCapSettings();
   search('NVDA');
   // Auto recommend: start after initial NVDA load settles
   setTimeout(() => {
