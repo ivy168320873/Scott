@@ -714,12 +714,14 @@ tbody td{padding:9px 10px}
   <!-- ── Auto Recommend Panel ── -->
   <div class="auto-rec-wrap" id="auto-rec-wrap">
     <div class="auto-rec-hdr">
-      <div style="display:flex;align-items:center;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-size:1.05rem">🤖</span>
         <span class="auto-rec-title">AI 自動推薦</span>
         <span class="ar-status scanning" id="ar-status">初始化中…</span>
+        <span id="ar-market-status" style="font-size:.7rem;padding:2px 7px;border-radius:10px;background:var(--surface2)"></span>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:.68rem;color:var(--muted)" id="ar-monitor-ts"></span>
         <span style="font-size:.71rem;color:var(--muted)" id="ar-ts"></span>
         <button class="btn btn-secondary" style="padding:4px 10px;font-size:.75rem" onclick="autoRecommend(true)">↻ 重新掃描</button>
       </div>
@@ -739,7 +741,12 @@ tbody td{padding:9px 10px}
     </div>
     <div id="ar-cards" style="display:none">
       <!-- 1. Market Pulse — one-liner status -->
-      <div id="ar-pulse" style="margin-bottom:14px"></div>
+      <div id="ar-pulse" style="margin-bottom:10px"></div>
+      <!-- 1b. News Intelligence -->
+      <div class="ar-sec-lbl" style="margin-bottom:8px">📰 產業即時情報 <span id="ar-news-sentiment" style="font-weight:400;letter-spacing:0"></span></div>
+      <div id="ar-news" style="margin-bottom:14px">
+        <div style="color:var(--muted);font-size:.8rem;padding:6px 0">正在載入產業消息…</div>
+      </div>
       <!-- 2. Today's Picks -->
       <div class="ar-sec-lbl">✅ 現在可以考慮買</div>
       <div class="cap-settings" style="margin:8px 0 10px">
@@ -2855,6 +2862,136 @@ function renderRotation(rotData, scored, sectorData) {
           </div>`).join('')}
       </div>`:''}`;
   el.style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════
+// 24h 產業情報 & 市場狀態
+// ══════════════════════════════════════════════════════
+
+const BULL_KW = ['beat','beats','upgrade','upgraded','record','surge','rally','bullish','buy',
+  'outperform','acquisition','deal','contract','approval','launch','growth','profit',
+  'revenue','breakthrough','partnership','dividend','buyback','strong','raises','boost',
+  'expands','wins','exceeds','soars','climbs','jumps','rises'];
+const BEAR_KW = ['miss','misses','downgrade','downgraded','drop','fall','investigation',
+  'lawsuit','recall','fraud','cut','loss','warning','default','probe','decline','disappoints',
+  'risk','concern','weak','lowers','guidance','short','plunges','slumps','tumbles','sinks',
+  'crashes','collapses','layoffs','restructuring'];
+
+function scoreHeadline(title) {
+  const t = title.toLowerCase();
+  return BULL_KW.filter(k => t.includes(k)).length - BEAR_KW.filter(k => t.includes(k)).length;
+}
+
+function timeAgo(ts) {
+  const diff = Date.now() / 1000 - ts;
+  if (diff < 60)    return '剛剛';
+  if (diff < 3600)  return `${Math.round(diff / 60)}分鐘前`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}小時前`;
+  return `${Math.round(diff / 86400)}天前`;
+}
+
+function getMarketStatus() {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  const et = new Date(utcMs + (-4) * 3600000); // EDT; close enough year-round
+  const h = et.getHours(), m = et.getMinutes(), dow = et.getDay();
+  const t = h * 100 + m;
+  if (dow === 0 || dow === 6) return { label:'週末休市', cls:'muted' };
+  if (t < 400)  return { label:'深夜·亞盤', cls:'muted' };
+  if (t < 930)  return { label:'🌅 盤前交易中', cls:'pos' };
+  if (t < 1600) return { label:'📊 盤中交易中', cls:'pos' };
+  if (t < 2000) return { label:'🌆 盤後交易中', cls:'pos' };
+  return { label:'休市中', cls:'muted' };
+}
+
+async function fetchSectorNews(force = false) {
+  const baseSyms = ['QQQ','NVDA','MSFT','META','CRWD','TSLA','COIN','LLY','RKLB','PLTR'];
+  const pickSyms = (_lastScoredInvest || [])
+    .filter(d => d.investRating)
+    .sort((a, b) => b.investRating.composite - a.investRating.composite)
+    .slice(0, 4).map(d => d.symbol);
+  const syms = [...new Set([...pickSyms, ...baseSyms])].slice(0, 12);
+
+  const CACHE_KEY = 'newsCache15';
+  const TTL = 15 * 60 * 1000;
+  if (!force) {
+    try {
+      const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+      if (c && Date.now() - c.ts < TTL) { renderNewsPanel(c.data); return; }
+    } catch {}
+  }
+
+  try {
+    const r  = await fetch(`/api/sector-news?syms=${syms.join(',')}`);
+    const js = await r.json();
+    if (js.ok) {
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: js.news })); } catch {}
+      renderNewsPanel(js.news);
+    }
+  } catch { renderNewsPanel({}); }
+}
+
+function renderNewsPanel(newsMap) {
+  const el = document.getElementById('ar-news');
+  if (!el) return;
+
+  const msEl = document.getElementById('ar-market-status');
+  const ms   = getMarketStatus();
+  if (msEl) { msEl.textContent = ms.label; msEl.className = ms.cls; }
+
+  const monEl = document.getElementById('ar-monitor-ts');
+  if (monEl) monEl.textContent = `情報：${new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})} ● 監控中`;
+
+  // Flatten & deduplicate by title
+  const seen = new Set();
+  const all = [];
+  for (const [sym, items] of Object.entries(newsMap)) {
+    for (const n of items) {
+      if (!n.title || seen.has(n.title)) continue;
+      seen.add(n.title);
+      all.push({ ...n, sym, score: scoreHeadline(n.title) });
+    }
+  }
+  all.sort((a, b) => b.published - a.published);
+
+  // Compute rolling sentiment
+  const avgScore = all.length ? all.reduce((s, i) => s + i.score, 0) / all.length : 0;
+  const sentEl = document.getElementById('ar-news-sentiment');
+  if (sentEl) {
+    sentEl.textContent = avgScore > 0.3 ? '· 近期消息偏多 📈'
+                       : avgScore < -0.3 ? '· 近期消息偏空 📉'
+                       : '· 消息面中性 ➡️';
+    sentEl.style.color = avgScore > 0.3 ? 'var(--bull)' : avgScore < -0.3 ? 'var(--bear)' : 'var(--muted)';
+  }
+
+  if (!all.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:6px 0">目前無法取得新聞，稍後自動重試</div>';
+    return;
+  }
+
+  const top = all.slice(0, 10);
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:5px">
+      ${top.map(n => {
+        const e  = n.score > 0 ? '📈' : n.score < 0 ? '📉' : '📋';
+        const bc = n.score > 0 ? 'rgba(63,185,80,.08)' : n.score < 0 ? 'rgba(248,81,73,.08)' : 'var(--surface2)';
+        const symC = n.score > 0 ? 'var(--bull)' : n.score < 0 ? 'var(--bear)' : 'var(--accent)';
+        return `<a href="${n.link||'#'}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div style="background:${bc};border-radius:8px;padding:7px 10px;display:flex;gap:8px;align-items:flex-start">
+            <span style="font-size:.95rem;flex-shrink:0;line-height:1.4">${e}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:.79rem;line-height:1.45;color:var(--text)">${n.title}</div>
+              <div style="font-size:.67rem;color:var(--muted);margin-top:2px">
+                <b style="color:${symC}">${n.sym}</b> · ${n.publisher||'新聞'} · ${timeAgo(n.published)}
+              </div>
+            </div>
+          </div>
+        </a>`;
+      }).join('')}
+    </div>
+    <div style="text-align:right;margin-top:6px">
+      <button class="btn btn-secondary" style="font-size:.68rem;padding:2px 10px" onclick="fetchSectorNews(true)">↻ 更新消息</button>
+    </div>`;
 }
 
 async function autoRecommend(force = false) {
@@ -5171,12 +5308,22 @@ window.addEventListener('DOMContentLoaded', () => {
   renderCustomScanTags();
   loadCapSettings();
   search('NVDA');
+  // Market status badge (no network needed)
+  const ms = getMarketStatus();
+  const msEl = document.getElementById('ar-market-status');
+  if (msEl) { msEl.textContent = ms.label; msEl.className = ms.cls; }
+
+  // News: load immediately then refresh every 15 min
+  setTimeout(() => {
+    fetchSectorNews();
+    setInterval(() => fetchSectorNews(true), 15 * 60 * 1000);
+  }, 2000);
+
   // Auto recommend: start after initial NVDA load settles
   setTimeout(() => {
     autoRecommend();
-    // Auto-refresh every 30 minutes
     setInterval(() => autoRecommend(true), 30 * 60 * 1000);
-  }, 3000);
+  }, 3500);
 });
 
 // ══════════════════════════════════════════════════════

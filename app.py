@@ -210,7 +210,51 @@ def nasdaq_screener():
     return jsonify({"ok": False, "error": "NASDAQ screener unavailable"}), 500
 
 
-# ── News proxy ─────────────────────────────────────────────────────────────────
+# ── Batch sector news (5-min server cache per symbol) ─────────────────────────
+
+_news_cache: dict = {}
+_NEWS_TTL = 300  # 5 minutes
+
+@app.route("/api/sector-news")
+def sector_news():
+    """Fetch news for multiple symbols in one request (CORS bypass + cache)."""
+    global _news_cache
+    raw = request.args.get("syms", "")
+    syms = [s.strip().upper() for s in raw.split(",") if s.strip()][:12]
+    if not syms:
+        return jsonify({"ok": False, "error": "no symbols"}), 400
+
+    now = _time.time()
+    results: dict = {}
+    for sym in syms:
+        if sym in _news_cache and now - _news_cache[sym]["ts"] < _NEWS_TTL:
+            results[sym] = _news_cache[sym]["news"]
+            continue
+        try:
+            r = _req.get(
+                "https://query1.finance.yahoo.com/v1/finance/search",
+                params={"q": sym, "newsCount": 5, "quotesCount": 0},
+                headers=YAHOO_HEADERS, timeout=6,
+            )
+            if r.status_code == 200:
+                raw_news = r.json().get("news", [])
+                items = [
+                    {
+                        "title":     n.get("title", ""),
+                        "link":      n.get("link", ""),
+                        "publisher": n.get("publisher", ""),
+                        "published": n.get("providerPublishTime", 0),
+                    }
+                    for n in raw_news[:5]
+                ]
+                _news_cache[sym] = {"news": items, "ts": now}
+                results[sym] = items
+        except Exception:
+            pass
+    return jsonify({"ok": True, "news": results, "ts": int(now)})
+
+
+# ── Single-symbol news proxy ───────────────────────────────────────────────────
 
 @app.route("/api/news/<symbol>")
 def api_news(symbol):
