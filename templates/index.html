@@ -694,18 +694,18 @@ tbody td{padding:9px 10px}
 
   <div class="quick-row">
     <span style="color:var(--muted);font-size:.78rem;align-self:center">快速：</span>
-    <button class="quick-btn" onclick="qs('NVDA')">NVDA</button>
-    <button class="quick-btn" onclick="qs('AAPL')">AAPL</button>
-    <button class="quick-btn" onclick="qs('MSFT')">MSFT</button>
-    <button class="quick-btn" onclick="qs('TSLA')">TSLA</button>
-    <button class="quick-btn" onclick="qs('AMZN')">AMZN</button>
+    <button class="quick-btn" onclick="qs('NVDA')">NVDA 輝達</button>
+    <button class="quick-btn" onclick="qs('MSFT')">MSFT 微軟</button>
     <button class="quick-btn" onclick="qs('META')">META</button>
-    <button class="quick-btn" onclick="qs('GOOGL')">GOOGL</button>
+    <button class="quick-btn" onclick="qs('PLTR')">PLTR 鈀金屬</button>
+    <button class="quick-btn" onclick="qs('CRWD')">CRWD 網安</button>
+    <button class="quick-btn" onclick="qs('RKLB')">RKLB 火箭</button>
+    <button class="quick-btn" onclick="qs('COIN')">COIN 加密</button>
+    <button class="quick-btn" onclick="qs('LLY')">LLY 禮來</button>
     <button class="quick-btn" onclick="qs('2330.TW')">台積電 2330</button>
-    <button class="quick-btn" onclick="qs('2317.TW')">鴻海 2317</button>
-    <button class="quick-btn" onclick="qs('0050.TW')">元大50</button>
-    <button class="quick-btn" onclick="qs('SPY')">SPY</button>
+    <button class="quick-btn" onclick="qs('2454.TW')">聯發科 2454</button>
     <button class="quick-btn" onclick="qs('QQQ')">QQQ</button>
+    <button class="quick-btn" onclick="qs('SPY')">SPY</button>
   </div>
   <div id="fav-row" class="quick-row" style="display:none;margin-bottom:8px">
     <span style="color:var(--neutral);font-size:.78rem;align-self:center">★ 我的收藏：</span>
@@ -740,6 +740,8 @@ tbody td{padding:9px 10px}
       </div>
     </div>
     <div id="ar-cards" style="display:none">
+      <!-- Demo warning banner -->
+      <div id="ar-demo-banner" style="display:none;background:rgba(210,153,34,.18);border:1px solid var(--neutral);border-radius:8px;padding:9px 13px;font-size:.8rem;color:var(--neutral);margin-bottom:10px"></div>
       <!-- 1. Market Pulse — one-liner status -->
       <div id="ar-pulse" style="margin-bottom:10px"></div>
       <!-- 1b. News Intelligence -->
@@ -3226,8 +3228,8 @@ async function autoRecommend(force = false) {
   const fullScanList = [...new Set([...deepCandidates, ...fallback, ...twSyms, ...etfSyms, ..._customScanList])];
 
   const results = []; let done = 0;
-  for (let i = 0; i < fullScanList.length; i += 5) {
-    const batch = fullScanList.slice(i, i + 5);
+  for (let i = 0; i < fullScanList.length; i += 8) {
+    const batch = fullScanList.slice(i, i + 8);
     const settled = await Promise.allSettled(batch.map(async sym => {
       const raw = await fetchOHLCV(sym);
       return computeAll(raw);
@@ -3266,6 +3268,18 @@ async function autoRecommend(force = false) {
   }
 
   const rotData = analyzeRotation(results);   // pass array, not object map
+
+  // Demo data warning
+  const demoCount = scored.filter(d => d.isDemo).length;
+  const demoBanner = document.getElementById('ar-demo-banner');
+  if (demoBanner) {
+    if (demoCount > scored.length * 0.35) {
+      demoBanner.style.display = 'block';
+      demoBanner.innerHTML = `⚠️ <b>注意：目前有 ${demoCount} 支股票使用模擬數據</b>（Yahoo Finance 連線受限），建議稍後重新掃描或手動查詢`;
+    } else {
+      demoBanner.style.display = 'none';
+    }
+  }
 
   try {
     localStorage.setItem('arCache', JSON.stringify({ ts: now, data: scored, sectorData, nasdaqMeta, rotData }));
@@ -4014,14 +4028,31 @@ function renderInvestmentPicks(scored, usedSet) {
     .slice(0, 8);
 
   function buildCard(d, isTop) {
-    const ir = d.investRating;
+    const ir   = d.investRating;
+    const held = isHeld(d.symbol);
+
+    // If already holding — show continuation advice instead of new buy
+    if (held) {
+      return `<div class="invest-card" style="border-color:var(--accent);background:rgba(88,166,255,.07)" onclick="qs('${d.symbol}');switchTab('analysis')">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+          <div>
+            <span class="ic-sym">${d.symbol}${twName(d.symbol)?`<span style="font-size:.62rem;font-weight:400;color:var(--muted);margin-left:3px">${twName(d.symbol)}</span>`:''}</span>
+            <span class="${pC(d.changePct)}" style="font-size:.82rem;margin-left:6px">${sgn(d.changePct)}${fmt(d.changePct)}%</span>
+          </div>
+          <span style="font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:12px;background:rgba(88,166,255,.18);color:var(--accent)">📦 已持有</span>
+        </div>
+        <div style="font-size:.8rem;line-height:1.8">
+          繼續持有，停損 <b style="color:var(--bear)">$${fmt(ir.stop)}</b>，目標 <b style="color:var(--bull)">$${fmt(ir.tp1.price)}</b> / $${fmt(ir.tp2.price)}
+        </div>
+        <div style="font-size:.72rem;color:var(--muted);margin-top:4px">${ir.reason}</div>
+      </div>`;
+    }
 
     // Plain-language verdict
     const verdict = isTop
       ? { text:'✅ 現在可以買', bg:'rgba(63,185,80,.12)', border:'var(--bull)' }
       : { text:'👀 等訊號再買', bg:'rgba(210,153,34,.1)', border:'var(--neutral)' };
 
-    // Plain-language trade instruction
     const entryDesc = ir.buyLow
       ? `在 <b>$${fmt(ir.buyLow)} ~ $${fmt(ir.buyHigh)}</b> 之間買入`
       : `在 <b>$${fmt(ir.entry)}</b> 附近買入`;
@@ -4029,7 +4060,7 @@ function renderInvestmentPicks(scored, usedSet) {
     const tp1Desc   = `目標 <b style="color:var(--bull)">$${fmt(ir.tp1.price)}</b>（+${ir.tp1.pct}%）`;
     const tp2Desc   = `看到 <b style="color:var(--bull)">$${fmt(ir.tp2.price)}</b>（+${ir.tp2.pct}%）`;
 
-    // Position size — plain language
+    // Position size
     let posHtml = '';
     if (hasCapital && ir.stop < ir.entry) {
       const ps = calcPositionSize(capital, riskPct, maxPosPct, ir.entry, ir.stop);
@@ -4042,6 +4073,14 @@ function renderInvestmentPicks(scored, usedSet) {
     } else if (!hasCapital) {
       posHtml = `<div style="font-size:.72rem;color:var(--muted);margin-top:6px">⬆️ 輸入總資金，系統自動算要買幾股</div>`;
     }
+
+    // Alert button (stop + target1)
+    const alertBtnId = `ab-${d.symbol.replace(/[^a-z0-9]/gi,'_')}`;
+    const alertBtn = `<button id="${alertBtnId}" class="btn btn-secondary"
+      style="font-size:.7rem;padding:3px 10px;margin-top:8px"
+      onclick="event.stopPropagation();quickAddAlerts('${d.symbol}',${ir.stop},${ir.tp1.price},this)">
+      🔔 設定停損+目標警報
+    </button>`;
 
     return `<div class="invest-card" style="border-color:${verdict.border};background:${verdict.bg}" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -4059,6 +4098,7 @@ function renderInvestmentPicks(scored, usedSet) {
         🎯 ${tp1Desc}，最高看 ${tp2Desc}
       </div>
       ${posHtml}
+      ${alertBtn}
     </div>`;
   }
 
@@ -4563,6 +4603,31 @@ async function loadTWSE(stockNo) {
 
 let _alerts = JSON.parse(localStorage.getItem('stockAlerts') || '[]');
 function saveAlerts() { localStorage.setItem('stockAlerts', JSON.stringify(_alerts)); }
+
+// Check if a symbol is currently in the user's position list
+function isHeld(sym) {
+  return _positions.some(p => (p.sym||'').toUpperCase() === (sym||'').toUpperCase());
+}
+
+// Programmatically add stop-loss + target alerts from invest card
+function quickAddAlerts(sym, stopPrice, targetPrice, btn) {
+  const s = sym.toUpperCase();
+  const now = new Date().toLocaleString('zh-TW');
+  // Avoid duplicates
+  const existing = new Set(_alerts.map(a => `${a.sym}|${a.type}|${a.val}`));
+  let added = 0;
+  if (!existing.has(`${s}|price_below|${stopPrice}`)) {
+    _alerts.push({ id: Date.now(),     sym: s, type: 'price_below', val: stopPrice,  triggered: false, created: now });
+    added++;
+  }
+  if (!existing.has(`${s}|price_above|${targetPrice}`)) {
+    _alerts.push({ id: Date.now() + 1, sym: s, type: 'price_above', val: targetPrice, triggered: false, created: now });
+    added++;
+  }
+  saveAlerts();
+  if (btn) { btn.textContent = added > 0 ? '✅ 警報已設' : '已設定'; btn.disabled = true; }
+  if (Notification.permission === 'default') Notification.requestPermission();
+}
 
 function addAlert() {
   const sym  = document.getElementById('al-sym').value.trim().toUpperCase() || _lastSymbol || '';
