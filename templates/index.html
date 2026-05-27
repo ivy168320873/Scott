@@ -2732,15 +2732,6 @@ function twName(sym) {
   return TW_NAMES[sym] || '';
 }
 
-// Symbols that should never appear as individual stock picks
-const _ETF_SYMS = new Set([
-  ...SECTOR_ETF_LIST.map(e => e.sym), ...ROT_BENCHMARK,
-  'SPY','QQQ','SOXX','IWM','XLK','SOXL','ARKK','TQQQ',
-  'GLD','SLV','TLT','IEF','HYG','VIX',
-  '0050.TW','0056.TW','00878.TW','00881.TW',
-]);
-function isETF(sym) { return _ETF_SYMS.has((sym||'').toUpperCase()); }
-
 // ══════════════════════════════════════════════════════
 // Auto Recommend — 自動掃描推薦（產業分類版）
 // ══════════════════════════════════════════════════════
@@ -2777,6 +2768,15 @@ const SECTOR_ETF_LIST = [
   { sym:'XLU',  name:'公用事業',  e:'💡', themes:['核能電力基建'] },
 ];
 const ROT_BENCHMARK = ['SPY','TLT','GLD'];
+
+// Symbols that should never appear as individual stock picks (defined after ETF lists)
+const _ETF_SYMS = new Set([
+  ...SECTOR_ETF_LIST.map(e => e.sym), ...ROT_BENCHMARK,
+  'SPY','QQQ','SOXX','IWM','XLK','SOXL','ARKK','TQQQ',
+  'GLD','SLV','TLT','IEF','HYG','VIX',
+  '0050.TW','0056.TW','00878.TW','00881.TW',
+]);
+function isETF(sym) { return _ETF_SYMS.has((sym||'').toUpperCase()); }
 
 function analyzeRotation(results) {
   if (!results?.length) return null;
