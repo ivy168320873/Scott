@@ -2730,6 +2730,15 @@ function twName(sym) {
   return TW_NAMES[sym] || '';
 }
 
+// Symbols that should never appear as individual stock picks
+const _ETF_SYMS = new Set([
+  ...SECTOR_ETF_LIST.map(e => e.sym), ...ROT_BENCHMARK,
+  'SPY','QQQ','SOXX','IWM','XLK','SOXL','ARKK','TQQQ',
+  'GLD','SLV','TLT','IEF','HYG','VIX',
+  '0050.TW','0056.TW','00878.TW','00881.TW',
+]);
+function isETF(sym) { return _ETF_SYMS.has((sym||'').toUpperCase()); }
+
 // ══════════════════════════════════════════════════════
 // Auto Recommend — 自動掃描推薦（產業分類版）
 // ══════════════════════════════════════════════════════
@@ -3256,8 +3265,7 @@ async function autoRecommend(force = false) {
     sectorData[name] = { e: cfg.e, avg: Math.round(avg), stocks };
   }
 
-  const resultMap = Object.fromEntries(results.map(d => [d.symbol, d]));
-  const rotData = analyzeRotation(resultMap);
+  const rotData = analyzeRotation(results);   // pass array, not object map
 
   try {
     localStorage.setItem('arCache', JSON.stringify({ ts: now, data: scored, sectorData, nasdaqMeta, rotData }));
@@ -3328,6 +3336,7 @@ function toggleArDetails() {
 
 function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
   sectorData = sectorData || {};
+  renderNasdaqMeta(nasdaqMeta);
 
   // ── Market pulse: one-liner ──
   const pulseEl = document.getElementById('ar-pulse');
@@ -3898,7 +3907,7 @@ function renderPreBreakout(scored, usedSet) {
   const el = document.getElementById('ar-prebreak');
   if (!el) return;
   const top = [...scored]
-    .filter(d => !usedSet.has(d.symbol) && d.preBreakScore >= 30)
+    .filter(d => !usedSet.has(d.symbol) && !isETF(d.symbol) && !d.isDemo && d.preBreakScore >= 30)
     .sort((a, b) => b.preBreakScore - a.preBreakScore)
     .slice(0, 4);
 
@@ -4000,7 +4009,7 @@ function renderInvestmentPicks(scored, usedSet) {
   const hasCapital = capital > 0;
 
   const allPicks = [...scored]
-    .filter(d => d.investRating && !usedSet.has(d.symbol))
+    .filter(d => d.investRating && !usedSet.has(d.symbol) && !isETF(d.symbol) && !d.isDemo)
     .sort((a, b) => b.investRating.composite - a.investRating.composite)
     .slice(0, 8);
 
