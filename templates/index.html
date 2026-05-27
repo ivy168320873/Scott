@@ -738,62 +738,58 @@ tbody td{padding:9px 10px}
       </div>
     </div>
     <div id="ar-cards" style="display:none">
-      <!-- NASDAQ Market Overview -->
-      <div id="ar-nasdaq-meta" style="display:none;background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px"></div>
-      <!-- Market Sentiment -->
-      <div id="ar-sentiment" style="background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:12px"></div>
-      <!-- Hot Sectors -->
-      <div class="ar-sec-lbl">🔥 板塊溫度</div>
-      <div class="ar-sector-row" id="ar-sectors"></div>
-      <!-- Monster -->
-      <div class="ar-sec-lbl">🎯 妖股候選 <span style="font-weight:400;text-transform:none;letter-spacing:0">爆量×動能×突破</span></div>
-      <div class="auto-rec-grid" id="ar-monster"></div>
-      <!-- Leaders -->
-      <div class="ar-sec-lbl" style="margin-top:12px">👑 板塊龍頭 <span style="font-weight:400;text-transform:none;letter-spacing:0">各產業最強勢個股</span></div>
-      <div class="auto-rec-grid" id="ar-leaders"></div>
-      <!-- Laggards -->
-      <div class="ar-sec-lbl" style="margin-top:12px">📊 補漲候選 <span style="font-weight:400;text-transform:none;letter-spacing:0">板塊強但個股尚未跟漲</span></div>
-      <div class="auto-rec-grid" id="ar-laggards"></div>
-      <!-- Value Buys -->
-      <div class="ar-sec-lbl" style="margin-top:12px">💎 超賣反彈 <span style="font-weight:400;text-transform:none;letter-spacing:0">回調至支撐買入機會</span></div>
-      <div class="auto-rec-grid" id="ar-buy"></div>
-      <!-- Pre-Breakout -->
-      <div class="ar-sec-lbl" style="margin-top:14px">🔥 準備噴發 <span style="font-weight:400;text-transform:none;letter-spacing:0">BB壓縮蓄勢 · OBV積累 · 即將引爆</span></div>
-      <div class="auto-rec-grid" id="ar-prebreak"></div>
-      <!-- Investment Picks -->
-      <div class="ar-sec-lbl" style="margin-top:14px">💰 投資建議 <span style="font-weight:400;text-transform:none;letter-spacing:0">精選進場點位 含停損與獲利目標</span></div>
-      <div class="cap-settings">
-        <label>💵 總資金</label>
-        <input id="ar-capital" type="number" placeholder="100000" min="1000" step="1000" oninput="saveCapSettings();reRenderInvest()">
-        <label>每筆風險</label>
+      <!-- 1. Market Pulse — one-liner status -->
+      <div id="ar-pulse" style="margin-bottom:14px"></div>
+      <!-- 2. Today's Picks -->
+      <div class="ar-sec-lbl">✅ 現在可以考慮買</div>
+      <div class="cap-settings" style="margin:8px 0 10px">
+        <label>💵 總資金 $</label>
+        <input id="ar-capital" type="number" placeholder="例如 50000" min="1000" step="1000" oninput="saveCapSettings();reRenderInvest()">
+        <label style="margin-left:8px">每筆最多虧</label>
         <input id="ar-risk-pct" type="number" value="2" min="0.5" max="10" step="0.5" oninput="saveCapSettings();reRenderInvest()">
         <span class="cap-hint">%</span>
-        <label>單倉上限</label>
-        <input id="ar-max-pos" type="number" value="15" min="5" max="50" step="5" oninput="saveCapSettings();reRenderInvest()">
-        <span class="cap-hint">% · 系統自動計算建議股數與投入金額</span>
       </div>
       <div class="invest-grid" id="ar-invest"></div>
-      <!-- Sector Rotation -->
-      <div class="ar-sec-lbl" style="margin-top:14px">🔄 板塊輪動分析 <span style="font-weight:400;text-transform:none;letter-spacing:0">S&amp;P500 11大板塊相對強弱 · 市場階段偵測</span></div>
-      <div id="ar-rotation" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:4px"></div>
-      <!-- Heatmap -->
-      <div class="ar-sec-lbl" style="margin-top:14px">
-        🌡 板塊熱力圖
-        <span style="font-weight:400;text-transform:none;letter-spacing:0">今日漲跌幅色溫 · 點擊查看</span>
-        <button class="btn btn-secondary" style="padding:2px 8px;font-size:.68rem;margin-left:6px" onclick="toggleHeatmap()">展開/收合</button>
+      <!-- 3. Watch — coiling stocks -->
+      <div class="ar-sec-lbl" style="margin-top:16px">👀 盯緊這幾檔（蓄勢待發）</div>
+      <div class="auto-rec-grid" id="ar-prebreak"></div>
+      <!-- 4. Market pulse strip -->
+      <div class="ar-sec-lbl" style="margin-top:16px">🌡 今天哪個板塊最熱</div>
+      <div class="ar-sector-row" id="ar-sectors"></div>
+      <!-- 5. Sector Rotation condensed -->
+      <div id="ar-rotation" style="display:none;margin-top:4px"></div>
+      <!-- Details toggle -->
+      <div style="text-align:center;margin-top:18px">
+        <button class="btn btn-secondary" style="font-size:.75rem;padding:5px 16px" onclick="toggleArDetails()">📋 展開詳細分析</button>
       </div>
-      <div id="ar-heatmap" style="display:none"></div>
-      <!-- Leaderboard -->
-      <div class="ar-sec-lbl" style="margin-top:14px">📊 今日強弱排行</div>
-      <div class="lb-cols">
-        <div class="lb-col">
-          <h4 style="color:var(--bull)">▲ 漲幅排行</h4>
-          <div id="ar-gainers"></div>
+      <!-- Hidden details section -->
+      <div id="ar-details" style="display:none">
+        <div class="ar-sec-lbl" style="margin-top:14px">⚡ 今日強勢衝刺股</div>
+        <div class="auto-rec-grid" id="ar-monster"></div>
+        <div class="ar-sec-lbl" style="margin-top:12px">👑 各板塊最強龍頭</div>
+        <div class="auto-rec-grid" id="ar-leaders"></div>
+        <div class="ar-sec-lbl" style="margin-top:12px">📊 尚未跟漲的補漲股</div>
+        <div class="auto-rec-grid" id="ar-laggards"></div>
+        <div class="ar-sec-lbl" style="margin-top:12px">💎 超賣回彈機會</div>
+        <div class="auto-rec-grid" id="ar-buy"></div>
+        <div class="ar-sec-lbl" style="margin-top:14px">
+          🌡 板塊熱力圖
+          <button class="btn btn-secondary" style="padding:2px 8px;font-size:.68rem;margin-left:6px" onclick="toggleHeatmap()">展開/收合</button>
         </div>
-        <div class="lb-col">
-          <h4 style="color:var(--bear)">▼ 跌幅排行</h4>
-          <div id="ar-losers"></div>
+        <div id="ar-heatmap" style="display:none"></div>
+        <div class="ar-sec-lbl" style="margin-top:14px">📊 今日漲跌排行</div>
+        <div id="ar-nasdaq-meta" style="display:none;margin-bottom:10px"></div>
+        <div class="lb-cols">
+          <div class="lb-col">
+            <h4 style="color:var(--bull)">▲ 漲幅前十</h4>
+            <div id="ar-gainers"></div>
+          </div>
+          <div class="lb-col">
+            <h4 style="color:var(--bear)">▼ 跌幅前十</h4>
+            <div id="ar-losers"></div>
+          </div>
         </div>
+        <div id="ar-sentiment" style="margin-top:10px"></div>
       </div>
     </div>
   </div>
@@ -3036,9 +3032,39 @@ function renderNasdaqMeta(meta) {
   el.style.display = 'block';
 }
 
+function toggleArDetails() {
+  const el = document.getElementById('ar-details');
+  const btn = el?.previousElementSibling?.querySelector('button');
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (btn) btn.textContent = open ? '📋 展開詳細分析' : '📋 收合';
+}
+
 function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
   sectorData = sectorData || {};
-  renderNasdaqMeta(nasdaqMeta);
+
+  // ── Market pulse: one-liner ──
+  const pulseEl = document.getElementById('ar-pulse');
+  if (pulseEl && nasdaqMeta) {
+    const gr = nasdaqMeta.total > 0 ? nasdaqMeta.gainers / nasdaqMeta.total : 0.5;
+    const mood = gr > 0.62 ? { t:'今天市場很強，多頭主導，適合積極進場', c:'var(--bull)', e:'🔥' }
+               : gr > 0.52 ? { t:'今天偏多，但還不算特別強，可以選股進場', c:'var(--bull)', e:'📈' }
+               : gr > 0.45 ? { t:'多空僵持，方向不明，建議選強勢板塊個股', c:'var(--neutral)', e:'😐' }
+               : gr > 0.38 ? { t:'今天偏弱，下跌股比較多，操作要保守', c:'var(--neutral)', e:'⚠️' }
+               :              { t:'今天明顯偏空，建議觀望或縮小倉位', c:'var(--bear)', e:'🚨' };
+    // Hot sector
+    const topSec = Object.entries(sectorData).sort((a,b) => b[1].avg - a[1].avg)[0];
+    const secTxt = topSec ? `，<b style="color:var(--bull)">${topSec[1].e}${topSec[0]}</b>最熱` : '';
+    pulseEl.innerHTML = `<div style="background:var(--surface2);border-radius:10px;padding:11px 14px;font-size:.86rem;color:${mood.c};display:flex;align-items:center;gap:8px">
+      <span style="font-size:1.15rem">${mood.e}</span>
+      <span>${mood.t}${secTxt}</span>
+      <span style="margin-left:auto;font-size:.72rem;color:var(--muted)">${nasdaqMeta.total.toLocaleString()}支↑${nasdaqMeta.gainers} ↓${nasdaqMeta.losers}</span>
+    </div>`;
+  } else if (pulseEl) {
+    pulseEl.innerHTML = '';
+  }
+
   renderRotation(rotData, scored, sectorData);
 
   // ── Helper: render a card ──
@@ -3587,26 +3613,31 @@ function renderPreBreakout(scored, usedSet) {
   const el = document.getElementById('ar-prebreak');
   if (!el) return;
   const top = [...scored]
-    .filter(d => !usedSet.has(d.symbol))
+    .filter(d => !usedSet.has(d.symbol) && d.preBreakScore >= 30)
     .sort((a, b) => b.preBreakScore - a.preBreakScore)
-    .slice(0, 6);
-  el.innerHTML = top.filter(d => d.preBreakScore >= 25).map(d => {
+    .slice(0, 4);
+
+  const urgency = s => s >= 70 ? { t:'🔥 快了，可以準備好資金', c:'var(--bear)' }
+                     : s >= 50 ? { t:'⏳ 快要突破了，先加進自選', c:'var(--neutral)' }
+                     :           { t:'👀 醞釀中，耐心等待', c:'var(--accent)' };
+
+  el.innerHTML = top.map(d => {
     const pb = d.preBreakMeta;
-    const fillColor = d.preBreakScore >= 70 ? 'var(--bear)'
-                    : d.preBreakScore >= 50 ? 'var(--neutral)' : 'var(--accent)';
+    const urg = urgency(d.preBreakScore);
     return `<div class="pb-card" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div class="pb-top">
         <div>
           <div class="pb-sym">${d.symbol}${d.isDemo?'<span style="font-size:.6rem;color:var(--muted)"> [示]</span>':''}</div>
-          <div style="font-size:.76rem;color:var(--muted)">${fmt(d.price)} <span class="${pC(d.changePct)}">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
+          <div style="font-size:.78rem;color:var(--muted)">現價 ${fmt(d.price)} <span class="${pC(d.changePct)}">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
         </div>
-        <div><div class="pb-snum" style="color:${fillColor}">${d.preBreakScore}</div><div class="pb-slbl">噴發指數</div></div>
+        <div style="text-align:right">
+          <div style="font-size:.72rem;color:${urg.c};font-weight:600">${urg.t}</div>
+          <div style="font-size:.7rem;color:var(--muted);margin-top:2px">突破 <b style="color:var(--bull)">$${fmt(pb.triggerPrice)}</b> 可進場</div>
+        </div>
       </div>
-      <div class="pb-bar"><div class="pb-bar-fill" style="width:${d.preBreakScore}%;background:${fillColor}"></div></div>
-      <div class="pb-trig">🎯 突破確認價：${fmt(pb.triggerPrice)}</div>
-      <div class="pb-tags">${pb.tags.slice(0,4).map(t => `<span class="mct mct-${t.cls}">${t.t}</span>`).join('')}</div>
+      <div class="pb-bar" style="margin:7px 0 4px"><div class="pb-bar-fill" style="width:${d.preBreakScore}%;background:${urg.c}"></div></div>
     </div>`;
-  }).join('') || '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前無明顯蓄勢型態，建議持續觀察</div>';
+  }).join('') || '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前沒有蓄勢明顯的股票，繼續觀察</div>';
 }
 
 // ── Capital Settings helpers ──────────────────────────────────────────────────
@@ -3614,7 +3645,7 @@ function getCapSettings() {
   return {
     capital:   parseFloat(document.getElementById('ar-capital')?.value)  || 0,
     riskPct:   parseFloat(document.getElementById('ar-risk-pct')?.value) || 2,
-    maxPosPct: parseFloat(document.getElementById('ar-max-pos')?.value)  || 15,
+    maxPosPct: 20,  // fixed reasonable default
   };
 }
 
@@ -3630,11 +3661,10 @@ function loadCapSettings() {
   try {
     const s = JSON.parse(localStorage.getItem('capSettings') || 'null');
     if (!s) return;
-    const e = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+    const e = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
     e('ar-capital',  s.capital);
     e('ar-risk-pct', s.riskPct);
-    e('ar-max-pos',  s.maxPosPct);
-    e('pc-capital',  s.capital); // sync to position tab
+    e('pc-capital',  s.capital);
   } catch {}
 }
 
@@ -3684,100 +3714,71 @@ function renderInvestmentPicks(scored, usedSet) {
   const { capital, riskPct, maxPosPct } = getCapSettings();
   const hasCapital = capital > 0;
 
-  // Separate strong buys from watch list
   const allPicks = [...scored]
     .filter(d => d.investRating && !usedSet.has(d.symbol))
-    .sort((a, b) => b.investRating.composite - a.investRating.composite);
+    .sort((a, b) => b.investRating.composite - a.investRating.composite)
+    .slice(0, 8);
 
-  const strongBuys = allPicks.filter(d => d.investRating.composite >= 65).slice(0, 5);
-  const watchList  = allPicks.filter(d => d.investRating.composite >= 52 && d.investRating.composite < 65).slice(0, 4);
+  function buildCard(d, isTop) {
+    const ir = d.investRating;
 
-  function buildCard(d, rank) {
-    const ir  = d.investRating;
-    const entryTxt = ir.buyLow
-      ? `$${fmt(ir.buyLow)} – $${fmt(ir.buyHigh)}`
-      : `$${fmt(ir.entry)}`;
-    const rrStr = ir.tp1?.rr || '';
-    const setupClr = { bull:'var(--bull)', fire:'var(--bear)', info:'var(--accent)', warn:'var(--neutral)' }[ir.setupCls] || 'var(--accent)';
-    const barW = Math.min(100, ir.composite);
+    // Plain-language verdict
+    const verdict = isTop
+      ? { text:'✅ 現在可以買', bg:'rgba(63,185,80,.12)', border:'var(--bull)' }
+      : { text:'👀 等訊號再買', bg:'rgba(210,153,34,.1)', border:'var(--neutral)' };
 
-    // Quality score bar
-    const scoreBars = `
-      <div style="margin:6px 0 4px;display:flex;align-items:center;gap:6px">
-        <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
-          <div style="width:${barW}%;height:100%;background:${setupClr};border-radius:2px;transition:width .4s"></div>
-        </div>
-        <span style="font-size:.65rem;color:var(--muted);min-width:28px;text-align:right">${ir.composite}/100</span>
-      </div>`;
+    // Plain-language trade instruction
+    const entryDesc = ir.buyLow
+      ? `在 <b>$${fmt(ir.buyLow)} ~ $${fmt(ir.buyHigh)}</b> 之間買入`
+      : `在 <b>$${fmt(ir.entry)}</b> 附近買入`;
+    const stopDesc  = `跌破 <b style="color:var(--bear)">$${fmt(ir.stop)}</b> 就出場（最多虧 ${ir.riskPct.toFixed(1)}%）`;
+    const tp1Desc   = `目標 <b style="color:var(--bull)">$${fmt(ir.tp1.price)}</b>（+${ir.tp1.pct}%）`;
+    const tp2Desc   = `看到 <b style="color:var(--bull)">$${fmt(ir.tp2.price)}</b>（+${ir.tp2.pct}%）`;
 
-    // Position size block
+    // Position size — plain language
     let posHtml = '';
     if (hasCapital && ir.stop < ir.entry) {
       const ps = calcPositionSize(capital, riskPct, maxPosPct, ir.entry, ir.stop);
-      if (ps && ps.shares > 0) {
-        const kelly = calcKelly(ir.composite, rrStr);
-        posHtml = `
-        <div class="ic-pos">
-          <div class="ic-pos-row">
-            <span class="ic-pos-lbl">建議投入</span>
-            <span class="ic-pos-val pos">$${ps.investAmt.toLocaleString(undefined,{maximumFractionDigits:0})} (${ps.portPct.toFixed(1)}%${ps.capped?' 上限':''}) · ${ps.shares.toLocaleString()} 股</span>
-          </div>
-          <div class="ic-pos-row">
-            <span class="ic-pos-lbl">最大風險</span>
-            <span class="ic-pos-val neg">-$${ps.maxLoss.toLocaleString(undefined,{maximumFractionDigits:0})} · 佔資金 ${ps.actualRiskPct.toFixed(2)}%</span>
-          </div>
-          <div class="ic-kelly">🎯 ${ir.conf.action} · 半凱利倉位 ${kelly.half}% · 估算勝率 ${kelly.winRate}%</div>
+      if (ps?.shares > 0) {
+        posHtml = `<div style="background:var(--surface2);border-radius:7px;padding:8px 10px;margin-top:8px;font-size:.8rem">
+          <b>建議操作：</b>買 <b class="pos">${ps.shares} 股</b>，投入約 <b class="pos">$${ps.investAmt.toLocaleString(undefined,{maximumFractionDigits:0})}</b>
+          <span style="color:var(--muted)">（佔資金 ${ps.portPct.toFixed(0)}%，最多虧 $${ps.maxLoss.toLocaleString(undefined,{maximumFractionDigits:0})}）</span>
         </div>`;
       }
     } else if (!hasCapital) {
-      posHtml = `<div style="font-size:.72rem;color:var(--muted);margin-top:6px;padding:5px 8px;background:var(--surface2);border-radius:5px">
-        ← 輸入總資金自動計算建議倉位</div>`;
+      posHtml = `<div style="font-size:.72rem;color:var(--muted);margin-top:6px">⬆️ 輸入總資金，系統自動算要買幾股</div>`;
     }
 
-    const rankBadge = rank ? `<span style="font-size:.65rem;background:var(--accent);color:#fff;border-radius:10px;padding:1px 6px;margin-left:4px">#${rank}</span>` : '';
-
-    return `<div class="invest-card" onclick="qs('${d.symbol}');switchTab('analysis')">
-      <div class="ic-top">
-        <div class="ic-sym">${d.symbol}${rankBadge} <span class="${pC(d.changePct)}" style="font-size:.78rem">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
-        <span class="ic-stars">${ir.conf.stars}</span>
-        <span class="ic-score ${ir.conf.cls}">${ir.conf.text}</span>
+    return `<div class="invest-card" style="border-color:${verdict.border};background:${verdict.bg}" onclick="qs('${d.symbol}');switchTab('analysis')">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div>
+          <span class="ic-sym">${d.symbol}</span>
+          <span class="${pC(d.changePct)}" style="font-size:.82rem;margin-left:6px">${sgn(d.changePct)}${fmt(d.changePct)}%</span>
+          <span style="font-size:.75rem;color:var(--muted);margin-left:4px">$${fmt(d.price)}</span>
+        </div>
+        <span style="font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:12px;background:${verdict.border}22;color:${verdict.border}">${verdict.text}</span>
       </div>
-      <div style="display:flex;align-items:center;gap:6px;margin:3px 0">
-        <span class="ic-type" style="background:${setupClr}22;color:${setupClr}">${ir.entryType}</span>
-        <span style="font-size:.68rem;color:var(--muted)">ATR停損 ${fmt(ir.atr)}</span>
+      <div style="font-size:.78rem;color:var(--muted);margin-bottom:5px">${ir.reason}</div>
+      <div style="font-size:.8rem;line-height:2">
+        📍 ${entryDesc}<br>
+        🛑 ${stopDesc}<br>
+        🎯 ${tp1Desc}，最高看 ${tp2Desc}
       </div>
-      ${scoreBars}
-      <div class="ic-levels">
-        <div class="ic-row"><span class="il-lbl">進場區間</span><span class="il-val pos">${entryTxt}</span></div>
-        <div class="ic-row"><span class="il-lbl">停損</span><span class="il-val neg">$${fmt(ir.stop)} (風險 ${ir.riskPct.toFixed(1)}%)</span></div>
-        <div class="ic-row"><span class="il-lbl">目標一 ${ir.tp1.rr.replace('風報比 ','')}</span><span class="il-val">$${fmt(ir.tp1.price)} <span style="color:var(--bull)">+${ir.tp1.pct}%</span></span></div>
-        <div class="ic-row"><span class="il-lbl">目標二 ${ir.tp2.rr.replace('風報比 ','')}</span><span class="il-val">$${fmt(ir.tp2.price)} <span style="color:var(--bull)">+${ir.tp2.pct}%</span></span></div>
-      </div>
-      <div class="ic-reason">📊 ${ir.reason}</div>
       ${posHtml}
     </div>`;
   }
 
+  const strongBuys = allPicks.filter(d => d.investRating.composite >= 65);
+  const watchList  = allPicks.filter(d => d.investRating.composite >= 52 && d.investRating.composite < 65);
+
   let html = '';
+  if (strongBuys.length) html += strongBuys.map(d => buildCard(d, true)).join('');
+  if (watchList.length)  html += watchList.map(d => buildCard(d, false)).join('');
 
-  if (strongBuys.length) {
-    html += `<div style="font-size:.72rem;font-weight:700;color:var(--bull);margin:0 0 8px;letter-spacing:.04em">▶ 強力推薦 — 優先布局</div>`;
-    html += strongBuys.map((d, i) => buildCard(d, i + 1)).join('');
-  }
-
-  if (watchList.length) {
-    html += `<div style="font-size:.72rem;font-weight:700;color:var(--neutral);margin:${strongBuys.length ? 12 : 0}px 0 8px;letter-spacing:.04em">▷ 次選觀察 — 等待確認進場</div>`;
-    html += watchList.map(d => buildCard(d, null)).join('');
-  }
-
-  if (!html) {
-    html = `<div style="color:var(--muted);font-size:.82rem;padding:8px 0;text-align:center">
-      目前技術面未達專業投顧進場標準<br>
-      <span style="font-size:.72rem">（需三線多排 + 量能確認 + 風報比≥1:1.8）</span>
-    </div>`;
-  }
-
-  el.innerHTML = html;
+  el.innerHTML = html || `<div style="color:var(--muted);font-size:.83rem;padding:12px 0;text-align:center;line-height:1.8">
+    目前沒有達到進場條件的股票<br>
+    <span style="font-size:.72rem">市場需要趨勢向上 + 成交量配合 + 停損空間合理才會出現推薦</span>
+  </div>`;
 }
 
 function calcMonsterScore(d) {
