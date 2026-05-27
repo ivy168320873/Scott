@@ -210,6 +210,55 @@ def nasdaq_screener():
     return jsonify({"ok": False, "error": "NASDAQ screener unavailable"}), 500
 
 
+# ── Macro economic news (10-min cache) ────────────────────────────────────────
+
+_macro_cache: dict = {"data": None, "ts": 0.0}
+_MACRO_TTL = 600  # 10 minutes
+
+_MACRO_QUERIES = [
+    "Federal Reserve interest rate",
+    "inflation CPI consumer prices",
+    "US economy GDP growth",
+    "jobs employment nonfarm payrolls",
+    "US Treasury yield bond",
+]
+
+@app.route("/api/macro-news")
+def macro_news():
+    global _macro_cache
+    now = _time.time()
+    if _macro_cache["data"] and now - _macro_cache["ts"] < _MACRO_TTL:
+        return jsonify({"ok": True, "cached": True, "news": _macro_cache["data"]})
+
+    results, seen = [], set()
+    for q in _MACRO_QUERIES:
+        try:
+            r = _req.get(
+                "https://query1.finance.yahoo.com/v1/finance/search",
+                params={"q": q, "newsCount": 4, "quotesCount": 0},
+                headers=YAHOO_HEADERS, timeout=7,
+            )
+            if r.status_code == 200:
+                for n in r.json().get("news", []):
+                    t = n.get("title", "")
+                    if t and t not in seen:
+                        seen.add(t)
+                        results.append({
+                            "title":     t,
+                            "link":      n.get("link", ""),
+                            "publisher": n.get("publisher", ""),
+                            "published": n.get("providerPublishTime", 0),
+                            "category":  q.split()[0],   # first word as tag
+                        })
+        except Exception:
+            pass
+
+    results.sort(key=lambda x: x.get("published", 0), reverse=True)
+    payload = results[:16]
+    _macro_cache = {"data": payload, "ts": now}
+    return jsonify({"ok": True, "cached": False, "news": payload})
+
+
 # ── Batch sector news (5-min server cache per symbol) ─────────────────────────
 
 _news_cache: dict = {}
