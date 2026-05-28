@@ -214,17 +214,18 @@ def _get_regime() -> dict:
     return regime
 
 
-# ── V2 Signal Evaluator (strict filters matching strategy_decision_core_v2) ──
+# ── V3 Signal Evaluator (matches strategy_decision_core_v3) ──────────────────
 
 def _evaluate_signal(symbol: str, ohlcv: list[dict]) -> Optional[dict]:
     """
-    Decision Core V2 — all 5 entry filters must pass:
-      1. Regime:        price > EMA200
-      2. BB squeeze:    bandwidth < 90% of 20-day avg
-      3. OBV slope:     10-day OBV delta > 0
-      4. Volume quality: last bar > 5-day avg vol
-      5. RSI sweet spot: 45–68
-      6. Module gates:  主力>65, 空壓<25, 追高<45, 共振>=80
+    Decision Core V3 — 11 entry filters for maximum win rate:
+      V2 filters (1-6) + V3 additions (7-11):
+      7. EMA20 rising slope (3-bar)
+      8. 5-day gain cap < 10%
+      9. Higher-low structure
+     10. Bullish entry candle
+     11. Net volume accumulation (3-day up-vol > dn-vol)
+      + BB squeeze persistence (2+ days)
     """
     closes  = [d["close"]  for d in ohlcv]
     opens   = [d["open"]   for d in ohlcv]
@@ -232,34 +233,70 @@ def _evaluate_signal(symbol: str, ohlcv: list[dict]) -> Optional[dict]:
     lows    = [d["low"]    for d in ohlcv]
     volumes = [d["volume"] for d in ohlcv]
     n = len(closes)
-    if n < 60:
+    if n < 65:
         return None
 
-    # Filter 1: Regime — price > EMA200
+    # ── V2 filters ────────────────────────────────────────────────────────────
+
+    # 1. Regime — price > EMA200
     e200 = _ema(closes, min(200, n))[-1]
     if closes[-1] <= e200:
         return None
 
-    # Filter 2: BB squeeze — bandwidth < 90% of 20-day avg
+    # 2. BB squeeze (current AND previous day)
     bw_curr, bw_avg = _bb_width(closes)
     if bw_curr is None or bw_avg is None or bw_avg == 0 or bw_curr > bw_avg * 0.90:
         return None
+    bw_prev, _ = _bb_width(closes[:-1])
+    if bw_prev is None or bw_prev > bw_avg * 0.90:
+        return None
 
-    # Filter 3: OBV 10-day slope positive
+    # 3. OBV 10-day slope positive
     obv = _obv(closes, volumes)
     if len(obv) < 11 or obv[-1] <= obv[-11]:
         return None
 
-    # Filter 4: Volume quality — last bar > 5-day avg
+    # 4. Volume quality — last bar > 5-day avg
     vol_ma5 = sum(volumes[-5:]) / 5 if len(volumes) >= 5 else volumes[-1]
     if volumes[-1] < vol_ma5:
         return None
 
-    # Filter 5: RSI sweet spot 45–68
+    # 5. RSI sweet spot 45–68
     rsi_arr = _rsi(closes)
     rsi_val = rsi_arr[-1]
     if not (45 <= rsi_val <= 68):
         return None
+
+    # ── V3 additional filters ─────────────────────────────────────────────────
+
+    # 6. EMA20 rising slope (last 3 bars)
+    e20_arr = _ema(closes, 20)
+    if e20_arr[-1] <= e20_arr[-4]:
+        return None
+
+    # 7. 5-day gain cap < 10% (avoid FOMO after extended runs)
+    if n >= 6:
+        gain_5d = (closes[-1] - closes[-6]) / (closes[-6] or 1) * 100
+        if gain_5d > 10.0:
+            return None
+
+    # 8. Higher-low structure (last 5d low > prior 5d low)
+    if n >= 10:
+        low_5  = min(lows[-5:])
+        low_10 = min(lows[-10:-5])
+        if low_5 <= low_10:
+            return None
+
+    # 9. Bullish entry candle
+    if closes[-1] <= opens[-1]:
+        return None
+
+    # 10. Net volume accumulation (last 3 days: up-vol > dn-vol)
+    if n >= 3:
+        up_v = sum(volumes[-3+j] for j in range(3) if closes[-3+j] >= opens[-3+j])
+        dn_v = sum(volumes[-3+j] for j in range(3) if closes[-3+j] <  opens[-3+j])
+        if up_v <= dn_v:
+            return None
 
     # Module 1: 主力控盤
     obv_ema   = _ema(obv, 20)
@@ -299,14 +336,16 @@ def _evaluate_signal(symbol: str, ohlcv: list[dict]) -> Optional[dict]:
         rsi_val > 50,
     ]) * 20
 
-    # Entry gate (V2 strict)
+    # Entry gate (V3 strict)
     if not (smart > 65 and bear_p < 25 and chase < 45 and resonance >= 80):
         return None
 
-    # Stop / targets
-    stop     = round(max(min(lows[-10:]) - atr_v * 1.5, closes[-1] * 0.88), 2)
-    risk_amt = closes[-1] - stop
-    if risk_amt <= 0:
+    # ── Swing low stop (V3 improvement) ──────────────────────────────────────
+    # Place stop at actual swing low, not just flat ATR from entry
+    swing_low = min(lows[-15:]) if n >= 15 else min(lows)
+    stop      = round(max(swing_low - atr_v * 0.4, closes[-1] * 0.88), 2)
+    risk_amt  = closes[-1] - stop
+    if risk_amt <= 0 or risk_amt / closes[-1] > 0.15:
         return None
     r1 = round(closes[-1] + risk_amt * 1.5, 2)
     r2 = round(closes[-1] + risk_amt * 4.0, 2)
@@ -315,10 +354,11 @@ def _evaluate_signal(symbol: str, ohlcv: list[dict]) -> Optional[dict]:
     vol_surges = _mon.detect_volume_surge(volumes)
 
     reasons = []
-    if smart > 70:          reasons.append(f"主力控盤 {smart}")
-    if resonance >= 80:     reasons.append(f"多週期共振 {resonance}%")
-    if bw_curr < bw_avg * 0.80: reasons.append("BB緊縮")
-    if vol_surges['surge']: reasons.append(vol_surges['label'])
+    if smart > 70:              reasons.append(f"主力控盤 {smart}")
+    if resonance >= 80:         reasons.append(f"多週期共振 {resonance}%")
+    if bw_curr < bw_avg * 0.80: reasons.append("BB緊縮持續")
+    if vol_surges['surge']:     reasons.append(vol_surges['label'])
+    reasons.append("EMA上升+高低點確認")
 
     return {
         "symbol":        symbol,

@@ -133,11 +133,13 @@ def _simulate_partial(
     closes: list, highs: list, lows: list, dates: list,
     entries: list,   # list of (idx, entry_price, stop, r1_target, r2_target)
     initial: float = 100_000.0,
+    protect_r: float = 0.7,   # move stop to +0.15R when price reaches this R
 ) -> dict:
     """
-    Advanced simulation with partial exits:
+    Advanced simulation with partial exits + profit protection:
     - Leg 1 (50%): exit at R1 target (locks profit)
     - Leg 2 (50%): trail with 2× ATR; stop moves to breakeven once R1 is hit
+    - Profit protection: when price reaches protect_r × R1, stop → entry + 0.15 × risk
     - Time stop: exit if < 0.3R gain after TIME_STOP_DAYS
     """
     TIME_STOP_DAYS = 12
@@ -179,6 +181,14 @@ def _simulate_partial(
         elif pos1 + pos2 > 0:
             risk_amt = ep - stop if stop < ep else ep * 0.05
             days_held = i - entry_idx
+
+            # Profit protection: when price reaches protect_r × risk, lock in +0.15R
+            if not leg1_closed and protect_r and risk_amt > 0:
+                protect_price = ep + risk_amt * protect_r
+                if hi >= protect_price:
+                    lock_stop = ep + risk_amt * 0.15
+                    if lock_stop > stop:
+                        stop = lock_stop
 
             # Leg 1: exit at R1 target
             if not leg1_closed and hi >= r1 and pos1 > 0:
@@ -735,14 +745,235 @@ def strategy_decision_core_v2(
     return {**sim, **stats}
 
 
+def strategy_decision_core_v3(
+    ohlcv: list,
+    # ── V2 base thresholds (kept for optimizer compatibility) ────────────────
+    sm_threshold:  int = 65,
+    bp_threshold:  int = 25,
+    cr_threshold:  int = 45,
+    rs_threshold:  int = 80,
+    rsi_lo:        int = 45,
+    rsi_hi:        int = 68,
+    atr_stop_mult: float = 1.5,
+    r1_mult:       float = 1.5,
+    r2_mult:       float = 4.0,
+    # ── V3 new entry quality filters ────────────────────────────────────────
+    max_5d_gain:   float = 10.0,  # max 5-day gain % — blocks chasing extended moves
+    ema_slope_bars: int  = 3,     # EMA20 must be rising over last N bars
+    min_higher_low: bool = True,  # 5-day low > 10-day low (uptrend structure)
+    require_bull_candle: bool = True,  # entry bar must close above open
+    net_vol_days:   int  = 3,     # up-vol days > dn-vol days in last N bars
+    bb_squeeze_days: int = 2,     # BB squeeze must persist for N consecutive days
+) -> dict:
+    """
+    Decision Core V3 — highest win rate.
+
+    Adds 6 entry quality filters on top of V2:
+      7. EMA20 rising slope (ema_slope_bars bars)
+      8. 5-day price gain cap — blocks FOMO entries
+      9. Higher-low structure — min(lows[-5:]) > min(lows[-10:-5])
+     10. Bullish entry candle — close > open
+     11. Net volume accumulation — up-day vol > dn-day vol over net_vol_days
+     12. BB squeeze persistence — squeeze must hold N consecutive days
+
+    Exit improvement:
+      - Profit protection: when price reaches 0.7R → stop moves to entry+0.15R
+      - Swing low stop: places stop at actual recent swing low (not flat ATR)
+    """
+    closes  = [d["close"]  for d in ohlcv]
+    opens   = [d["open"]   for d in ohlcv]
+    highs   = [d["high"]   for d in ohlcv]
+    lows    = [d["low"]    for d in ohlcv]
+    volumes = [d["volume"] for d in ohlcv]
+    dates   = [d["date"]   for d in ohlcv]
+    n = len(closes)
+
+    # ── Indicators ────────────────────────────────────────────────────────────
+    rsi_arr    = _rsi(closes)
+    _, _, mh   = _macd(closes)
+    ema20_arr  = _ema(closes, 20)
+    ema50_arr  = _ema(closes, 50)
+    ema100     = _ema(closes, 100)
+    ema200     = _ema(closes, 200)
+    ema250     = _ema(closes, 250) if n >= 250 else [closes[0]] * n
+    ema400     = _ema(closes, 400) if n >= 400 else [closes[0]] * n
+    sma20_arr  = _sma(closes, 20)
+    vol_ma5    = _sma(volumes, 5)
+    vol_ma20   = _sma(volumes, 20)
+
+    # ATR(14)
+    atr_arr = [0.0] * n
+    for i in range(1, n):
+        tr = max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1]))
+        atr_arr[i] = tr if i < 14 else (atr_arr[i-1] * 13 + tr) / 14
+
+    # BB bandwidth
+    _, bb_mid, _, _ = _bb(closes, 20, 2)
+    bb_upper_arr, bb_lower_arr = [None]*n, [None]*n
+    for i in range(19, n):
+        sl = closes[i-19:i+1]
+        std = math.sqrt(sum((v - bb_mid[i])**2 for v in sl) / 20) if bb_mid[i] else 0
+        bb_upper_arr[i] = bb_mid[i] + 2*std
+        bb_lower_arr[i] = bb_mid[i] - 2*std
+    bb_width = [None]*n
+    for i in range(n):
+        if bb_upper_arr[i] is not None and bb_lower_arr[i] is not None and bb_mid[i]:
+            bb_width[i] = (bb_upper_arr[i] - bb_lower_arr[i]) / bb_mid[i]
+    bb_width_sma = _sma([v if v is not None else 0 for v in bb_width], 20)
+
+    # OBV
+    obv = [0.0]
+    for i in range(1, n):
+        obv.append(obv[-1] + volumes[i] if closes[i] > closes[i-1]
+                   else obv[-1] - volumes[i] if closes[i] < closes[i-1]
+                   else obv[-1])
+    obv_ema = _ema(obv, 20)
+
+    entries = []
+    in_pos  = False
+    warmup  = 65
+
+    for i in range(warmup, n - 1):
+        c   = closes[i]; rsi = rsi_arr[i]; mhv = mh[i] or 0
+        vm20 = vol_ma20[i] or 1; vr = volumes[i] / vm20
+        vm5  = vol_ma5[i] or 1
+        atr  = atr_arr[i]
+
+        if in_pos:
+            last_entry_idx = entries[-1][0] if entries else 0
+            if i - last_entry_idx > 15:
+                in_pos = False
+            continue
+
+        # ══ V2 FILTERS ════════════════════════════════════════════════════════
+
+        # 1. Regime: price > EMA200
+        if ema200[i] is None or c <= ema200[i]:
+            continue
+
+        # 2. BB squeeze: bandwidth < 90% of 20-day avg
+        bw = bb_width[i]; bw_avg = bb_width_sma[i]
+        if bw is None or bw_avg is None or bw_avg == 0 or bw > bw_avg * 0.90:
+            continue
+
+        # 3. OBV slope positive over 10 bars
+        if i < 10 or obv[i] <= obv[i-10]:
+            continue
+
+        # 4. Volume quality: today > 5-day avg
+        if volumes[i] < vm5:
+            continue
+
+        # 5. RSI sweet spot 45–68
+        if rsi is None or not (rsi_lo <= rsi <= rsi_hi):
+            continue
+
+        # ══ V3 ADDITIONAL FILTERS ════════════════════════════════════════════
+
+        # 6. EMA20 rising slope — not flat or declining
+        if i < ema_slope_bars or ema20_arr[i] <= ema20_arr[i - ema_slope_bars]:
+            continue
+
+        # 7. 5-day gain cap — avoid FOMO after extended runs
+        if i >= 5:
+            gain_5d = (c - closes[i-5]) / (closes[i-5] or 1) * 100
+            if gain_5d > max_5d_gain:
+                continue
+
+        # 8. Higher-low structure — confirms uptrend intact, not a lower-low bounce
+        if min_higher_low and i >= 10:
+            low_5  = min(lows[i-4:i+1])
+            low_10 = min(lows[i-9:i-4])
+            if low_5 <= low_10:
+                continue
+
+        # 9. Bullish entry candle — close > open
+        if require_bull_candle and c <= opens[i]:
+            continue
+
+        # 10. Net volume accumulation over last net_vol_days
+        if net_vol_days > 0 and i >= net_vol_days:
+            up_vol = sum(volumes[j] for j in range(i - net_vol_days + 1, i + 1)
+                         if closes[j] >= opens[j])
+            dn_vol = sum(volumes[j] for j in range(i - net_vol_days + 1, i + 1)
+                         if closes[j] < opens[j])
+            if up_vol <= dn_vol:
+                continue
+
+        # 11. BB squeeze persistence — must hold for N consecutive days
+        if bb_squeeze_days > 1 and i >= bb_squeeze_days:
+            squeeze_count = sum(
+                1 for d in range(bb_squeeze_days)
+                if (bb_width[i-d] is not None and bb_width_sma[i-d] is not None
+                    and bb_width_sma[i-d] > 0
+                    and bb_width[i-d] < bb_width_sma[i-d] * 0.90)
+            )
+            if squeeze_count < bb_squeeze_days:
+                continue
+
+        # ══ V2 MODULE THRESHOLDS ═════════════════════════════════════════════
+
+        oe = obv_ema[i] or 1
+        obv_norm   = min(max((obv[i] - oe) / abs(oe) * 100, -50), 50)
+        vol_score  = min(vr * 20, 50)
+        pc5        = (c - closes[i-5]) / (closes[i-5] or 1) * 100 if i >= 5 else 0
+        vol_conf   = min(pc5 * vr * 5, 50) if pc5 > 0 else 0
+        smart_money = round(min(max((obv_norm + vol_score + vol_conf) / 3 * 2, 0), 100))
+
+        is_dn      = c < opens[i]
+        bear_rsi   = (50 - rsi) * 2 if rsi < 50 else 0
+        bear_pres  = round(min((100.0 if is_dn else 0.0) * 0.6 + bear_rsi * 0.4, 100))
+
+        ma20_v    = sma20_arr[i] or c
+        dev_risk  = max((c - ma20_v) / ma20_v * 100 * 2, 0)
+        chg5      = c - closes[i-5] if i >= 5 else 0
+        atr_risk  = min(chg5 / atr * 10, 30) if atr > 0 else 0
+        chase_risk = round(min(dev_risk + atr_risk, 100))
+
+        daily_b   = c > ema20_arr[i] and ema20_arr[i] > ema50_arr[i]
+        weekly_b  = c > ema100[i] and ema100[i] > ema250[i]
+        monthly_b = c > ema400[i]
+        resonance = sum([daily_b, weekly_b, monthly_b, mhv > 0, rsi > 50]) * 20
+
+        if not (smart_money > sm_threshold and bear_pres < bp_threshold
+                and chase_risk < cr_threshold and resonance >= rs_threshold):
+            continue
+
+        # ══ SWING LOW STOP — placed at actual support, not flat ATR ══════════
+        # Use lowest low in past 15 bars, buffered 0.4×ATR below
+        if atr <= 0:
+            continue
+        lookback   = min(15, i)
+        swing_low  = min(lows[i - lookback + 1:i + 1])
+        stop       = max(swing_low - atr * 0.4, c * 0.88)
+        risk_amt   = c - stop
+        if risk_amt <= 0 or risk_amt / c > 0.15:   # reject if risk > 15% (bad setup)
+            continue
+
+        r1  = c + risk_amt * r1_mult
+        r2  = c + risk_amt * r2_mult
+        entries.append((i, c, stop, r1, r2))
+        in_pos = True
+
+    if not entries:
+        empty = [False] * n
+        return _run(ohlcv, empty, empty)
+
+    # Use profit protection (protect_r=0.7) for V3
+    sim   = _simulate_partial(closes, highs, lows, dates, entries, protect_r=0.7)
+    stats = _stats(sim["trades"], sim["equity"], 100_000.0, closes, dates)
+    return {**sim, **stats}
+
+
 def optimize_parameters(
     ohlcv: list,
-    strategy: str = "decision_core_v2",
+    strategy: str = "decision_core_v3",
     metric: str = "win_rate",
 ) -> dict:
     """
     Grid search over key parameters. Returns top-3 param sets ranked by `metric`.
     Splits data 70/30 to avoid look-ahead; tests on out-of-sample only.
+    For V3, also sweeps max_5d_gain and ema_slope_bars.
     """
     n = len(ohlcv)
     split = int(n * 0.7)
@@ -752,7 +983,8 @@ def optimize_parameters(
     train = ohlcv[:split]
     test  = ohlcv[split:]
 
-    grid = [
+    # Base grid (shared by V2 and V3)
+    base_grid = [
         {"sm_threshold": sm, "bp_threshold": bp, "cr_threshold": cr,
          "rs_threshold": rs, "rsi_lo": rl, "rsi_hi": rh}
         for sm in (60, 65, 70)
@@ -763,23 +995,36 @@ def optimize_parameters(
         for rh in (65, 68)
     ]
 
-    fn = strategy_decision_core_v2
+    # V3 extra dimensions
+    if strategy == "decision_core_v3":
+        grid = [
+            {**p, "max_5d_gain": mg, "ema_slope_bars": es}
+            for p in base_grid
+            for mg in (8.0, 12.0)
+            for es in (3, 5)
+        ]
+        fn = strategy_decision_core_v3
+    else:
+        grid = base_grid
+        fn = STRATEGIES.get(strategy, strategy_decision_core_v2)
+
     results = []
     for p in grid:
         try:
-            tr = fn(train, **p)
+            tr  = fn(train, **p)
             oos = fn(test,  **p)
-            if oos["num_trades"] < 3:
+            if oos["num_trades"] < 2:
                 continue
             score = oos.get(metric, 0)
             results.append({
-                "params":     p,
-                "oos_" + metric: round(score, 2),
-                "oos_win_rate":   round(oos["win_rate"], 1),
-                "oos_total_ret":  round(oos["total_return"], 2),
-                "oos_trades":     oos["num_trades"],
-                "oos_sharpe":     oos.get("sharpe", 0),
-                "is_win_rate":    round(tr["win_rate"], 1),
+                "params":          p,
+                "oos_" + metric:   round(score, 2),
+                "oos_win_rate":    round(oos["win_rate"], 1),
+                "oos_total_ret":   round(oos["total_return"], 2),
+                "oos_trades":      oos["num_trades"],
+                "oos_sharpe":      oos.get("sharpe", 0),
+                "oos_profit_factor": oos.get("profit_factor", 0),
+                "is_win_rate":     round(tr["win_rate"], 1),
             })
         except Exception:
             continue
@@ -843,6 +1088,7 @@ STRATEGIES = {
     "combined":          strategy_combined,
     "decision_core":     strategy_decision_core,
     "decision_core_v2":  strategy_decision_core_v2,
+    "decision_core_v3":  strategy_decision_core_v3,
 }
 
 STRATEGY_NAMES = {
@@ -853,6 +1099,7 @@ STRATEGY_NAMES = {
     "combined":          "多指標綜合策略",
     "decision_core":     "決策核心四模組策略",
     "decision_core_v2":  "決策核心 V2（最高勝率）",
+    "decision_core_v3":  "決策核心 V3（精準入場）",
 }
 
 

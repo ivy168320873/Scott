@@ -1170,6 +1170,9 @@ tbody td{padding:9px 10px}
             <option value="ma_cross">MA 雙線交叉策略</option>
             <option value="bollinger">布林通道策略</option>
             <option value="combined">多指標綜合策略</option>
+            <option value="decision_core">決策核心四模組策略</option>
+            <option value="decision_core_v2">決策核心 V2（最高勝率）</option>
+            <option value="decision_core_v3" selected>🏆 決策核心 V3（精準入場）</option>
           </select>
         </div>
         <div id="bt-params" class="bt-params"></div>
@@ -1614,13 +1617,24 @@ tbody td{padding:9px 10px}
       <div id="qt-wf-result"></div>
     </div>
 
-    <!-- V2 Strategy + Parameter Optimization -->
+    <!-- V2 / V3 Strategy + Parameter Optimization -->
     <div class="sr-card" style="margin-bottom:14px">
-      <div style="font-size:.78rem;font-weight:700;margin-bottom:12px">🏆 決策核心 V2 — 最高勝率策略</div>
-      <div style="font-size:.72rem;color:var(--muted);margin-bottom:10px">嚴格篩選：趨勢多頭（EMA200）＋布林緊縮＋OBV上升＋RSI甜區（45-68）＋部分出場（L1鎖利＋L2追蹤）</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+      <div style="font-size:.78rem;font-weight:700;margin-bottom:4px">🏆 決策核心 V2 / V3 — 精準入場策略</div>
+      <div style="font-size:.7rem;color:var(--muted);margin-bottom:10px">
+        V2：EMA200＋BB緊縮＋OBV上升＋RSI甜區＋部分出場<br>
+        <span style="color:#e3b341">V3 新增：</span>EMA20上升斜率＋5日漲幅上限（≤10%）＋高低點確認＋陽線進場＋淨量能累積＋利潤保護（0.7R→保本+）＋擺動低點止損
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
         <div>
-          <div style="font-size:.7rem;color:var(--muted);margin-bottom:3px">排序指標</div>
+          <div style="font-size:.7rem;color:var(--muted);margin-bottom:3px">版本</div>
+          <select id="qt-v-select" class="qty-input" style="padding:6px 10px;border-radius:6px;border:1px solid var(--surface2);background:var(--surface2);color:var(--text);font-size:.82rem">
+            <option value="decision_core_v3" selected>V3 精準入場（建議）</option>
+            <option value="decision_core_v2">V2 最高勝率</option>
+            <option value="decision_core">V1 原始版</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:.7rem;color:var(--muted);margin-bottom:3px">最佳化指標</div>
           <select id="qt-opt-metric" class="qty-input" style="padding:6px 10px;border-radius:6px;border:1px solid var(--surface2);background:var(--surface2);color:var(--text);font-size:.82rem">
             <option value="win_rate">勝率</option>
             <option value="profit_factor">獲利因子</option>
@@ -1629,7 +1643,7 @@ tbody td{padding:9px 10px}
             <option value="expectancy">期望值</option>
           </select>
         </div>
-        <button class="btn btn-primary" style="font-size:.76rem" onclick="qtBacktestV2()">▶ 執行 V2 回測</button>
+        <button class="btn btn-primary" style="font-size:.76rem" onclick="qtBacktestV2()">▶ 執行回測</button>
         <button class="btn btn-secondary" style="font-size:.76rem" onclick="qtOptimize()">🔬 參數最佳化</button>
       </div>
       <div id="qt-v2-result"></div>
@@ -6343,7 +6357,9 @@ async function qtBacktestV2() {
   const el = document.getElementById('qt-v2-result');
   if (!el) return;
   if (!_lastOHLCV) { el.innerHTML = '<div style="color:var(--muted);font-size:.8rem">請先查詢一支股票</div>'; return; }
-  el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:6px 0">⏳ V2 回測中（嚴格篩選）…</div>';
+  const ver = document.getElementById('qt-v-select')?.value || 'decision_core_v3';
+  const verLabel = {'decision_core_v3':'V3 精準入場','decision_core_v2':'V2 最高勝率','decision_core':'V1 原始'}[ver] || ver;
+  el.innerHTML = `<div style="color:var(--muted);font-size:.8rem;padding:6px 0">⏳ ${verLabel} 回測中…</div>`;
   try {
     const ohlcv = _lastOHLCV.ohlcv.map(d => ({
       date: d.date.toISOString().slice(0,10), open: d.open, high: d.high,
@@ -6351,7 +6367,7 @@ async function qtBacktestV2() {
     }));
     const r = await fetch('/api/backtest', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ strategy: 'decision_core_v2', ohlcv, params: {} }),
+      body: JSON.stringify({ strategy: ver, ohlcv, params: {} }),
     });
     const j = await r.json();
     if (!j.ok) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">${j.error}</div>`; return; }
@@ -6403,9 +6419,10 @@ async function qtOptimize() {
       date: d.date.toISOString().slice(0,10), open: d.open, high: d.high,
       low: d.low, close: d.close, volume: d.volume,
     }));
+    const ver = document.getElementById('qt-v-select')?.value || 'decision_core_v3';
     const r = await fetch('/api/optimize', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ strategy: 'decision_core_v2', metric, ohlcv }),
+      body: JSON.stringify({ strategy: ver, metric, ohlcv }),
     });
     const j = await r.json();
     if (!j.ok) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">${j.error}</div>`; return; }
