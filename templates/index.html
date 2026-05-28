@@ -1649,6 +1649,29 @@ tbody td{padding:9px 10px}
       <div id="qt-v2-result"></div>
     </div>
 
+    <!-- Advanced Optimizer -->
+    <div class="sr-card" style="margin-bottom:14px">
+      <div style="font-size:.78rem;font-weight:700;margin-bottom:4px">🔬 進階回測優化器 — 歷史模擬 · 參數強化</div>
+      <div style="font-size:.7rem;color:var(--muted);margin-bottom:10px">
+        模擬過去歷史數據，判斷未來實際走勢，進行更準確的參數調整優化
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn btn-secondary" style="font-size:.74rem" onclick="optRun('rolling_wf')" id="opt-btn-rolling_wf">
+          📊 滾動走向前測試
+        </button>
+        <button class="btn btn-secondary" style="font-size:.74rem" onclick="optRun('monte_carlo')" id="opt-btn-monte_carlo">
+          🎲 蒙特卡羅模擬
+        </button>
+        <button class="btn btn-secondary" style="font-size:.74rem" onclick="optRun('regime')" id="opt-btn-regime">
+          🌐 市場環境分析
+        </button>
+        <button class="btn btn-secondary" style="font-size:.74rem" onclick="optRun('stability')" id="opt-btn-stability">
+          📐 參數穩定性
+        </button>
+      </div>
+      <div id="opt-result"></div>
+    </div>
+
     <!-- Scheduler log -->
     <div class="sr-card">
       <div style="font-size:.78rem;font-weight:700;margin-bottom:8px">📋 排程器日誌
@@ -6454,6 +6477,202 @@ async function qtOptimize() {
       </div>
       ${rows}`;
   } catch (e) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">失敗：${e.message}</div>`; }
+}
+
+// ══════════════════════════════════════════════════════
+// ADVANCED OPTIMIZER
+// ══════════════════════════════════════════════════════
+
+function _optOhlcv() {
+  if (!_lastOHLCV) return null;
+  return _lastOHLCV.ohlcv.map(d => ({
+    date: d.date.toISOString().slice(0,10),
+    open: d.open, high: d.high, low: d.low, close: d.close, volume: d.volume,
+  }));
+}
+
+async function optRun(analysis) {
+  const el = document.getElementById('opt-result');
+  if (!el) return;
+  const ohlcv = _optOhlcv();
+  if (!ohlcv) { el.innerHTML = '<div style="color:var(--muted);font-size:.8rem">請先查詢一支股票以載入數據</div>'; return; }
+
+  const labels = {
+    rolling_wf: '滾動走向前測試（評估樣本外穩健性）',
+    monte_carlo: '蒙特卡羅模擬（未來 30 筆交易分佈）',
+    regime: '市場環境分析（多頭 / 空頭 / 盤整條件績效）',
+    stability: '參數穩定性分析（五段非重疊驗證）',
+  };
+  const btns = ['rolling_wf','monte_carlo','regime','stability'];
+  btns.forEach(b => {
+    const btn = document.getElementById('opt-btn-' + b);
+    if (btn) btn.disabled = true;
+  });
+
+  el.innerHTML = `<div style="color:var(--muted);font-size:.8rem;padding:8px 0">⏳ ${labels[analysis] || analysis}…</div>`;
+
+  try {
+    const ver = document.getElementById('qt-v-select')?.value || 'decision_core_v3';
+    const res = await fetch('/api/optimizer/run', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ analysis, ohlcv, strategy: ver }),
+    });
+    const j = await res.json();
+    btns.forEach(b => { const btn = document.getElementById('opt-btn-' + b); if (btn) btn.disabled = false; });
+    if (!j.ok) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">❌ ${j.error}</div>`; return; }
+
+    if (analysis === 'rolling_wf') el.innerHTML = _optRenderRollingWF(j);
+    else if (analysis === 'monte_carlo') el.innerHTML = _optRenderMC(j);
+    else if (analysis === 'regime') el.innerHTML = _optRenderRegime(j);
+    else if (analysis === 'stability') el.innerHTML = _optRenderStability(j);
+  } catch(e) {
+    btns.forEach(b => { const btn = document.getElementById('opt-btn-' + b); if (btn) btn.disabled = false; });
+    el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">❌ 請求失敗：${e.message}</div>`;
+  }
+}
+
+function _optRenderRollingWF(j) {
+  const vdColor = j.verdict?.startsWith('✅') ? 'var(--bull)' : j.verdict?.startsWith('⚠') ? 'var(--neutral)' : 'var(--bear)';
+  const kpis = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px">
+      ${[
+        ['樣本外平均勝率', j.avg_oos_win_rate + '%', j.avg_oos_win_rate >= 60 ? 'var(--bull)' : j.avg_oos_win_rate >= 45 ? 'var(--neutral)' : 'var(--bear)'],
+        ['樣本內平均勝率', j.avg_is_win_rate + '%', 'var(--text)'],
+        ['過擬合差距', j.overfit_gap + '%', j.overfit_gap <= 15 ? 'var(--bull)' : j.overfit_gap <= 25 ? 'var(--neutral)' : 'var(--bear)'],
+        ['最佳參數穩定性', j.stability_pct + '%', j.stability_pct >= 50 ? 'var(--bull)' : 'var(--neutral)'],
+        ['平均樣本外獲利', j.avg_oos_return + '%', j.avg_oos_return >= 0 ? 'var(--bull)' : 'var(--bear)'],
+        ['有效視窗', j.valid_windows + '/' + j.total_windows, 'var(--text)'],
+      ].map(([l,v,c]) => `<div class="mon-kpi"><div class="mon-kpi-lbl">${l}</div><div class="mon-kpi-val" style="color:${c}">${v}</div></div>`).join('')}
+    </div>`;
+
+  const rec = j.recommended_params;
+  const recHtml = rec && Object.keys(rec).length ? `
+    <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:.72rem">
+      <div style="font-weight:700;margin-bottom:6px;color:var(--accent)">📌 建議最佳參數（最頻繁最優）</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;color:var(--muted)">
+        ${Object.entries(rec).map(([k,v]) => `<span><b style="color:var(--text)">${k}</b> = ${v}</span>`).join(' · ')}
+      </div>
+    </div>` : '';
+
+  const wRows = (j.windows || []).map(w => {
+    const oosC = w.oos_win_rate >= 60 ? 'var(--bull)' : w.oos_win_rate >= 45 ? 'var(--neutral)' : 'var(--bear)';
+    return `<tr>
+      <td style="color:var(--muted)">${w.test_period}</td>
+      <td>${w.is_win_rate}%</td>
+      <td style="color:${oosC};font-weight:700">${w.oos_win_rate}%</td>
+      <td>${w.oos_return}%</td>
+      <td>${w.oos_trades}</td>
+    </tr>`;
+  }).join('');
+
+  const tbl = j.windows?.length ? `
+    <div style="overflow-x:auto;margin-bottom:8px">
+      <table style="font-size:.7rem">
+        <thead><tr>
+          <th>測試期間</th><th>樣本內勝率</th><th>樣本外勝率</th><th>樣本外報酬</th><th>交易數</th>
+        </tr></thead>
+        <tbody>${wRows}</tbody>
+      </table>
+    </div>` : '';
+
+  return `
+    <div style="font-size:.8rem;font-weight:700;color:${vdColor};margin-bottom:10px">${j.verdict}</div>
+    ${kpis}${recHtml}${tbl}`;
+}
+
+function _optRenderMC(j) {
+  const pp = j.prob_profit;
+  const ppC = pp >= 70 ? 'var(--bull)' : pp >= 50 ? 'var(--neutral)' : 'var(--bear)';
+  const ret = j.return || {};
+  const dd = j.drawdown || {};
+  const wr = j.win_rate_sim || {};
+  const hist = j.historical || {};
+
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px">
+      ${[
+        ['獲利機率', pp + '%', ppC],
+        ['中位數報酬 (P50)', ret.p50 + '%', ret.p50 >= 0 ? 'var(--bull)' : 'var(--bear)'],
+        ['悲觀報酬 (P5)', ret.p5 + '%', ret.p5 >= 0 ? 'var(--bull)' : 'var(--bear)'],
+        ['樂觀報酬 (P95)', ret.p95 + '%', 'var(--bull)'],
+        ['中位數最大回撤', dd.p50 + '%', 'var(--neutral)'],
+        ['最壞回撤 (P5)', dd.p5 + '%', 'var(--bear)'],
+        ['歷史勝率', hist.win_rate + '%', hist.win_rate >= 60 ? 'var(--bull)' : 'var(--neutral)'],
+        ['模擬筆數', j.n_forward + ' 筆 × ' + j.n_sims, 'var(--text)'],
+      ].map(([l,v,c]) => `<div class="mon-kpi"><div class="mon-kpi-lbl">${l}</div><div class="mon-kpi-val" style="font-size:.95rem;color:${c}">${v}</div></div>`).join('')}
+    </div>
+    <div style="font-size:.7rem;color:var(--muted);background:var(--surface2);border-radius:8px;padding:10px">
+      <b style="color:var(--text)">歷史交易統計</b>：
+      輸入 ${j.input_trades} 筆 · 平均獲利 <span style="color:var(--bull)">+${hist.avg_win}%</span> ·
+      平均虧損 <span style="color:var(--bear)">${hist.avg_loss}%</span><br>
+      <b style="color:var(--text)">模擬勝率</b>：P5=${wr.p5}%  P50=${wr.p50}%  P95=${wr.p95}%
+    </div>`;
+}
+
+function _optRenderRegime(j) {
+  const rr = j.regime_results || {};
+  const regKeys = ['bull', 'bear', 'side'];
+  const cards = regKeys.map(k => {
+    const r = rr[k];
+    if (!r || !r.num_trades) return `<div class="mon-kpi"><div class="mon-kpi-lbl">${k === 'bull' ? '多頭' : k === 'bear' ? '空頭' : '盤整'}</div><div class="mon-kpi-val" style="color:var(--muted);font-size:.8rem">無交易</div></div>`;
+    const c = r.win_rate >= 65 ? 'var(--bull)' : r.win_rate >= 50 ? 'var(--neutral)' : 'var(--bear)';
+    return `
+      <div class="mon-kpi">
+        <div class="mon-kpi-lbl">${r.label || k}</div>
+        <div class="mon-kpi-val" style="color:${c}">${r.win_rate}%</div>
+        <div style="font-size:.62rem;color:var(--muted);margin-top:3px">${r.num_trades}筆 · PF ${r.profit_factor}</div>
+      </div>`;
+  }).join('');
+
+  const advice = (j.advice || []).map(a =>
+    `<div style="padding:5px 0;border-bottom:1px solid var(--border);font-size:.74rem">${a}</div>`
+  ).join('');
+
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px">
+      ${cards}
+    </div>
+    ${advice ? `<div style="margin-top:6px">${advice}</div>` : ''}
+    <div style="font-size:.68rem;color:var(--muted);margin-top:8px">
+      最佳表現市場環境：<b style="color:var(--text)">${j.best_label || j.best_regime || '—'}</b> · 共 ${j.total_trades} 筆歷史交易
+    </div>`;
+}
+
+function _optRenderStability(j) {
+  const vdColor = j.verdict?.startsWith('✅') ? 'var(--bull)' : j.verdict?.startsWith('⚠') ? 'var(--neutral)' : 'var(--bear)';
+  const stab = j.stability || {};
+  const paramRows = Object.entries(stab).map(([pk, sv]) => {
+    const c = sv.agreement_pct >= 70 ? 'var(--bull)' : sv.agreement_pct >= 50 ? 'var(--neutral)' : 'var(--bear)';
+    return `<tr>
+      <td style="color:var(--muted)">${pk}</td>
+      <td style="font-weight:700;color:${c}">${sv.agreement_pct}%</td>
+      <td style="color:var(--text)">${sv.recommended}</td>
+      <td style="color:var(--muted);font-size:.67rem">${Object.entries(sv.all_values||{}).map(([v,n])=>`${v}×${n}`).join(' ')}</td>
+    </tr>`;
+  }).join('');
+
+  const blockRows = (j.blocks || []).map(b => `<tr>
+    <td style="color:var(--muted);font-size:.68rem">${b.period}</td>
+    <td>${b.win_rate}%</td>
+    <td>${b.trades}</td>
+  </tr>`).join('');
+
+  return `
+    <div style="font-size:.82rem;font-weight:700;color:${vdColor};margin-bottom:10px">${j.verdict}</div>
+    <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px">整體穩定性：<b style="color:var(--text)">${j.overall_stability}%</b></div>
+    <div style="overflow-x:auto;margin-bottom:10px">
+      <table style="font-size:.7rem">
+        <thead><tr><th>參數</th><th>一致性</th><th>建議值</th><th>各段分佈</th></tr></thead>
+        <tbody>${paramRows}</tbody>
+      </table>
+    </div>
+    <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px">各段表現</div>
+    <div style="overflow-x:auto">
+      <table style="font-size:.7rem">
+        <thead><tr><th>期間</th><th>勝率</th><th>交易數</th></tr></thead>
+        <tbody>${blockRows}</tbody>
+      </table>
+    </div>`;
 }
 
 // ══════════════════════════════════════════════════════

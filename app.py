@@ -617,6 +617,44 @@ def api_stream():
     )
 
 
+# ── Advanced Optimizer endpoint ──────────────────────────────────────────────
+
+@app.route("/api/optimizer/run", methods=["POST"])
+def api_optimizer_run():
+    try:
+        import optimizer as _opt
+        payload  = request.json or {}
+        analysis = payload.get("analysis", "rolling_wf")
+        ohlcv    = payload.get("ohlcv", [])
+        strategy = payload.get("strategy", "decision_core_v3")
+        trades   = payload.get("trades", [])
+
+        if not ohlcv:
+            return jsonify({"ok": False, "error": "ohlcv required"}), 400
+
+        if analysis == "rolling_wf":
+            result = _opt.rolling_walk_forward(ohlcv, strategy)
+        elif analysis == "monte_carlo":
+            if not trades:
+                r = _bt.run(ohlcv, strategy, {})
+                trades = r.get("trades", [])
+            result = _opt.monte_carlo(trades)
+        elif analysis == "regime":
+            result = _opt.regime_analysis(ohlcv, strategy)
+        elif analysis == "stability":
+            result = _opt.parameter_stability(ohlcv, strategy)
+        else:
+            return jsonify({"ok": False, "error": f"unknown analysis: {analysis}"}), 400
+
+        if "error" in result:
+            return jsonify({"ok": False, "error": result["error"]}), 400
+
+        return jsonify({"ok": True, "analysis": analysis, **result})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
