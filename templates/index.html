@@ -844,6 +844,7 @@ tbody td{padding:9px 10px}
     <button class="tab" onclick="switchTab('alerts')">警報</button>
     <button class="tab" onclick="switchTab('position')">部位管理</button>
     <button class="tab" onclick="switchTab('radar')">市場雷達</button>
+    <button class="tab" onclick="switchTab('quant')" style="color:#e3b341">⚡ 量化交易</button>
   </div>
 
   <div id="detail">
@@ -1452,6 +1453,125 @@ tbody td{padding:9px 10px}
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- ── Quant Trading Section ── -->
+  <div id="quant-section" style="display:none">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+      <div>
+        <div style="font-size:1.05rem;font-weight:700">⚡ 量化交易控制台</div>
+        <div style="font-size:.76rem;color:var(--muted)" id="qt-mode-badge">載入中…</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-secondary" style="font-size:.76rem" onclick="qtRefresh()">↻ 重新整理</button>
+        <button class="btn" style="font-size:.76rem;background:#e3b341;color:#000" onclick="qtScanNow()">🔍 立即掃描</button>
+      </div>
+    </div>
+
+    <!-- Account summary -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px" id="qt-account-grid">
+      <div class="sr-card" style="padding:12px 14px;text-align:center">
+        <div style="font-size:.68rem;color:var(--muted);margin-bottom:4px">帳戶總值</div>
+        <div style="font-size:1.4rem;font-weight:900;color:var(--bull)" id="qt-equity">—</div>
+      </div>
+      <div class="sr-card" style="padding:12px 14px;text-align:center">
+        <div style="font-size:.68rem;color:var(--muted);margin-bottom:4px">可用資金</div>
+        <div style="font-size:1.4rem;font-weight:900;color:var(--accent)" id="qt-cash">—</div>
+      </div>
+      <div class="sr-card" style="padding:12px 14px;text-align:center">
+        <div style="font-size:.68rem;color:var(--muted);margin-bottom:4px">持倉數量</div>
+        <div style="font-size:1.4rem;font-weight:900" id="qt-pos-count">—</div>
+      </div>
+      <div class="sr-card" style="padding:12px 14px;text-align:center">
+        <div style="font-size:.68rem;color:var(--muted);margin-bottom:4px">今日掃描</div>
+        <div style="font-size:1.4rem;font-weight:900;color:var(--neutral)" id="qt-candidates">—</div>
+      </div>
+    </div>
+
+    <!-- Two columns: positions + scheduler candidates -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+
+      <!-- Live positions -->
+      <div class="sr-card">
+        <div style="font-size:.78rem;font-weight:700;margin-bottom:10px">📦 目前持倉</div>
+        <div id="qt-positions">
+          <div style="color:var(--muted);font-size:.8rem;padding:8px 0">尚無持倉</div>
+        </div>
+      </div>
+
+      <!-- Scheduler candidates -->
+      <div class="sr-card">
+        <div style="font-size:.78rem;font-weight:700;margin-bottom:10px">🎯 今日掃描推薦</div>
+        <div id="qt-scan-candidates">
+          <div style="color:var(--muted);font-size:.8rem;padding:8px 0">尚未掃描</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Risk manager settings -->
+    <div class="sr-card" style="margin-bottom:14px">
+      <div style="font-size:.78rem;font-weight:700;margin-bottom:12px">🛡 風控設定</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+        <div>
+          <div style="font-size:.7rem;color:var(--muted);margin-bottom:4px">每筆最大風險（%）</div>
+          <input id="qt-risk-pct" type="number" value="2" min="0.5" max="5" step="0.5"
+            class="qty-input" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
+        </div>
+        <div>
+          <div style="font-size:.7rem;color:var(--muted);margin-bottom:4px">單一部位上限（%）</div>
+          <input id="qt-pos-pct" type="number" value="20" min="5" max="50" step="5"
+            class="qty-input" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--surface2);background:var(--surface2);color:var(--text);font-size:.82rem">
+        </div>
+        <div>
+          <div style="font-size:.7rem;color:var(--muted);margin-bottom:4px">每日停損熔斷（%）</div>
+          <input id="qt-daily-loss" type="number" value="5" min="1" max="15" step="0.5"
+            class="qty-input" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--surface2);background:var(--surface2);color:var(--text);font-size:.82rem">
+        </div>
+        <div>
+          <div style="font-size:.7rem;color:var(--muted);margin-bottom:4px">最大持倉數量</div>
+          <input id="qt-max-pos" type="number" value="10" min="1" max="30" step="1"
+            class="qty-input" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--surface2);background:var(--surface2);color:var(--text);font-size:.82rem">
+        </div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" style="font-size:.76rem" onclick="qtRiskCheck()">🧮 試算倉位</button>
+        <span style="font-size:.72rem;color:var(--muted);align-self:center">（輸入目前查詢股票的進場/停損自動計算）</span>
+      </div>
+      <div id="qt-risk-result" style="margin-top:10px"></div>
+    </div>
+
+    <!-- Walk-forward backtest -->
+    <div class="sr-card" style="margin-bottom:14px">
+      <div style="font-size:.78rem;font-weight:700;margin-bottom:12px">📈 走向前回測（決策核心四模組）</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div>
+          <div style="font-size:.7rem;color:var(--muted);margin-bottom:3px">訓練集比例</div>
+          <select id="qt-wf-split" class="qty-input" style="padding:6px 10px;border-radius:6px;border:1px solid var(--surface2);background:var(--surface2);color:var(--text);font-size:.82rem">
+            <option value="0.6">60% 訓練 / 40% 測試</option>
+            <option value="0.7" selected>70% 訓練 / 30% 測試</option>
+            <option value="0.8">80% 訓練 / 20% 測試</option>
+          </select>
+        </div>
+        <button class="btn btn-secondary" style="font-size:.76rem" onclick="qtWalkForward()">▶ 執行走向前測試</button>
+      </div>
+      <div id="qt-wf-result"></div>
+    </div>
+
+    <!-- Scheduler log -->
+    <div class="sr-card">
+      <div style="font-size:.78rem;font-weight:700;margin-bottom:8px">📋 排程器日誌
+        <span id="qt-sched-badge" style="font-size:.65rem;padding:2px 7px;border-radius:8px;background:var(--surface2);color:var(--muted);margin-left:6px">停用</span>
+      </div>
+      <div id="qt-sched-log" style="font-family:monospace;font-size:.7rem;color:var(--muted);max-height:200px;overflow-y:auto;line-height:1.7;background:var(--surface2);border-radius:8px;padding:10px">
+        設定 SCHEDULER_ENABLE=true 啟用自動排程
+      </div>
+      <div style="margin-top:8px;font-size:.69rem;color:var(--muted)">
+        排程時間（ET）：09:00 盤前掃描 · 09:32 開盤執行 · 15:50 盤後檢查
+      </div>
+    </div>
+
   </div>
 
 </div>
@@ -2118,7 +2238,7 @@ document.getElementById('sym').addEventListener('keydown', e => { if (e.key === 
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','position','radar'];
+  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','position','radar','quant'];
   const idx = tabOrder.indexOf(tab);
   if (idx >= 0) document.querySelectorAll('.tab')[idx].classList.add('active');
 
@@ -2130,6 +2250,7 @@ function switchTab(tab) {
   document.getElementById('alerts-section').style.display   = tab === 'alerts'   ? 'block' : 'none';
   document.getElementById('position-section').style.display = tab === 'position' ? 'block' : 'none';
   document.getElementById('radar-section').style.display    = tab === 'radar'    ? 'block' : 'none';
+  document.getElementById('quant-section').style.display    = tab === 'quant'    ? 'block' : 'none';
 
   if (tab === 'signal' && _lastComputedData) startSignalRadar();
   else if (tab !== 'signal') { clearInterval(_sigTimer); _sigTimer = null; }
@@ -2140,6 +2261,7 @@ function switchTab(tab) {
   if (tab === 'alerts')                         renderAlerts();
   if (tab === 'kline'    && _lastSymbol)        loadNews(_lastSymbol);
   if (tab === 'radar')                          loadVIX();
+  if (tab === 'quant')                          qtRefresh();
 }
 
 // ══════════════════════════════════════════════════════
@@ -4281,11 +4403,17 @@ function renderInvestmentPicks(scored, usedSet) {
 
     // Alert button (stop + target1)
     const alertBtnId = `ab-${d.symbol.replace(/[^a-z0-9]/gi,'_')}`;
-    const alertBtn = `<button id="${alertBtnId}" class="btn btn-secondary"
-      style="font-size:.7rem;padding:3px 10px;margin-top:8px"
-      onclick="event.stopPropagation();quickAddAlerts('${d.symbol}',${ir.stop},${ir.tp1.price},this)">
-      🔔 設定停損+目標警報
-    </button>`;
+    const alertBtn = `<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">
+      <button id="${alertBtnId}" class="btn btn-secondary"
+        style="font-size:.7rem;padding:3px 10px"
+        onclick="event.stopPropagation();quickAddAlerts('${d.symbol}',${ir.stop},${ir.tp1.price},this)">
+        🔔 設定警報
+      </button>
+      <button class="btn" style="font-size:.7rem;padding:3px 10px;background:#e3b341;color:#000"
+        onclick="event.stopPropagation();switchTab('quant');setTimeout(()=>qtAutoExecute('${d.symbol}',${ir.buyHigh},${ir.stop},${ir.tp1.price}),200)">
+        ⚡ 自動下單
+      </button>
+    </div>`;
 
     return `<div class="invest-card" style="border-color:${verdict.border};background:${verdict.bg}" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -5895,6 +6023,244 @@ function renderTradingLevels(d) {
   setMarker('tl-m-now',  'tl-ml-now',  nowLeft,  `現價\n${fmt(lv.price)}`);
   setMarker('tl-m-tp1',  'tl-ml-tp1',  tp1Left,  `目標一\n${fmt(lv.targets[0].price)}`);
   setMarker('tl-m-tp2',  'tl-ml-tp2',  tp2Left,  `目標二\n${fmt(lv.targets[1].price)}`);
+}
+
+// ══════════════════════════════════════════════════════
+// ⚡ 量化交易控制台
+// ══════════════════════════════════════════════════════
+
+async function qtRefresh() {
+  await Promise.all([qtLoadAccount(), qtLoadPositions(), qtLoadCandidates(), qtLoadSchedLog()]);
+}
+
+async function qtLoadAccount() {
+  try {
+    const r = await fetch('/api/trade/account');
+    const j = await r.json();
+    if (!j.ok) return;
+    document.getElementById('qt-equity').textContent = '$' + (j.equity || 0).toLocaleString(undefined, {maximumFractionDigits: 0});
+    document.getElementById('qt-cash').textContent   = '$' + (j.cash   || 0).toLocaleString(undefined, {maximumFractionDigits: 0});
+    const badge = document.getElementById('qt-mode-badge');
+    if (badge) badge.textContent = j.simulation ? '🔵 模擬模式（無需 API Key）'
+                                 : j.is_paper   ? '📄 Alpaca 模擬帳戶'
+                                 :                '💰 Alpaca 真實帳戶';
+  } catch {}
+}
+
+async function qtLoadPositions() {
+  try {
+    const r = await fetch('/api/trade/positions');
+    const j = await r.json();
+    const el = document.getElementById('qt-positions');
+    const cnt = document.getElementById('qt-pos-count');
+    if (!j.ok || !j.positions?.length) {
+      if (el) el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:8px 0">尚無持倉</div>';
+      if (cnt) cnt.textContent = '0';
+      return;
+    }
+    if (cnt) cnt.textContent = j.positions.length;
+    if (el) el.innerHTML = j.positions.map(p => {
+      const pnlCls = p.unrealized_pnl_pct >= 0 ? 'pos' : 'neg';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:.8rem">
+        <div>
+          <span style="font-weight:700;cursor:pointer" onclick="qs('${p.symbol}');switchTab('analysis')">${p.symbol}</span>
+          <span style="color:var(--muted);font-size:.7rem;margin-left:6px">${p.qty} 股 @ $${p.avg_entry?.toFixed(2)}</span>
+        </div>
+        <div style="text-align:right">
+          <div style="font-weight:700;font-size:.85rem">$${p.current_price?.toFixed(2) ?? '—'}</div>
+          <div class="${pnlCls}" style="font-size:.72rem">${p.unrealized_pnl_pct >= 0 ? '+' : ''}${p.unrealized_pnl_pct?.toFixed(2)}%</div>
+        </div>
+        <button class="btn btn-secondary" style="font-size:.65rem;padding:2px 8px;margin-left:8px"
+          onclick="qtClosePosition('${p.symbol}')">平倉</button>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+async function qtLoadCandidates() {
+  try {
+    const r = await fetch('/api/scheduler/candidates');
+    const j = await r.json();
+    const el  = document.getElementById('qt-scan-candidates');
+    const cnt = document.getElementById('qt-candidates');
+    if (!j.ok || !j.candidates?.length) {
+      if (el) el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:8px 0">尚未掃描，點「立即掃描」或等待盤前 09:00 自動掃描</div>';
+      if (cnt) cnt.textContent = '0';
+      return;
+    }
+    if (cnt) cnt.textContent = j.candidates.length;
+    if (el) el.innerHTML = j.candidates.slice(0, 8).map(c => {
+      const rsColor = c.resonance >= 80 ? 'var(--bull)' : c.resonance >= 60 ? 'var(--neutral)' : 'var(--muted)';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:.79rem">
+        <div>
+          <span style="font-weight:700;cursor:pointer" onclick="qs('${c.symbol}');switchTab('analysis')">${c.symbol}</span>
+          <span style="font-size:.68rem;color:var(--muted);margin-left:5px">${c.reason}</span>
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-left:8px">
+          <div style="font-size:.68rem;color:var(--muted)">主力${c.smart_money} 共振<span style="color:${rsColor}">${c.resonance}%</span></div>
+          <div style="font-size:.72rem">$${c.entry?.toFixed(2)} 停${c.stop?.toFixed(2)}</div>
+        </div>
+        <button class="btn" style="font-size:.65rem;padding:2px 8px;margin-left:8px;background:var(--bull);color:#000"
+          onclick="qtExecuteCandidate(${JSON.stringify(c).replace(/"/g,'&quot;')})">下單</button>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+async function qtLoadSchedLog() {
+  try {
+    const r = await fetch('/api/scheduler/status');
+    const j = await r.json();
+    const logEl   = document.getElementById('qt-sched-log');
+    const badgeEl = document.getElementById('qt-sched-badge');
+    if (badgeEl) {
+      badgeEl.textContent = j.running ? '✅ 運行中' : '⏸ 停用';
+      badgeEl.style.color = j.running ? 'var(--bull)' : 'var(--muted)';
+    }
+    if (logEl && j.log?.length) {
+      logEl.innerHTML = j.log.slice(-30).reverse().map(l => `<div>${l}</div>`).join('');
+    }
+  } catch {}
+}
+
+async function qtScanNow() {
+  const btn = document.querySelector('[onclick="qtScanNow()"]');
+  if (btn) { btn.textContent = '⏳ 掃描中…'; btn.disabled = true; }
+  try {
+    await fetch('/api/scheduler/scan', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    // Poll for 30 seconds then refresh
+    let tries = 0;
+    const poll = setInterval(async () => {
+      tries++;
+      await qtLoadCandidates();
+      await qtLoadSchedLog();
+      if (tries >= 6) {
+        clearInterval(poll);
+        if (btn) { btn.textContent = '🔍 立即掃描'; btn.disabled = false; }
+      }
+    }, 5000);
+  } catch {
+    if (btn) { btn.textContent = '🔍 立即掃描'; btn.disabled = false; }
+  }
+}
+
+async function qtExecuteCandidate(candidate) {
+  if (!confirm(`確定要下單買入 ${candidate.symbol}？\n進場 $${candidate.entry}  停損 $${candidate.stop}  目標 $${candidate.target}`)) return;
+  try {
+    const r = await fetch('/api/trade/execute', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ symbol: candidate.symbol, entry: candidate.entry, stop: candidate.stop, target: candidate.target, note: candidate.reason }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      alert(`✅ 下單成功：${j.symbol} × ${j.shares} 股\n進場 $${j.entry}  停損 $${j.stop}\n模式：${j.simulation ? '模擬' : 'Alpaca'}`);
+      qtRefresh();
+    } else {
+      alert(`⛔ 下單被阻擋：${j.reason || j.error}`);
+    }
+  } catch (e) { alert('下單失敗：' + e.message); }
+}
+
+async function qtClosePosition(symbol) {
+  if (!confirm(`確定要平倉 ${symbol}？`)) return;
+  try {
+    const r = await fetch('/api/trade/close', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ symbol }),
+    });
+    const j = await r.json();
+    if (j.ok) { qtRefresh(); }
+    else alert('平倉失敗：' + (j.error || '未知錯誤'));
+  } catch (e) { alert('平倉失敗：' + e.message); }
+}
+
+async function qtRiskCheck() {
+  const d = _lastComputedData;
+  const el = document.getElementById('qt-risk-result');
+  if (!d || !el) { if (el) el.innerHTML = '<div style="color:var(--muted);font-size:.8rem">請先查詢一支股票</div>'; return; }
+
+  const capital  = parseFloat(document.getElementById('ar-capital')?.value) || 0;
+  if (!capital) { el.innerHTML = '<div style="color:var(--muted);font-size:.8rem">請在自動推薦面板輸入總資金</div>'; return; }
+
+  const entry = d.price;
+  const stop  = d.indicators.smartMoney > 60
+    ? entry - (d.indicators.adx > 20 ? entry * 0.03 : entry * 0.05)
+    : entry * 0.93;
+  const riskPct = parseFloat(document.getElementById('qt-risk-pct')?.value) || 2;
+
+  try {
+    const r = await fetch('/api/trade/risk-check', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ entry, stop: +stop.toFixed(2), capital }),
+    });
+    const j = await r.json();
+    if (!j.ok) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">${j.error}</div>`; return; }
+    el.innerHTML = `<div style="background:var(--surface2);border-radius:8px;padding:10px 14px;font-size:.8rem;line-height:1.9">
+      <b>${d.symbol}</b> 風控試算（資金 $${capital.toLocaleString()}，每筆風險 ${riskPct}%）<br>
+      建議買 <b class="pos">${j.shares} 股</b>，投入 <b>$${(j.invest_amount||0).toLocaleString(undefined,{maximumFractionDigits:0})}</b>
+      （佔資金 ${j.portfolio_pct?.toFixed(0)}%）<br>
+      進場 <b>$${entry.toFixed(2)}</b> · 停損 <b style="color:var(--bear)">$${stop.toFixed(2)}</b> · 最大虧損 <b style="color:var(--bear)">$${(j.risk_dollar||0).toLocaleString(undefined,{maximumFractionDigits:0})}</b>
+      ${j.capped ? '<br><span style="color:var(--neutral)">⚠️ 已依最大倉位限制縮減股數</span>' : ''}
+    </div>`;
+  } catch (e) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">計算失敗：${e.message}</div>`; }
+}
+
+async function qtWalkForward() {
+  const d = _lastComputedData;
+  const el = document.getElementById('qt-wf-result');
+  if (!el) return;
+  if (!d || !_lastOHLCV) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:.8rem">請先查詢一支股票</div>';
+    return;
+  }
+  el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:6px 0">⏳ 回測中…</div>';
+  const trainPct = parseFloat(document.getElementById('qt-wf-split')?.value) || 0.7;
+  try {
+    const ohlcv = _lastOHLCV.ohlcv.map(d => ({
+      date: d.date.toISOString().slice(0,10), open: d.open, high: d.high,
+      low: d.low, close: d.close, volume: d.volume,
+    }));
+    const r = await fetch('/api/walkforward', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ strategy: 'decision_core', ohlcv, train_pct: trainPct }),
+    });
+    const j = await r.json();
+    if (!j.ok) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">${j.error}</div>`; return; }
+
+    const robColor = j.robustness > 0.7 ? 'var(--bull)' : j.robustness > 0.4 ? 'var(--neutral)' : 'var(--bear)';
+    const isStat = j.in_sample, osStat = j.out_sample;
+    el.innerHTML = `
+      <div style="margin-bottom:8px;font-size:.8rem">
+        <span style="font-weight:700;color:${robColor}">${j.note}</span>
+        <span style="color:var(--muted);margin-left:8px">穩健性 ${(j.robustness*100).toFixed(0)}%</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        ${[['樣本內（訓練）', isStat, j.in_period], ['樣本外（驗證）', osStat, j.out_period]].map(([lbl, s, period]) => `
+          <div style="background:var(--surface2);border-radius:8px;padding:10px 12px">
+            <div style="font-size:.7rem;color:var(--muted);margin-bottom:6px">${lbl} · ${period || ''}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;font-size:.77rem">
+              <div>總報酬 <b class="${(s?.total_return||0)>=0?'pos':'neg'}">${s?.total_return?.toFixed(1)}%</b></div>
+              <div>年化 <b class="${(s?.annual_return||0)>=0?'pos':'neg'}">${s?.annual_return?.toFixed(1)}%</b></div>
+              <div>勝率 <b>${s?.win_rate?.toFixed(0)}%</b></div>
+              <div>交易數 <b>${s?.num_trades}</b></div>
+              <div>Sharpe <b>${s?.sharpe}</b></div>
+              <div>Sortino <b>${s?.sortino}</b></div>
+              <div>最大回撤 <b class="neg">${s?.max_drawdown}%</b></div>
+              <div>獲利因子 <b>${s?.profit_factor}</b></div>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  } catch (e) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">失敗：${e.message}</div>`; }
+}
+
+// Investment picks: auto-execute button
+function qtAutoExecute(symbol, entry, stop, target) {
+  const candidate = { symbol, entry, stop, target, reason: '自動推薦進場' };
+  qtExecuteCandidate(candidate);
 }
 </script>
 </body>

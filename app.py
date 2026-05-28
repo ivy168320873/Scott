@@ -10,8 +10,14 @@ import analyzer
 import backtest as _bt
 import signals as _sig
 import patterns as _pat
+import trader as _trader
+import risk_manager as _rm
+import scheduler as _sched
 
 app = Flask(__name__)
+
+# Start background scheduler (only if SCHEDULER_ENABLE=true)
+_sched.start_scheduler()
 
 YAHOO_HEADERS = {
     "User-Agent": (
@@ -323,6 +329,161 @@ def api_news(symbol):
     except Exception:
         pass
     return jsonify({"ok": True, "news": []})
+
+
+# ── Walk-forward backtest endpoint ────────────────────────────────────────────
+
+@app.route("/api/walkforward", methods=["POST"])
+def api_walkforward():
+    try:
+        payload   = request.json or {}
+        strategy  = payload.get("strategy", "decision_core")
+        ohlcv     = payload.get("ohlcv")
+        params    = payload.get("params", {})
+        train_pct = float(payload.get("train_pct", 0.7))
+        if not ohlcv:
+            return jsonify({"ok": False, "error": "ohlcv required"}), 400
+        result = _bt.walk_forward(ohlcv, strategy, train_pct, params)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Trading endpoints ─────────────────────────────────────────────────────────
+
+@app.route("/api/trade/status")
+def api_trade_status():
+    try:
+        engine = _trader.get_engine()
+        return jsonify({"ok": True, **engine.status()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/trade/account")
+def api_trade_account():
+    try:
+        engine = _trader.get_engine()
+        return jsonify({"ok": True, **engine.get_account()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/trade/positions")
+def api_trade_positions():
+    try:
+        engine = _trader.get_engine()
+        return jsonify({"ok": True, "positions": engine.get_positions()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/trade/orders")
+def api_trade_orders():
+    try:
+        engine = _trader.get_engine()
+        limit  = int(request.args.get("limit", 20))
+        return jsonify({"ok": True, "orders": engine.get_recent_orders(limit)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/trade/execute", methods=["POST"])
+def api_trade_execute():
+    try:
+        payload = request.json or {}
+        symbol  = payload.get("symbol", "").upper()
+        entry   = float(payload.get("entry", 0))
+        stop    = float(payload.get("stop",  0))
+        target  = float(payload.get("target", 0))
+        note    = payload.get("note", "")
+        if not symbol or not entry or not stop:
+            return jsonify({"ok": False, "error": "symbol / entry / stop required"}), 400
+
+        engine = _trader.get_engine()
+        rm     = _rm.get_risk_manager()
+        acct   = engine.get_account()
+        equity = acct.get("equity", 0)
+        open_positions = len(engine.get_positions())
+
+        ok, shares, details = rm.validate_order(
+            portfolio_value    = equity,
+            start_of_day_value = equity,
+            open_positions     = open_positions,
+            entry              = entry,
+            stop               = stop,
+        )
+        if not ok:
+            return jsonify({"ok": False, "blocked": True, "reason": details.get("reason"), "details": details})
+
+        result = engine.submit_order(symbol, shares, entry, stop, target or entry * 1.1, note)
+        return jsonify({"ok": True, **result, "risk_details": details})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/trade/close", methods=["POST"])
+def api_trade_close():
+    try:
+        symbol = (request.json or {}).get("symbol", "").upper()
+        if not symbol:
+            return jsonify({"ok": False, "error": "symbol required"}), 400
+        engine = _trader.get_engine()
+        result = engine.close_position(symbol)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/trade/risk-check", methods=["POST"])
+def api_risk_check():
+    try:
+        payload = request.json or {}
+        entry   = float(payload.get("entry", 0))
+        stop    = float(payload.get("stop",  0))
+        capital = float(payload.get("capital", 0))
+        if not entry or not stop or not capital:
+            return jsonify({"ok": False, "error": "entry / stop / capital required"}), 400
+        rm = _rm.get_risk_manager()
+        shares, details = rm.calc_shares(capital, entry, stop)
+        return jsonify({"ok": True, "shares": shares, **details})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Scheduler endpoints ────────────────────────────────────────────────────────
+
+@app.route("/api/scheduler/status")
+def api_scheduler_status():
+    try:
+        return jsonify({"ok": True, **_sched.get_scheduler_status()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/scheduler/scan", methods=["POST"])
+def api_scheduler_scan():
+    try:
+        payload = request.json or {}
+        syms    = payload.get("symbols")    # optional custom list
+        import threading
+        t = threading.Thread(target=_sched.trigger_scan_now, args=(syms,), daemon=True)
+        t.start()
+        return jsonify({"ok": True, "message": "掃描已在背景啟動，請稍後查看 /api/scheduler/status"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/scheduler/candidates")
+def api_scheduler_candidates():
+    try:
+        return jsonify({"ok": True, "candidates": _sched._scan_candidates,
+                        "last_scan": _sched._last_scan_ts,
+                        "count": len(_sched._scan_candidates)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── Main page ──────────────────────────────────────────────────────────────────

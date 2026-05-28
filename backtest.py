@@ -22,7 +22,11 @@ def _ema(arr: list, period: int) -> list:
             if cnt == period:
                 out[i] = s / period
         else:
-            out[i] = v * k + out[i - 1] * (1 - k)
+            out[i] = v * k + (out[i - 1] or v) * (1 - k)
+    # Fill initial Nones with first available value for multi-TF EMA
+    first = next((v for v in out if v is not None), None)
+    if first is not None:
+        out = [v if v is not None else first for v in out]
     return out
 
 
@@ -147,7 +151,6 @@ def _max_drawdown(equity: list) -> float:
 def _sharpe(equity: list, risk_free=0.02) -> float:
     if len(equity) < 2:
         return 0.0
-    # Only compute on days with actual position (non-flat equity)
     rets = [(equity[i] / equity[i - 1] - 1) for i in range(1, len(equity))
             if equity[i - 1] > 0 and equity[i] != equity[i - 1]]
     if len(rets) < 5:
@@ -160,6 +163,37 @@ def _sharpe(equity: list, risk_free=0.02) -> float:
     if std == 0:
         return 0.0
     return round(mean_e / std * math.sqrt(252), 2)
+
+
+def _sortino(equity: list, risk_free=0.02) -> float:
+    """Sortino ratio — only penalises downside volatility."""
+    if len(equity) < 2:
+        return 0.0
+    rets = [(equity[i] / equity[i - 1] - 1) for i in range(1, len(equity))
+            if equity[i - 1] > 0 and equity[i] != equity[i - 1]]
+    if len(rets) < 5:
+        return 0.0
+    rf_daily = risk_free / 252
+    excess = [r - rf_daily for r in rets]
+    mean_e = sum(excess) / len(excess)
+    downside = [r for r in excess if r < 0]
+    if not downside:
+        return 9.99
+    down_var = sum(r ** 2 for r in downside) / len(downside)
+    down_std = math.sqrt(down_var)
+    if down_std == 0:
+        return 9.99
+    return round(mean_e / down_std * math.sqrt(252), 2)
+
+
+def _calmar(equity: list, initial: float) -> float:
+    """Calmar ratio = annualised return / max drawdown."""
+    n_days = len(equity)
+    if n_days < 2:
+        return 0.0
+    annual_ret = ((equity[-1] / initial) ** (252 / n_days) - 1) * 100
+    mdd = abs(_max_drawdown(equity))
+    return round(annual_ret / mdd, 2) if mdd > 0 else 9.99
 
 
 def _stats(trades: list, equity: list, initial: float, closes: list, dates: list) -> dict:
@@ -181,19 +215,35 @@ def _stats(trades: list, equity: list, initial: float, closes: list, dates: list
     bh_ret = (closes[-1] / closes[0] - 1) * 100
     bh_equity = [initial * (c / closes[0]) for c in closes]
 
+    # Consecutive wins/losses
+    max_consec_win = max_consec_loss = cur_w = cur_l = 0
+    for t in trades:
+        if t["win"]:  cur_w += 1; cur_l = 0
+        else:         cur_l += 1; cur_w = 0
+        max_consec_win  = max(max_consec_win,  cur_w)
+        max_consec_loss = max(max_consec_loss, cur_l)
+
+    # Expectancy per trade (in %)
+    expectancy = round(win_rate / 100 * avg_win + (1 - win_rate / 100) * avg_loss, 2) if trades else 0
+
     return {
-        "total_return":   round(total_ret, 2),
-        "annual_return":  round(annual_ret, 2),
-        "win_rate":       round(win_rate, 1),
-        "num_trades":     len(trades),
-        "avg_win":        round(avg_win, 2),
-        "avg_loss":       round(avg_loss, 2),
-        "profit_factor":  round(profit_factor, 2) if profit_factor != float('inf') else 999,
-        "max_drawdown":   _max_drawdown(equity),
-        "sharpe":         _sharpe(equity),
-        "avg_holding":    round(avg_holding, 1),
-        "bh_return":      round(bh_ret, 2),
-        "bh_equity":      bh_equity,
+        "total_return":       round(total_ret, 2),
+        "annual_return":      round(annual_ret, 2),
+        "win_rate":           round(win_rate, 1),
+        "num_trades":         len(trades),
+        "avg_win":            round(avg_win, 2),
+        "avg_loss":           round(avg_loss, 2),
+        "profit_factor":      round(profit_factor, 2) if profit_factor != float('inf') else 999,
+        "max_drawdown":       _max_drawdown(equity),
+        "sharpe":             _sharpe(equity),
+        "sortino":            _sortino(equity),
+        "calmar":             _calmar(equity, initial),
+        "expectancy":         expectancy,
+        "max_consec_win":     max_consec_win,
+        "max_consec_loss":    max_consec_loss,
+        "avg_holding":        round(avg_holding, 1),
+        "bh_return":          round(bh_ret, 2),
+        "bh_equity":          bh_equity,
     }
 
 
@@ -309,22 +359,168 @@ def strategy_combined(ohlcv: list, rsi_period=14, fast_ma=20, slow_ma=60) -> dic
     return _run(ohlcv, buy_sig, sell_sig)
 
 
+def strategy_decision_core(
+    ohlcv: list,
+    sm_threshold:  int = 60,    # 主力控盤 min
+    bp_threshold:  int = 30,    # 空方壓力 max
+    cr_threshold:  int = 55,    # 追高風險 max
+    rs_threshold:  int = 60,    # 多週期共振 min (%)
+) -> dict:
+    """
+    Decision Core 四模組策略 (mirrors TradingView Pine Script).
+    Entry:  sm > sm_threshold AND bp < bp_threshold AND cr < cr_threshold AND resonance >= rs_threshold
+    Exit:   cr > 75 OR bp > 65 OR ATR trailing stop hit
+    """
+    closes  = [d["close"]  for d in ohlcv]
+    opens   = [d["open"]   for d in ohlcv]
+    highs   = [d["high"]   for d in ohlcv]
+    lows    = [d["low"]    for d in ohlcv]
+    volumes = [d["volume"] for d in ohlcv]
+    n = len(closes)
+
+    # Pre-compute indicators
+    rsi_arr   = _rsi(closes)
+    _, _, mh  = _macd(closes)
+    ema20_arr = _ema(closes, 20)
+    ema50_arr = _ema(closes, 50)
+    ema100    = _ema(closes, 100)
+    ema250    = _ema(closes, 250) if n >= 250 else [closes[0]] * n
+    ema400    = _ema(closes, 400) if n >= 400 else [closes[0]] * n
+    sma20_arr = _sma(closes, 20)
+    vol_ma_arr = _sma(volumes, 20)
+
+    # ATR
+    atr_arr = [0.0] * n
+    for i in range(1, n):
+        tr = max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1]))
+        atr_arr[i] = tr if i < 14 else (atr_arr[i-1] * 13 + tr) / 14
+
+    # OBV
+    obv = [0.0]
+    for i in range(1, n):
+        obv.append(obv[-1] + volumes[i] if closes[i] > closes[i-1]
+                   else obv[-1] - volumes[i] if closes[i] < closes[i-1]
+                   else obv[-1])
+    obv_ema = _ema(obv, 20)
+
+    buy_sig  = [False] * n
+    sell_sig = [False] * n
+    in_pos   = False
+    trail_stop = 0.0
+
+    for i in range(max(60, 400 if n >= 400 else 250), n):
+        c = closes[i]; rsi = rsi_arr[i]; mhv = mh[i] or 0
+        vm = vol_ma_arr[i] or 1; vr = volumes[i] / vm
+
+        # ── Module 1: Smart Money ────────────────────────────────────────────
+        oe = obv_ema[i] or 1
+        obv_norm   = min(max((obv[i] - oe) / abs(oe) * 100, -50), 50)
+        vol_score  = min(vr * 20, 50)
+        pc5        = (c - closes[i-5]) / (closes[i-5] or 1) * 100 if i >= 5 else 0
+        vol_conf   = min(pc5 * vr * 5, 50) if pc5 > 0 else 0
+        smart_money = round(min(max((obv_norm + vol_score + vol_conf) / 3 * 2, 0), 100))
+
+        # ── Module 2: Bear Pressure ─────────────────────────────────────────
+        is_dn      = c < opens[i]
+        bear_ratio = 100.0 if is_dn else 0.0
+        bear_rsi   = (50 - rsi) * 2 if rsi < 50 else 0
+        bear_pres  = round(min(bear_ratio * 0.6 + bear_rsi * 0.4, 100))
+
+        # ── Module 3: Chase Risk ────────────────────────────────────────────
+        rsi_risk  = (rsi - 70) * 3 if rsi > 70 else 0
+        ma20_v    = sma20_arr[i] or c
+        dev_risk  = max((c - ma20_v) / ma20_v * 100 * 2, 0)
+        chg5      = c - closes[i-5] if i >= 5 else 0
+        atr_risk  = min(chg5 / atr_arr[i] * 10, 30) if atr_arr[i] > 0 else 0
+        chase_risk = round(min(rsi_risk + dev_risk + atr_risk, 100))
+
+        # ── Module 4: Resonance ─────────────────────────────────────────────
+        daily_b   = c > ema20_arr[i] and ema20_arr[i] > ema50_arr[i]
+        weekly_b  = c > ema100[i] and ema100[i] > ema250[i]
+        monthly_b = c > ema400[i]
+        resonance = sum([daily_b, weekly_b, monthly_b, mhv > 0, rsi > 50]) * 20
+
+        # ── Entry / Exit ────────────────────────────────────────────────────
+        if not in_pos:
+            if (smart_money > sm_threshold and bear_pres < bp_threshold
+                    and chase_risk < cr_threshold and resonance >= rs_threshold):
+                buy_sig[i] = True
+                in_pos = True
+                trail_stop = c - atr_arr[i] * 1.5
+        else:
+            # Update trailing stop
+            new_trail = c - atr_arr[i] * 1.5
+            trail_stop = max(trail_stop, new_trail)
+
+            exit_signal = (
+                chase_risk > 75 or
+                bear_pres  > 65 or
+                c < trail_stop
+            )
+            if exit_signal:
+                sell_sig[i] = True
+                in_pos = False
+
+    return _run(ohlcv, buy_sig, sell_sig)
+
+
+def walk_forward(
+    ohlcv: list,
+    strategy: str = "decision_core",
+    train_pct: float = 0.7,
+    params: dict | None = None,
+) -> dict:
+    """
+    Walk-forward test: train on first train_pct of data, test on remainder.
+    Returns in-sample, out-of-sample, and combined stats.
+    """
+    n = len(ohlcv)
+    split = int(n * train_pct)
+    if split < 60 or (n - split) < 30:
+        return {"error": "數據不足以進行走向前測試（需至少 200 天）"}
+
+    train_data = ohlcv[:split]
+    test_data  = ohlcv[split:]
+
+    fn = STRATEGIES.get(strategy, strategy_decision_core)
+    p  = {k: v for k, v in (params or {}).items() if isinstance(v, (int, float))}
+
+    in_sample  = fn(train_data, **p)
+    out_sample = fn(test_data,  **p)
+
+    # Robustness: out-of-sample return / in-sample return
+    robustness = round(out_sample["total_return"] / in_sample["total_return"], 2) \
+                 if in_sample["total_return"] != 0 else 0
+
+    return {
+        "in_sample":   {k: v for k, v in in_sample.items()  if k not in ("equity", "bh_equity", "trades")},
+        "out_sample":  {k: v for k, v in out_sample.items() if k not in ("equity", "bh_equity", "trades")},
+        "in_period":   f"{train_data[0]['date']} → {train_data[-1]['date']}",
+        "out_period":  f"{test_data[0]['date']}  → {test_data[-1]['date']}",
+        "robustness":  robustness,
+        "note": ("✅ 策略穩健" if robustness > 0.5 else
+                 "⚠️ 過度擬合風險" if in_sample["total_return"] > 0 else "❌ 策略整體無效"),
+    }
+
+
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
 STRATEGIES = {
-    "rsi":       strategy_rsi,
-    "macd":      strategy_macd,
-    "ma_cross":  strategy_ma_cross,
-    "bollinger": strategy_bollinger,
-    "combined":  strategy_combined,
+    "rsi":           strategy_rsi,
+    "macd":          strategy_macd,
+    "ma_cross":      strategy_ma_cross,
+    "bollinger":     strategy_bollinger,
+    "combined":      strategy_combined,
+    "decision_core": strategy_decision_core,
 }
 
 STRATEGY_NAMES = {
-    "rsi":       "RSI 反轉策略",
-    "macd":      "MACD 趨勢策略",
-    "ma_cross":  "MA 雙線交叉策略",
-    "bollinger": "布林通道策略",
-    "combined":  "多指標綜合策略",
+    "rsi":           "RSI 反轉策略",
+    "macd":          "MACD 趨勢策略",
+    "ma_cross":      "MA 雙線交叉策略",
+    "bollinger":     "布林通道策略",
+    "combined":      "多指標綜合策略",
+    "decision_core": "決策核心四模組策略",
 }
 
 
