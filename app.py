@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timezone
 import time as _time
-import traceback, os
+import traceback, os, json
 import demo_data as _demo
 import analyzer
 import backtest as _bt
@@ -13,6 +13,7 @@ import patterns as _pat
 import trader as _trader
 import risk_manager as _rm
 import scheduler as _sched
+import monitor as _mon
 
 app = Flask(__name__)
 
@@ -502,6 +503,118 @@ def api_scheduler_candidates():
                         "count": len(_sched._scan_candidates)})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Health & Monitoring endpoints ────────────────────────────────────────────
+
+@app.route("/api/health")
+def api_health():
+    """System health check — market status, scheduler, kill switch, regime."""
+    try:
+        health = _mon.system_health()
+        sched  = _sched.get_scheduler_status()
+        engine = _trader.get_engine()
+        acct   = engine.get_account()
+        return jsonify({
+            "ok":           True,
+            "market":       health["market"],
+            "kill_switch":  health["kill_switch"],
+            "daily_pnl":    health["daily_pnl"],
+            "candidates":   health["candidates"],
+            "positions":    health["positions"],
+            "regime":       health["regime"],
+            "scheduler":    sched["running"],
+            "equity":       acct.get("equity", 0),
+            "alerts_recent": _mon.get_state().get_alerts(5),
+            "ts":           _time.time(),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/monitor/alerts")
+def api_monitor_alerts():
+    try:
+        n = int(request.args.get("n", 60))
+        alerts = _mon.get_state().get_alerts(n)
+        return jsonify({"ok": True, "alerts": alerts, "count": len(alerts)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/monitor/status")
+def api_monitor_status():
+    try:
+        state  = _mon.get_state()
+        sched  = _sched.get_scheduler_status()
+        engine = _trader.get_engine()
+        acct   = engine.get_account()
+        return jsonify({
+            "ok":             True,
+            "market":         _mon.market_status(),
+            "regime":         state.get("regime", {}),
+            "kill_switch":    state.is_kill_switch(),
+            "daily_pnl":      state.get("daily_pnl_pct", 0.0),
+            "sod_equity":     state.get("sod_equity"),
+            "equity":         acct.get("equity", 0),
+            "scheduler":      sched,
+            "candidates":     sched.get("candidates", 0),
+            "positions_tracked": len(state.get_positions()),
+            "alerts":         state.get_alerts(20),
+            "log":            sched.get("log", [])[-30:],
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/monitor/kill-switch", methods=["POST"])
+def api_kill_switch():
+    """Manually engage or reset the daily kill switch."""
+    try:
+        action = (request.json or {}).get("action", "status")
+        state  = _mon.get_state()
+        if action == "engage":
+            state.engage_kill_switch("手動觸發")
+        elif action == "reset":
+            state.reset_kill_switch()
+        return jsonify({"ok": True, "kill_switch": state.is_kill_switch()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/stream")
+def api_stream():
+    """
+    Server-Sent Events: push market status + health every 30 seconds.
+    Browsers subscribe once and receive live updates without polling.
+    """
+    def generate():
+        while True:
+            try:
+                health = _mon.system_health()
+                data   = json.dumps({
+                    "market":      health["market"],
+                    "kill_switch": health["kill_switch"],
+                    "daily_pnl":   health["daily_pnl"],
+                    "candidates":  health["candidates"],
+                    "positions":   health["positions"],
+                    "regime":      health["regime"],
+                    "ts":          _time.time(),
+                })
+                yield f"data: {data}\n\n"
+            except Exception:
+                yield "data: {}\n\n"
+            _time.sleep(30)
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":  "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ── Main page ──────────────────────────────────────────────────────────────────

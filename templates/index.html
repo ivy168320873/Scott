@@ -21,6 +21,23 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 header h1{font-size:1.05rem;font-weight:600;color:var(--accent)}
 .ai-badge{font-size:.7rem;padding:2px 7px;border-radius:4px;font-weight:600;
   background:rgba(210,168,255,.15);color:var(--purple)}
+/* ── Toast notifications ── */
+.toast{pointer-events:auto;padding:9px 14px;border-radius:8px;font-size:.76rem;max-width:280px;
+  box-shadow:0 4px 16px rgba(0,0,0,.35);animation:toastIn .25s ease;line-height:1.4}
+.toast-info{background:#1a2a3a;border:1px solid var(--accent);color:var(--text)}
+.toast-warning{background:#2a200a;border:1px solid #e3b341;color:#e3b341}
+.toast-critical{background:#2a0a0a;border:1px solid #f85149;color:#f85149;font-weight:700}
+@keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+/* ── Monitoring panel ── */
+.mon-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+.mon-kpi{background:var(--surface2);border-radius:10px;padding:10px 12px;text-align:center}
+.mon-kpi-lbl{font-size:.65rem;color:var(--muted);margin-bottom:3px}
+.mon-kpi-val{font-size:1.05rem;font-weight:700}
+.alert-row{display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:.74rem}
+.alert-ts{color:var(--muted);font-size:.65rem;white-space:nowrap;min-width:80px}
+.alert-info .alert-dot{color:var(--accent)}
+.alert-warning .alert-dot{color:#e3b341}
+.alert-critical .alert-dot{color:#f85149;font-weight:700}
 
 /* ── Layout ── */
 .container{max-width:1380px;margin:0 auto;padding:16px}
@@ -691,8 +708,18 @@ tbody td{padding:9px 10px}
   <h1>股市即時動能分析</h1>
   {% if has_claude %}<span class="ai-badge">✦ Claude AI</span>{% endif %}
   <span style="flex:1"></span>
-  <span id="upd" style="font-size:.74rem;color:var(--muted)"></span>
+  <!-- Live market status strip -->
+  <div id="mkt-bar" style="display:flex;align-items:center;gap:10px;font-size:.72rem">
+    <span id="mkt-label" style="padding:3px 9px;border-radius:10px;background:var(--surface2);color:var(--muted)">連線中…</span>
+    <span id="mkt-regime" style="color:var(--muted)"></span>
+    <span id="mkt-pnl" style="color:var(--muted)"></span>
+    <span id="mkt-ks" style="display:none;padding:3px 8px;border-radius:8px;background:#f85149;color:#fff;font-weight:700">🛑 停損限制</span>
+  </div>
+  <span id="upd" style="font-size:.74rem;color:var(--muted);margin-left:8px"></span>
 </header>
+
+<!-- Alert toast container -->
+<div id="toast-container" style="position:fixed;top:60px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none"></div>
 
 <div class="container">
   <div class="search-row">
@@ -1457,6 +1484,34 @@ tbody td{padding:9px 10px}
 
   <!-- ── Quant Trading Section ── -->
   <div id="quant-section" style="display:none">
+
+    <!-- 24/7 Monitoring Panel -->
+    <div class="sr-card" style="margin-bottom:16px;border:1px solid var(--accent)">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div style="font-weight:700;font-size:.84rem">🌐 24/7 即時監控</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="mon-mkt-badge" style="padding:3px 10px;border-radius:10px;background:var(--surface2);font-size:.72rem">連線中…</span>
+          <span id="mon-regime-badge" style="font-size:.72rem;color:var(--muted)"></span>
+          <button class="btn btn-secondary" style="font-size:.7rem;padding:4px 10px" onclick="monRefresh()">↻</button>
+          <button id="mon-ks-btn" class="btn" style="font-size:.7rem;padding:4px 10px;background:#f85149;color:#fff;display:none" onclick="monKillSwitch('reset')">↩ 解除停損限制</button>
+        </div>
+      </div>
+      <div class="mon-grid">
+        <div class="mon-kpi"><div class="mon-kpi-lbl">今日損益</div><div class="mon-kpi-val" id="mon-pnl">—</div></div>
+        <div class="mon-kpi"><div class="mon-kpi-lbl">持倉數</div><div class="mon-kpi-val" id="mon-pos">—</div></div>
+        <div class="mon-kpi"><div class="mon-kpi-lbl">候選訊號</div><div class="mon-kpi-val" id="mon-cand">—</div></div>
+        <div class="mon-kpi"><div class="mon-kpi-lbl">帳戶資產</div><div class="mon-kpi-val" id="mon-equity">—</div></div>
+        <div class="mon-kpi"><div class="mon-kpi-lbl">排程器</div><div class="mon-kpi-val" id="mon-sched">—</div></div>
+        <div class="mon-kpi"><div class="mon-kpi-lbl">下次開市</div><div class="mon-kpi-val" id="mon-nextopen" style="font-size:.75rem">—</div></div>
+      </div>
+      <!-- Alerts feed -->
+      <div style="font-size:.72rem;font-weight:700;margin-bottom:6px">📋 最新警報
+        <button class="btn btn-secondary" style="font-size:.65rem;padding:2px 8px;margin-left:8px" onclick="monLoadAlerts()">載入全部</button>
+      </div>
+      <div id="mon-alerts" style="max-height:160px;overflow-y:auto">
+        <div style="color:var(--muted);font-size:.74rem">無警報</div>
+      </div>
+    </div>
 
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
@@ -6383,6 +6438,212 @@ async function qtOptimize() {
       ${rows}`;
   } catch (e) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">失敗：${e.message}</div>`; }
 }
+
+// ══════════════════════════════════════════════════════
+// 24/7 MONITORING ENGINE (client-side)
+// ══════════════════════════════════════════════════════
+
+let _monData = null;
+let _monEventSource = null;
+let _monLastAlertTs = null;
+
+// ── Toast notifications ───────────────────────────────────────────────────────
+function showToast(msg, level = 'info', duration = 5000) {
+  const tc = document.getElementById('toast-container');
+  if (!tc) return;
+  const d = document.createElement('div');
+  d.className = `toast toast-${level}`;
+  d.textContent = msg;
+  tc.appendChild(d);
+  setTimeout(() => { d.style.opacity = '0'; d.style.transform = 'translateX(20px)'; d.style.transition = 'all .3s'; setTimeout(() => d.remove(), 300); }, duration);
+}
+
+// ── Market status bar (header) ────────────────────────────────────────────────
+function _updateHeaderBar(data) {
+  const lbl = document.getElementById('mkt-label');
+  const reg = document.getElementById('mkt-regime');
+  const pnl = document.getElementById('mkt-pnl');
+  const ks  = document.getElementById('mkt-ks');
+  if (!lbl) return;
+
+  const mkt = data.market || {};
+  const open = mkt.open;
+  lbl.textContent = `${mkt.label || '—'}  ${mkt.et_time || ''}`;
+  lbl.style.background = open ? 'rgba(63,185,80,.15)' : mkt.pre_market || mkt.after_hours ? 'rgba(227,179,65,.12)' : 'var(--surface2)';
+  lbl.style.color = open ? 'var(--bull)' : mkt.pre_market || mkt.after_hours ? '#e3b341' : 'var(--muted)';
+
+  const regime = data.regime || {};
+  if (regime.label) {
+    reg.textContent = `SPY ${regime.label}`;
+    reg.style.color = regime.strong ? 'var(--bull)' : regime.bullish ? '#e3b341' : 'var(--bear)';
+  }
+
+  const dp = data.daily_pnl || 0;
+  if (dp !== 0) {
+    pnl.textContent = `日損益 ${dp >= 0 ? '+' : ''}${dp.toFixed(1)}%`;
+    pnl.style.color = dp >= 0 ? 'var(--bull)' : 'var(--bear)';
+  }
+
+  if (ks) ks.style.display = data.kill_switch ? 'inline-block' : 'none';
+}
+
+// ── Monitoring panel updater ──────────────────────────────────────────────────
+function _updateMonPanel(data) {
+  _monData = data;
+
+  const mkt    = data.market || {};
+  const regime = data.regime || {};
+  const sched  = data.scheduler || {};
+
+  // Badges
+  const mb = document.getElementById('mon-mkt-badge');
+  const rb = document.getElementById('mon-regime-badge');
+  if (mb) {
+    mb.textContent = `${mkt.label || '—'}  ${mkt.et_time || ''}  ${mkt.weekday || ''}`;
+    mb.style.background = mkt.open ? 'rgba(63,185,80,.15)' : 'var(--surface2)';
+    mb.style.color = mkt.open ? 'var(--bull)' : 'var(--text)';
+  }
+  if (rb && regime.label) {
+    rb.textContent = `大盤：${regime.label}`;
+    rb.style.color = regime.strong ? 'var(--bull)' : regime.bullish ? '#e3b341' : 'var(--bear)';
+  }
+
+  // KPIs
+  const dp = data.daily_pnl || 0;
+  _setKPI('mon-pnl',  `${dp >= 0 ? '+' : ''}${dp.toFixed(1)}%`, dp >= 0 ? 'var(--bull)' : 'var(--bear)');
+  _setKPI('mon-pos',  String(data.positions || data.positions_tracked || 0));
+  _setKPI('mon-cand', String(data.candidates || 0), data.candidates > 0 ? '#e3b341' : 'var(--text)');
+  const eq = data.equity || 0;
+  _setKPI('mon-equity', eq >= 1000 ? `$${(eq/1000).toFixed(0)}k` : `$${eq.toFixed(0)}`);
+  _setKPI('mon-sched', sched.running ? '🟢 運行中' : (sched.enabled ? '⚠️ 未啟動' : '⚫ 停用'), sched.running ? 'var(--bull)' : 'var(--muted)');
+
+  // Next open
+  const no = document.getElementById('mon-nextopen');
+  if (no) {
+    if (mkt.open) {
+      no.textContent = `${mkt.minutes_to_close} 分鐘後收盤`;
+      no.style.color = 'var(--bull)';
+    } else if (mkt.minutes_to_open != null) {
+      const h = Math.floor(mkt.minutes_to_open / 60), m = mkt.minutes_to_open % 60;
+      no.textContent = h > 0 ? `${h}h ${m}m 後開市` : `${m} 分鐘後開市`;
+      no.style.color = 'var(--muted)';
+    } else {
+      no.textContent = '—';
+    }
+  }
+
+  // Kill switch
+  const ksBtn = document.getElementById('mon-ks-btn');
+  if (ksBtn) ksBtn.style.display = data.kill_switch ? 'inline-block' : 'none';
+
+  // Alerts (recent from health data)
+  const alerts = data.alerts || data.alerts_recent || [];
+  _renderAlerts(alerts.slice(-6));
+
+  // Update header bar too
+  _updateHeaderBar(data);
+}
+
+function _setKPI(id, val, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = val;
+  if (color) el.style.color = color;
+}
+
+function _renderAlerts(alerts) {
+  const el = document.getElementById('mon-alerts');
+  if (!el || !alerts.length) {
+    if (el) el.innerHTML = '<div style="color:var(--muted);font-size:.74rem">無警報</div>';
+    return;
+  }
+  // Check for new critical/warning alerts → show toast
+  if (_monLastAlertTs) {
+    const newOnes = alerts.filter(a => a.ts > _monLastAlertTs);
+    newOnes.forEach(a => {
+      if (a.level === 'critical') showToast(a.msg, 'critical', 8000);
+      else if (a.level === 'warning') showToast(a.msg, 'warning', 6000);
+    });
+  }
+  if (alerts.length) _monLastAlertTs = alerts[alerts.length - 1].ts;
+
+  el.innerHTML = [...alerts].reverse().map(a => `
+    <div class="alert-row alert-${a.level}">
+      <span class="alert-dot">${a.level==='critical'?'🔴':a.level==='warning'?'🟡':'🔵'}</span>
+      <span class="alert-ts">${(a.ts||'').slice(11,19)} UTC</span>
+      <span>${a.msg}</span>
+    </div>`).join('');
+}
+
+// ── Fetch health and update panels ───────────────────────────────────────────
+async function monRefresh() {
+  try {
+    const r = await fetch('/api/monitor/status');
+    const j = await r.json();
+    if (j.ok) _updateMonPanel(j);
+  } catch (e) {
+    console.warn('monRefresh failed:', e);
+  }
+}
+
+async function monLoadAlerts() {
+  try {
+    const r = await fetch('/api/monitor/alerts?n=80');
+    const j = await r.json();
+    if (j.ok) _renderAlerts(j.alerts);
+  } catch (e) {}
+}
+
+async function monKillSwitch(action) {
+  try {
+    const r = await fetch('/api/monitor/kill-switch', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ action }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      showToast(action === 'reset' ? '✅ 停損限制已解除' : '🛑 停損限制已啟動', action === 'reset' ? 'info' : 'critical');
+      monRefresh();
+    }
+  } catch (e) {}
+}
+
+// ── SSE subscription for real-time header updates ────────────────────────────
+function _startSSE() {
+  if (_monEventSource) return;
+  try {
+    _monEventSource = new EventSource('/api/stream');
+    _monEventSource.onmessage = e => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data && data.market) _updateHeaderBar(data);
+      } catch (_) {}
+    };
+    _monEventSource.onerror = () => {
+      _monEventSource.close();
+      _monEventSource = null;
+      setTimeout(_startSSE, 30000);
+    };
+  } catch (_) {}
+}
+
+// ── Auto-refresh (30s for monitoring panel, SSE for header) ──────────────────
+function _initMonitoring() {
+  _startSSE();
+  monRefresh();  // immediate
+  setInterval(monRefresh, 30000);  // every 30 seconds
+
+  // Quick health check for header bar even if user hasn't opened quant tab
+  fetch('/api/health').then(r => r.json()).then(j => {
+    if (j.ok) _updateHeaderBar(j);
+  }).catch(() => {});
+  setInterval(() => {
+    fetch('/api/health').then(r => r.json()).then(j => { if (j.ok) _updateHeaderBar(j); }).catch(() => {});
+  }, 60000);
+}
+
+// Start monitoring on page load
+document.addEventListener('DOMContentLoaded', _initMonitoring);
 </script>
 </body>
 </html>
