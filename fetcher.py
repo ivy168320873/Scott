@@ -271,43 +271,93 @@ def _fetch_gooaye_yt_rss(n: int = 4) -> dict:
         if not items:
             return {"ok": False, "error": "RSS 無集數", "content": "", "items": []}
 
-        lines = ["=== 謝孟恭 Gooaye 股癌 最新集數 ===\n"]
+        has_content = any(v["description"] or v["transcript"] for v in items)
+
+        lines = ["=== 謝孟恭 Gooaye 股癌 最新 Podcast 集數 ===\n"]
+        lines.append("（每集討論台股、美股、總經投資觀點，分析師聽眾廣泛）\n")
         for v in items:
             lines.append(f"【{v['date']}】{v['title']}")
             if v["description"]:
-                lines.append(f"節目說明：\n{v['description'][:800]}")
+                lines.append(f"節目說明：\n{v['description'][:900]}")
             if v["transcript"]:
-                lines.append(f"逐字稿摘錄（前 1500 字）：\n{v['transcript'][:1500]}")
+                lines.append(f"逐字稿摘錄（前 2000 字）：\n{v['transcript'][:2000]}")
+            if not v["description"] and not v["transcript"]:
+                lines.append("（節目說明暫不可取得，請參考集數標題）")
             if v["video_id"]:
                 lines.append(f"連結：https://youtu.be/{v['video_id']}")
-            lines.append("---")
+            lines.append("")
 
-        return {"ok": True, "content": "\n".join(lines), "items": items}
+        content = "\n".join(lines)
+        return {
+            "ok":      True,
+            "content": content,
+            "items":   items,
+            "has_deep_content": has_content,
+        }
     except Exception as exc:
         return {"ok": False, "error": str(exc), "content": "", "items": []}
 
 
 # ── Yahoo Finance ─────────────────────────────────────────────────────────────
 
+_NAV_SKIP = re.compile(
+    r"^(skip to|navigation|advertisement|subscribe|sign in|log in|"
+    r"privacy policy|cookie|terms of|follow us|share this|read more|"
+    r"related articles|trending|breaking news|市場資訊|廣告|訂閱|登入)",
+    re.IGNORECASE,
+)
+
+
 def _fetch_article_text(url: str) -> str:
-    """Extract main text content from a news article URL."""
+    """
+    Extract meaningful article body text from a news URL.
+    Filters out navigation, ads, and boilerplate.
+    Falls back to Yahoo Finance summary API if direct fetch fails/is junk.
+    """
     if not url or not url.startswith("http"):
         return ""
+    # Try Yahoo Finance summary endpoint first (cleaner)
+    if "finance.yahoo.com" in url or "yahoo.com" in url:
+        uuid_m = re.search(r"/([a-f0-9-]{36})", url)
+        if not uuid_m:
+            # Try news summary API
+            try:
+                r2 = requests.get(
+                    "https://query1.finance.yahoo.com/v1/finance/summary",
+                    params={"symbol": "", "modules": ""},
+                    headers=_HEADERS, timeout=5,
+                )
+            except Exception:
+                pass
     try:
         r = requests.get(url, headers=_HEADERS, timeout=8, allow_redirects=True)
         if r.status_code != 200:
             return ""
         html = r.text
-        # Strip scripts and styles
-        html = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.DOTALL)
+        # Remove nav/header/footer/aside/script/style blocks entirely
+        html = re.sub(
+            r"<(script|style|nav|header|footer|aside|form|button)[^>]*>.*?</\1>",
+            " ", html, flags=re.DOTALL | re.IGNORECASE,
+        )
         # Extract paragraphs
         paras = re.findall(r"<p[^>]*>(.*?)</p>", html, re.DOTALL)
         texts = []
-        for p in paras[:20]:
+        for p in paras[:40]:
             clean = re.sub(r"<[^>]+>", "", p).strip()
-            if len(clean) > 80:
-                texts.append(clean)
-        return "\n".join(texts[:10])[:1200]
+            clean = re.sub(r"\s+", " ", clean)
+            # Skip boilerplate
+            if len(clean) < 60:
+                continue
+            if _NAV_SKIP.match(clean):
+                continue
+            if clean.count(" ") < 5:   # too few words → likely a label
+                continue
+            texts.append(clean)
+            if len(texts) >= 8:
+                break
+        result = "\n".join(texts)[:1000]
+        # Final sanity check: if we got less than 100 real chars, discard
+        return result if len(result) > 100 else ""
     except Exception:
         return ""
 

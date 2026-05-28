@@ -635,6 +635,15 @@ def api_analyst_start():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/analyst/config")
+def api_analyst_config():
+    """Return config status: API key presence, model availability."""
+    return jsonify({
+        "ok": True,
+        "api_key_set": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
+    })
+
+
 @app.route("/api/analyst/fetch", methods=["POST"])
 def api_analyst_fetch():
     """Auto-fetch industry reports and Gooaye Podcast content."""

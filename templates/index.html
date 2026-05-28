@@ -1701,6 +1701,18 @@ tbody td{padding:9px 10px}
   ═══════════════════════════════════════════════════════════════ -->
   <div id="debate-section" style="display:none">
 
+    <!-- API Key Setup Banner -->
+    <div id="db-apikey-banner" style="display:none;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.3);border-radius:10px;padding:12px 16px;margin-bottom:14px">
+      <div style="font-size:.78rem;font-weight:700;color:var(--bear);margin-bottom:6px">⚠️ 需要設定 ANTHROPIC_API_KEY</div>
+      <div style="font-size:.72rem;color:var(--text);line-height:1.7">
+        辯論室需要 Claude AI 才能運作。請在 Railway 環境變數中設定：<br>
+        <code style="background:var(--surface2);padding:2px 8px;border-radius:4px;font-size:.75rem;color:var(--accent)">ANTHROPIC_API_KEY = sk-ant-api03-...</code>
+      </div>
+      <div style="font-size:.68rem;color:var(--muted);margin-top:6px">
+        Railway → 你的專案 → Variables → 新增 ANTHROPIC_API_KEY → 重新部署
+      </div>
+    </div>
+
     <!-- Input Panel -->
     <div class="sr-card" style="margin-bottom:14px">
       <div style="font-size:.84rem;font-weight:700;margin-bottom:4px">🧠 金融分析師多角辯論室</div>
@@ -1724,8 +1736,8 @@ tbody td{padding:9px 10px}
           </button>
           <div id="db-fetch-status" style="font-size:.72rem;color:var(--muted);align-self:center"></div>
         </div>
-        <!-- Fetch result badges -->
-        <div id="db-fetch-badges" style="display:none;margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <!-- Fetch result badges (hidden until fetch completes) -->
+        <div id="db-fetch-badges" style="display:none;margin-top:8px;gap:6px;flex-wrap:wrap">
           <span id="db-badge-news" style="font-size:.66rem;padding:2px 8px;border-radius:10px;background:var(--surface2);color:var(--muted)">產業新聞 —</span>
           <span id="db-badge-podcast" style="font-size:.66rem;padding:2px 8px;border-radius:10px;background:var(--surface2);color:var(--muted)">Gooaye Podcast —</span>
         </div>
@@ -2501,6 +2513,7 @@ function switchTab(tab) {
   if (tab === 'kline'    && _lastSymbol)        loadNews(_lastSymbol);
   if (tab === 'radar')                          loadVIX();
   if (tab === 'quant')                          qtRefresh();
+  if (tab === 'debate')                         _dbCheckApiKey();
 }
 
 // ══════════════════════════════════════════════════════
@@ -6818,6 +6831,21 @@ const _DB_STEPS = {
   'verdict_start':     90, 'verdict_done':    100,
 };
 
+async function _dbCheckApiKey() {
+  try {
+    const r = await fetch('/api/analyst/config');
+    const j = await r.json();
+    const banner = document.getElementById('db-apikey-banner');
+    const startBtn = document.getElementById('db-start-btn');
+    if (banner) banner.style.display = j.api_key_set ? 'none' : 'block';
+    if (startBtn) {
+      startBtn.disabled = !j.api_key_set;
+      startBtn.title = j.api_key_set ? '' : '請先在 Railway 設定 ANTHROPIC_API_KEY';
+      startBtn.style.opacity = j.api_key_set ? '1' : '0.5';
+    }
+  } catch(_) {}
+}
+
 async function dbFetch() {
   const topic = (document.getElementById('db-topic')?.value.trim()) || '半導體 AI 科技';
   const btn      = document.getElementById('db-fetch-btn');
@@ -6870,7 +6898,7 @@ async function dbFetch() {
       podcastBadge.style.background = j.podcast_ok ? 'rgba(63,185,80,.15)' : 'rgba(248,81,73,.1)';
       podcastBadge.style.color      = j.podcast_ok ? 'var(--bull)'          : 'var(--bear)';
     }
-    if (badgesEl) badgesEl.style.display = 'flex';
+    if (badgesEl) { badgesEl.style.display = 'flex'; badgesEl.style.flexWrap = 'wrap'; }
 
     const reportLen  = (j.report  || '').length;
     const podcastLen = (j.podcast || '').length;
@@ -6889,14 +6917,25 @@ async function dbFetch() {
 async function dbStart() {
   const report  = document.getElementById('db-report')?.value.trim() || '';
   const podcast = document.getElementById('db-podcast')?.value.trim() || '';
+  const statusEl = document.getElementById('db-status');
+
   if (!report && !podcast) {
-    document.getElementById('db-status').textContent = '⚠️ 請先貼上報告或 Podcast 內容';
+    statusEl.innerHTML = '⚠️ 請先點「自動抓取」或手動貼上分析材料';
     return;
   }
 
+  // Pre-check API key
+  try {
+    const cfg = await fetch('/api/analyst/config').then(r=>r.json());
+    if (!cfg.api_key_set) {
+      statusEl.innerHTML = '<span style="color:var(--bear)">❌ ANTHROPIC_API_KEY 未設定，請在 Railway → Variables 新增後重新部署</span>';
+      document.getElementById('db-apikey-banner').style.display = 'block';
+      return;
+    }
+  } catch(_) {}
+
   const model   = document.getElementById('db-model')?.value || 'claude-haiku-4-5-20251001';
   const startBtn = document.getElementById('db-start-btn');
-  const statusEl = document.getElementById('db-status');
 
   // Reset UI
   startBtn.disabled = true;
