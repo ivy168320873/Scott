@@ -446,6 +446,19 @@ tbody td{padding:9px 10px}
 .ar-sec-lbl{font-size:.7rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;
   margin-bottom:8px;display:flex;align-items:center;gap:5px}
 /* ── S/R Detection ── */
+/* ── 決策核心四模組 ── */
+.dc-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px}
+.dc-title{font-size:.78rem;font-weight:700;color:var(--muted);margin-bottom:12px;letter-spacing:.04em}
+.dc-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dc-module{border-radius:9px;padding:10px 12px;position:relative;overflow:hidden}
+.dc-mod-lbl{font-size:.7rem;font-weight:600;color:var(--muted);margin-bottom:4px}
+.dc-mod-score{font-size:1.6rem;font-weight:900;line-height:1;display:inline}
+.dc-mod-max{font-size:.7rem;color:var(--muted);font-weight:400}
+.dc-bar-track{height:4px;background:var(--border);border-radius:2px;margin-top:7px}
+.dc-bar-fill{height:4px;border-radius:2px;transition:width .5s}
+.dc-signal{font-size:.65rem;margin-top:4px;font-weight:600}
+.dc-verdict{border-radius:10px;padding:10px 14px;font-size:.82rem;font-weight:600;margin-top:10px;display:flex;align-items:center;gap:8px;line-height:1.5}
+.dc-formula{font-size:.65rem;color:var(--muted);margin-top:2px;font-weight:400}
 .sr-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px}
 .sr-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .sr-level{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;border-radius:6px;margin-bottom:5px;font-size:.82rem;font-weight:600}
@@ -992,6 +1005,13 @@ tbody td{padding:9px 10px}
     <div class="sec-title">動能指標</div>
     <div id="div-section" style="display:none"></div>
     <div class="ind-grid" id="ind-grid"></div>
+
+    <!-- 決策核心四模組 -->
+    <div class="dc-card" id="dc-card" style="display:none">
+      <div class="dc-title">⚙️ 決策核心 — 四維度量化分析</div>
+      <div class="dc-grid" id="dc-grid"></div>
+      <div id="dc-verdict"></div>
+    </div>
 
     <!-- Auto S/R Detection -->
     <div class="sr-card" id="sr-card" style="display:none">
@@ -1545,6 +1565,84 @@ function last(arr) {
 }
 
 // ══════════════════════════════════════════════════════
+// 決策核心四模組（對應 TradingView Pine Script 版本）
+// ══════════════════════════════════════════════════════
+
+// 模組一：主力控盤 0-100  (OBV偏離 + 量比 + 量價配合)
+function calcSmartMoney(closes, volumes) {
+  const obv     = calcOBV(closes, volumes);
+  const obvEma  = ema(obv, 20);
+  const lastObv = obv[obv.length - 1];
+  const lastOMA = last(obvEma) || 1;
+  const obvNorm = Math.min(Math.max((lastObv - lastOMA) / Math.abs(lastOMA) * 100, -50), 50);
+
+  const volMaArr  = sma(volumes, 20);
+  const volMa     = last(volMaArr) || 1;
+  const volRatio  = (volumes[volumes.length - 1] || 0) / volMa;
+  const volScore  = Math.min(volRatio * 20, 50);
+
+  const n = closes.length;
+  const priceChg5 = n > 5 ? (closes[n-1] - closes[n-6]) / (closes[n-6] || 1) * 100 : 0;
+  const volConfirm = priceChg5 > 0 ? Math.min(priceChg5 * volRatio * 5, 50) : 0;
+
+  return Math.round(Math.min(Math.max((obvNorm + volScore + volConfirm) / 3 * 2, 0), 100));
+}
+
+// 模組二：空方壓力 0-100  (空方量佔比 + RSI反向壓力)
+function calcBearPressure(opens, closes, volumes, rsiArr) {
+  const n = closes.length;
+  const isDown = closes[n-1] < opens[n-1];
+  const downVol = isDown ? (volumes[n-1] || 0) : 0;
+  const upVol   = isDown ? 0 : (volumes[n-1] || 0);
+  const bearRatio = (upVol + downVol) > 0 ? downVol / (upVol + downVol) * 100 : 50;
+
+  const rsiV   = last(rsiArr) || 50;
+  const bearRsi = rsiV < 50 ? (50 - rsiV) * 2 : 0;
+
+  return Math.round(Math.min(bearRatio * 0.6 + bearRsi * 0.4, 100));
+}
+
+// 模組三：追高風險 0-100  (RSI超買 + MA乖離 + ATR偏離)
+function calcChaseRisk(closes, highs, lows, rsiArr) {
+  const rsiV   = last(rsiArr) || 50;
+  const rsiRisk = rsiV > 70 ? (rsiV - 70) * 3 : 0;
+
+  const ma20Arr = sma(closes, 20);
+  const ma20V   = last(ma20Arr) || closes[closes.length-1] || 1;
+  const deviation = (closes[closes.length-1] - ma20V) / ma20V * 100;
+  const devRisk = Math.max(deviation * 2, 0);
+
+  const n = closes.length, trs = [];
+  for (let i = 1; i <= Math.min(14, n-1); i++)
+    trs.push(Math.max(highs[n-i]-lows[n-i], Math.abs(highs[n-i]-closes[n-i-1]), Math.abs(lows[n-i]-closes[n-i-1])));
+  const atrV     = trs.length ? trs.reduce((a,b)=>a+b,0)/trs.length : closes[n-1]*0.02;
+  const chg5     = n > 5 ? closes[n-1] - closes[n-6] : 0;
+  const atrRisk  = atrV > 0 ? Math.min(chg5 / atrV * 10, 30) : 0;
+
+  return Math.round(Math.min(rsiRisk + devRisk + atrRisk, 100));
+}
+
+// 模組四：多週期共振 0/20/40/60/80/100  (日線+週線+月線+MACD+RSI)
+function calcResonance(closes, macdHistArr, rsiArr) {
+  const n  = closes.length;
+  const lv = arr => last(arr) || 0;
+  const e20  = lv(ema(closes, 20));
+  const e50  = lv(ema(closes, 50));
+  const e100 = lv(ema(closes, 100));
+  const e250 = lv(ema(closes, 250));
+  const e400 = lv(ema(closes, 400));
+
+  const cur    = closes[n-1];
+  const dailyB  = cur > e20 && e20 > e50;
+  const weeklyB = cur > e100 && e100 > e250;
+  const monthlyB = cur > e400;
+  const macdB   = (last(macdHistArr) || 0) > 0;
+  const rsiB    = (last(rsiArr) || 50) > 50;
+
+  return [dailyB, weeklyB, monthlyB, macdB, rsiB].filter(Boolean).length * 20;
+}
+
+// ══════════════════════════════════════════════════════
 // 2. Yahoo Finance Data Fetch
 // ══════════════════════════════════════════════════════
 
@@ -1682,6 +1780,11 @@ function computeAll(data) {
       bbUpper: last(bb.upper), bbMid: last(bb.mid), bbLower: last(bb.lower),
       bbPctB: last(bb.pctB),
       roc10: last(roc), adx: adxV, diPlus: diPV, diMinus: diNV,
+      // 決策核心四模組
+      smartMoney:   calcSmartMoney(closes, vols),
+      bearPressure: calcBearPressure(ohlcv.map(d=>d.open), closes, vols, rsi),
+      chaseRisk:    calcChaseRisk(closes, highs, lows, rsi),
+      resonance:    calcResonance(closes, macdHist, rsi),
     },
     chart: {
       dates,
@@ -2346,6 +2449,7 @@ async function search(sym) {
     renderZone(d);
     renderTradingLevels(d);
     renderMoneyFlow(d);
+    renderDecisionCore(d);
     renderSR(d);
     requestAI(d);
     loadExtendedHours(d);   // non-blocking
@@ -3539,6 +3643,92 @@ function detectSR(highs, lows, closes) {
   };
 }
 
+// ══════════════════════════════════════════════════════
+// 決策核心四模組渲染
+// ══════════════════════════════════════════════════════
+function renderDecisionCore(d) {
+  const card = document.getElementById('dc-card');
+  const grid = document.getElementById('dc-grid');
+  const verdictEl = document.getElementById('dc-verdict');
+  if (!card || !grid) return;
+
+  const ind = d.indicators;
+  const sm = ind.smartMoney   ?? 0;
+  const bp = ind.bearPressure ?? 0;
+  const cr = ind.chaseRisk    ?? 0;
+  const rs = ind.resonance    ?? 0;
+
+  // Color helpers
+  const smColor  = sm > 60 ? '#3fb950' : sm > 35 ? '#e3b341' : '#f85149';
+  const bpColor  = bp < 25 ? '#3fb950' : bp < 55 ? '#e3b341' : '#f85149';
+  const crColor  = cr < 40 ? '#3fb950' : cr < 65 ? '#e3b341' : '#f85149';
+  const rsColor  = rs >= 80 ? '#3fb950' : rs >= 40 ? '#e3b341' : '#f85149';
+
+  const smSig  = sm > 65 ? '主力積極吸籌' : sm > 40 ? '量能溫和放大' : '主力尚未進場';
+  const bpSig  = bp < 20 ? '空方壓力極低' : bp < 45 ? '空方力道普通' : '空方壓力偏重';
+  const crSig  = cr < 35 ? '追高風險低' : cr < 60 ? '注意乖離過大' : '🔥 過熱追高危險';
+  const rsSig  = rs >= 80 ? '多週期全面共振' : rs >= 60 ? '多數時間框架偏多' : rs >= 40 ? '部分共振' : '趨勢尚未確立';
+
+  const modules = [
+    { name:'主力控盤', score:sm, max:100, color:smColor, sig:smSig,
+      formula:'OBV偏離 + 量比 + 量價配合', reverse:false },
+    { name:'空方壓力', score:bp, max:100, color:bpColor, sig:bpSig,
+      formula:'空方成交量佔比 + RSI反壓', reverse:true },
+    { name:'追高風險', score:cr, max:100, color:crColor, sig:crSig,
+      formula:'RSI超買 + 乖離率 + ATR偏離', reverse:true },
+    { name:'多週期共振', score:rs, max:100, color:rsColor, sig:rsSig,
+      formula:'日/週/月EMA + MACD + RSI', reverse:false },
+  ];
+
+  grid.innerHTML = modules.map(m => `
+    <div class="dc-module" style="background:${m.color}15;border:1px solid ${m.color}40">
+      <div class="dc-mod-lbl">${m.name}</div>
+      <div>
+        <span class="dc-mod-score" style="color:${m.color}">${m.score}</span>
+        <span class="dc-mod-max"> / 100</span>
+      </div>
+      <div class="dc-bar-track"><div class="dc-bar-fill" style="width:${m.score}%;background:${m.color}"></div></div>
+      <div class="dc-signal" style="color:${m.color}">${m.sig}</div>
+      <div class="dc-formula">${m.formula}</div>
+    </div>`).join('');
+
+  // Composite verdict
+  // Good = sm>60, bp<30, cr<50, rs>=60
+  const goodCount = [sm > 60, bp < 30, cr < 50, rs >= 60].filter(Boolean).length;
+  const isOptimal = sm > 60 && bp < 30 && cr < 50 && rs >= 60;
+  const isCaution = cr >= 70 || (bp >= 60 && sm < 40);
+
+  let verdict, vBg, vColor;
+  if (isOptimal) {
+    verdict = '✅ 最佳進場條件：主力控盤強、空壓低、風險合理、多週期共振';
+    vBg = 'rgba(63,185,80,.12)'; vColor = '#3fb950';
+  } else if (isCaution) {
+    verdict = '⚠️ 高風險：' + (cr >= 70 ? '追高風險過高，等待回調' : '空方壓力大且主力縮手，暫不宜進場');
+    vBg = 'rgba(248,81,73,.10)'; vColor = '#f85149';
+  } else if (goodCount >= 3) {
+    verdict = '📈 條件不錯（' + goodCount + '/4 達標），可考慮分批建倉';
+    vBg = 'rgba(63,185,80,.08)'; vColor = '#3fb950';
+  } else if (goodCount >= 2) {
+    verdict = '➡️ 訊號混合（' + goodCount + '/4 達標），觀望等待更明確訊號';
+    vBg = 'rgba(210,153,34,.10)'; vColor = '#e3b341';
+  } else {
+    verdict = '🔴 條件不足（' + goodCount + '/4），目前不是好的進場時機';
+    vBg = 'rgba(248,81,73,.08)'; vColor = '#f85149';
+  }
+
+  verdictEl.innerHTML = `
+    <div class="dc-verdict" style="background:${vBg};border:1px solid ${vColor}40;color:${vColor}">
+      <span style="font-size:1rem;flex-shrink:0">💡</span>
+      <div>${verdict}
+        <div style="font-size:.68rem;color:var(--muted);font-weight:400;margin-top:3px">
+          最佳進場：主力控盤 &gt;60 · 空方壓力 &lt;30 · 追高風險 &lt;50 · 多週期共振 ≥60
+        </div>
+      </div>
+    </div>`;
+
+  card.style.display = 'block';
+}
+
 function renderSR(d) {
   const card = document.getElementById('sr-card');
   const divSec = document.getElementById('div-section');
@@ -3846,8 +4036,23 @@ function calcInvestmentRating(d, preBreakScore) {
   // ── Pre-breakout pattern (0–15 pts) ────────────────────────────────────────
   const pbPts = Math.round((preBreakScore || 0) / 100 * 15);
 
+  // ── 決策核心加分 / 扣分 (max +10, min -10) ─────────────────────────────────
+  const sm = ind.smartMoney   ?? 50;
+  const bp = ind.bearPressure ?? 50;
+  const cr = ind.chaseRisk    ?? 50;
+  const rs = ind.resonance    ?? 40;
+  let dcPts = 0;
+  if (sm > 65) dcPts += 5;
+  else if (sm < 30) dcPts -= 5;
+  if (bp < 25) dcPts += 3;
+  else if (bp > 65) dcPts -= 5;
+  if (cr > 75) dcPts -= 8;   // 過熱追高直接扣分
+  else if (cr < 35) dcPts += 2;
+  if (rs >= 80) dcPts += 5;
+  else if (rs <= 20) dcPts -= 3;
+
   // ── Composite score ─────────────────────────────────────────────────────────
-  const composite = Math.min(100, Math.round(trendPts + momPts + adxPts + volPts + pbPts));
+  const composite = Math.min(100, Math.round(trendPts + momPts + adxPts + volPts + pbPts + dcPts));
   if (composite < 42) return null;
 
   // ── Risk/Reward check: require at least 1:1.8 ──────────────────────────────
