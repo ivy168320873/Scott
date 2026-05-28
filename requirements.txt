@@ -7,3 +7,4 @@ anthropic>=0.40
 alpaca-py>=0.28
 apscheduler>=3.10
 pytz>=2024.1
+youtube-transcript-api>=0.6.2

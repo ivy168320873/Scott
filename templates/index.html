@@ -6819,14 +6819,14 @@ const _DB_STEPS = {
 };
 
 async function dbFetch() {
-  const topic = document.getElementById('db-topic')?.value.trim() || '半導體 AI 科技';
-  const btn = document.getElementById('db-fetch-btn');
+  const topic = (document.getElementById('db-topic')?.value.trim()) || '半導體 AI 科技';
+  const btn      = document.getElementById('db-fetch-btn');
   const statusEl = document.getElementById('db-fetch-status');
   const badgesEl = document.getElementById('db-fetch-badges');
 
   btn.disabled = true;
-  btn.textContent = '⏳ 抓取中…';
-  statusEl.textContent = '';
+  btn.textContent = '⏳ 搜尋中…';
+  statusEl.innerHTML = '<span style="color:var(--muted)">正在抓取最新資料，請稍候（約 20-60 秒）…</span>';
   if (badgesEl) badgesEl.style.display = 'none';
 
   try {
@@ -6843,35 +6843,46 @@ async function dbFetch() {
     }
 
     // Fill text areas
-    if (j.report) document.getElementById('db-report').value = j.report;
+    if (j.report)  document.getElementById('db-report').value  = j.report;
     if (j.podcast) document.getElementById('db-podcast').value = j.podcast;
 
-    // Update badges
+    // Method badge
+    const methodLabel = j.method === 'claude_websearch'
+      ? '🧠 Claude 網路搜尋（深度）'
+      : '🔎 直接抓取（RSS+Yahoo）';
+    const methodColor = j.method === 'claude_websearch' ? 'var(--purple)' : 'var(--accent)';
+
+    // Source badges
     const newsBadge    = document.getElementById('db-badge-news');
     const podcastBadge = document.getElementById('db-badge-podcast');
     if (newsBadge) {
-      newsBadge.textContent = j.report_ok
-        ? `✅ 產業新聞 ${j.news_count || ''}則`
-        : `⚠️ 新聞：${j.report_error || '失敗'}`;
-      newsBadge.style.background = j.report_ok ? 'rgba(63,185,80,.15)' : 'rgba(248,81,73,.12)';
-      newsBadge.style.color = j.report_ok ? 'var(--bull)' : 'var(--bear)';
+      const cnt = typeof j.news_count === 'number' ? `${j.news_count} 則` : j.news_count || '已取得';
+      newsBadge.textContent = j.report_ok ? `✅ 產業報告：${cnt}` : `⚠️ ${j.report_error || '無資料'}`;
+      newsBadge.style.background = j.report_ok ? 'rgba(63,185,80,.15)' : 'rgba(248,81,73,.1)';
+      newsBadge.style.color      = j.report_ok ? 'var(--bull)'          : 'var(--bear)';
     }
     if (podcastBadge) {
-      const podItems = j.podcast_items?.length || 0;
+      const podCnt = j.podcast_items?.length
+        ? `${j.podcast_items.length} 集` : (j.podcast_ok ? '已取得' : '');
       podcastBadge.textContent = j.podcast_ok
-        ? `✅ Gooaye 最新 ${podItems} 集`
-        : `⚠️ Podcast：${j.podcast_error || '失敗'}`;
-      podcastBadge.style.background = j.podcast_ok ? 'rgba(63,185,80,.15)' : 'rgba(248,81,73,.12)';
-      podcastBadge.style.color = j.podcast_ok ? 'var(--bull)' : 'var(--bear)';
+        ? `✅ Gooaye 股癌：${podCnt}`
+        : `⚠️ ${j.podcast_error || 'Podcast 無資料'}`;
+      podcastBadge.style.background = j.podcast_ok ? 'rgba(63,185,80,.15)' : 'rgba(248,81,73,.1)';
+      podcastBadge.style.color      = j.podcast_ok ? 'var(--bull)'          : 'var(--bear)';
     }
     if (badgesEl) badgesEl.style.display = 'flex';
 
-    statusEl.innerHTML = '<span style="color:var(--bull)">✅ 資料已填入，可直接點「開始辯論」</span>';
+    const reportLen  = (j.report  || '').length;
+    const podcastLen = (j.podcast || '').length;
+    statusEl.innerHTML = `
+      <span style="color:var(--bull)">✅ 資料已填入</span>
+      <span style="color:${methodColor};margin-left:8px;font-size:.65rem">${methodLabel}</span>
+      <span style="color:var(--muted);margin-left:8px;font-size:.65rem">報告 ${reportLen} 字 · Podcast ${podcastLen} 字</span>`;
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--bear)">❌ 抓取失敗：${e.message}</span>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = '🔄 自動抓取';
+    btn.textContent = '🔄 重新抓取';
   }
 }
 

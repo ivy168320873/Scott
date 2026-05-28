@@ -637,11 +637,11 @@ def api_analyst_start():
 
 @app.route("/api/analyst/fetch", methods=["POST"])
 def api_analyst_fetch():
-    """Auto-fetch industry news and Gooaye Podcast content."""
+    """Auto-fetch industry reports and Gooaye Podcast content."""
     try:
         import fetcher as _fetcher
         payload = request.json or {}
-        topic   = payload.get("topic", "半導體 AI 科技").strip()
+        topic   = payload.get("topic", "半導體 AI 科技").strip() or "半導體 AI 科技"
         result  = _fetcher.fetch_all(topic)
         return jsonify({"ok": True, **result})
     except Exception as e:
