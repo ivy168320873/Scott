@@ -150,11 +150,33 @@ def _obv(closes, volumes):
         else:                          out.append(out[-1])
     return out
 
+def _bb_width(closes):
+    """Returns (current_width, avg_width_20d) as ratio to mid."""
+    import math
+    n = len(closes)
+    if n < 20:
+        return None, None
+    widths = []
+    for j in range(20, n + 1):
+        sl = closes[j-20:j]
+        mid = sum(sl) / 20
+        std = math.sqrt(sum((v - mid)**2 for v in sl) / 20)
+        widths.append(2 * std / mid if mid else 0)
+    current = widths[-1] if widths else None
+    avg_20  = sum(widths[-20:]) / min(len(widths), 20) if widths else None
+    return current, avg_20
+
+
 def _evaluate_signal(symbol: str, ohlcv: list[dict]) -> Optional[dict]:
     """
-    Returns signal dict if all 4 decision-core conditions pass, else None.
-    Entry conditions (mirrors Pine Script):
-      主力控盤 > 60, 空方壓力 < 30, 追高風險 < 55, 多週期共振 >= 60
+    Decision Core V2 — strict entry filters matching strategy_decision_core_v2.
+    ALL filters must pass:
+      1. Regime:        price > EMA200
+      2. BB squeeze:    bandwidth < 90% of 20-day avg
+      3. OBV slope:     10-day OBV delta > 0
+      4. Volume quality: last bar > 5-day avg vol
+      5. RSI sweet spot: 45–68
+      6. Module gates:  主力>65, 空壓<25, 追高<45, 共振>=80
     """
     closes  = [d["close"]  for d in ohlcv]
     opens   = [d["open"]   for d in ohlcv]
@@ -162,88 +184,107 @@ def _evaluate_signal(symbol: str, ohlcv: list[dict]) -> Optional[dict]:
     lows    = [d["low"]    for d in ohlcv]
     volumes = [d["volume"] for d in ohlcv]
     n = len(closes)
-    if n < 60:
+    if n < 210:
         return None
 
-    # ── 模組一：主力控盤 ─────────────────────────────────────
-    obv      = _obv(closes, volumes)
-    obv_ema  = _ema(obv, 20)
-    obv_norm = min(max((obv[-1] - obv_ema[-1]) / (abs(obv_ema[-1]) or 1) * 100, -50), 50)
-    vol_ma   = sum(volumes[-20:]) / 20 or 1
-    vol_ratio = volumes[-1] / vol_ma
+    # ── Filter 1: Regime — price > EMA200 ────────────────────────────────────
+    e200 = _ema(closes, 200)[-1]
+    if closes[-1] <= e200:
+        return None
+
+    # ── Filter 2: BB squeeze ──────────────────────────────────────────────────
+    bw_curr, bw_avg = _bb_width(closes)
+    if bw_curr is None or bw_avg is None or bw_avg == 0 or bw_curr > bw_avg * 0.90:
+        return None
+
+    # ── Filter 3: OBV slope positive over 10 bars ─────────────────────────────
+    obv     = _obv(closes, volumes)
+    if len(obv) < 11 or obv[-1] <= obv[-11]:
+        return None
+
+    # ── Filter 4: Volume quality — last bar > 5-day avg ─────────────────────
+    vol_ma5 = sum(volumes[-5:]) / 5 if len(volumes) >= 5 else volumes[-1]
+    if volumes[-1] < vol_ma5:
+        return None
+
+    # ── Filter 5: RSI sweet spot 45–68 ───────────────────────────────────────
+    rsi_arr = _rsi(closes)
+    rsi_val = rsi_arr[-1]
+    if not (45 <= rsi_val <= 68):
+        return None
+
+    # ── Module 1: 主力控盤 ────────────────────────────────────────────────────
+    obv_ema   = _ema(obv, 20)
+    obv_norm  = min(max((obv[-1] - obv_ema[-1]) / (abs(obv_ema[-1]) or 1) * 100, -50), 50)
+    vol_ma20  = sum(volumes[-20:]) / 20 or 1
+    vol_ratio = volumes[-1] / vol_ma20
     vol_score = min(vol_ratio * 20, 50)
-    price_chg5 = (closes[-1] - closes[-6]) / (closes[-6] or 1) * 100
+    price_chg5  = (closes[-1] - closes[-6]) / (closes[-6] or 1) * 100 if n >= 6 else 0
     vol_confirm = min(price_chg5 * vol_ratio * 5, 50) if price_chg5 > 0 else 0
     smart_money = round(min(max((obv_norm + vol_score + vol_confirm) / 3 * 2, 0), 100))
 
-    # ── 模組二：空方壓力 ─────────────────────────────────────
-    is_down  = closes[-1] < opens[-1]
-    down_vol = volumes[-1] if is_down else 0
-    up_vol   = volumes[-1] if not is_down else 0
-    bear_ratio = down_vol / (up_vol + down_vol) * 100 if (up_vol + down_vol) > 0 else 50
-    rsi_arr  = _rsi(closes)
-    rsi_val  = rsi_arr[-1]
-    bear_rsi = (50 - rsi_val) * 2 if rsi_val < 50 else 0
+    # ── Module 2: 空方壓力 ────────────────────────────────────────────────────
+    is_down       = closes[-1] < opens[-1]
+    bear_ratio    = 100.0 if is_down else 0.0
+    bear_rsi      = (50 - rsi_val) * 2 if rsi_val < 50 else 0
     bear_pressure = round(min(bear_ratio * 0.6 + bear_rsi * 0.4, 100))
 
-    # ── 模組三：追高風險 ─────────────────────────────────────
-    rsi_risk = (rsi_val - 70) * 3 if rsi_val > 70 else 0
-    ma20_arr = _sma(closes, 20)
-    ma20_v   = ma20_arr[-1] or closes[-1]
-    deviation = (closes[-1] - ma20_v) / ma20_v * 100
-    dev_risk = max(deviation * 2, 0)
+    # ── Module 3: 追高風險 ────────────────────────────────────────────────────
+    rsi_risk  = (rsi_val - 70) * 3 if rsi_val > 70 else 0
+    ma20_arr  = _sma(closes, 20)
+    ma20_v    = ma20_arr[-1] or closes[-1]
+    dev_risk  = max((closes[-1] - ma20_v) / ma20_v * 100 * 2, 0)
     trs = [max(highs[-i]-lows[-i], abs(highs[-i]-closes[-i-1]), abs(lows[-i]-closes[-i-1]))
            for i in range(1, min(15, n))]
-    atr_v    = sum(trs)/len(trs) if trs else closes[-1]*0.02
-    chg5     = closes[-1] - closes[-6]
-    atr_risk = min(chg5 / atr_v * 10, 30) if atr_v > 0 else 0
+    atr_v     = sum(trs) / len(trs) if trs else closes[-1] * 0.02
+    chg5      = closes[-1] - closes[-6] if n >= 6 else 0
+    atr_risk  = min(chg5 / atr_v * 10, 30) if atr_v > 0 else 0
     chase_risk = round(min(rsi_risk + dev_risk + atr_risk, 100))
 
-    # ── 模組四：多週期共振 ───────────────────────────────────
-    e20  = _ema(closes, 20)[-1]
-    e50  = _ema(closes, 50)[-1]
-    e100 = _ema(closes, 100)[-1]
-    e250 = _ema(closes, 250)[-1] if n >= 250 else closes[-1]
-    e400 = _ema(closes, 400)[-1] if n >= 400 else closes[-1]
-    macd_h = _macd_hist(closes)[-1]
-    daily_b  = closes[-1] > e20 and e20 > e50
-    weekly_b = closes[-1] > e100 and e100 > e250
+    # ── Module 4: 多週期共振 ──────────────────────────────────────────────────
+    e20   = _ema(closes, 20)[-1]
+    e50   = _ema(closes, 50)[-1]
+    e100  = _ema(closes, 100)[-1]
+    e250  = _ema(closes, 250)[-1] if n >= 250 else closes[-1]
+    e400  = _ema(closes, 400)[-1] if n >= 400 else closes[-1]
+    mh    = _macd_hist(closes)[-1]
+    daily_b   = closes[-1] > e20 and e20 > e50
+    weekly_b  = closes[-1] > e100 and e100 > e250
     monthly_b = closes[-1] > e400
-    macd_b   = macd_h > 0
-    rsi_b    = rsi_val > 50
-    resonance = sum([daily_b, weekly_b, monthly_b, macd_b, rsi_b]) * 20
+    resonance = sum([daily_b, weekly_b, monthly_b, mh > 0, rsi_val > 50]) * 20
 
-    # ── Entry gate ────────────────────────────────────────────
-    if not (smart_money > 60 and bear_pressure < 30 and chase_risk < 55 and resonance >= 60):
+    # ── Entry gate (strict V2 thresholds) ────────────────────────────────────
+    if not (smart_money > 65 and bear_pressure < 25 and chase_risk < 45 and resonance >= 80):
         return None
 
-    # ── Stop loss: 1.5× ATR below recent 10-day low ──────────────────────────
-    recent_low = min(lows[-10:])
-    stop = round(max(recent_low - atr_v * 1.5, closes[-1] * 0.88), 2)
-    risk_amt  = closes[-1] - stop
+    # ── Stop / target ─────────────────────────────────────────────────────────
+    stop     = round(max(min(lows[-10:]) - atr_v * 1.5, closes[-1] * 0.88), 2)
+    risk_amt = closes[-1] - stop
     if risk_amt <= 0:
         return None
-    target    = round(closes[-1] + risk_amt * 2.5, 2)   # 1:2.5 risk-reward
+    r1_target = round(closes[-1] + risk_amt * 1.5, 2)   # leg 1
+    r2_target = round(closes[-1] + risk_amt * 4.0, 2)   # leg 2
 
     reasons = []
     if smart_money > 70:   reasons.append(f"主力控盤 {smart_money}")
     if resonance >= 80:    reasons.append(f"多週期共振 {resonance}%")
-    if rsi_val < 65:       reasons.append(f"RSI {rsi_val:.0f} 健康")
+    if bw_curr < bw_avg * 0.80: reasons.append("BB緊縮")
     if vol_ratio > 1.5:    reasons.append(f"量比 {vol_ratio:.1f}x")
 
     return {
         "symbol":        symbol,
         "price":         closes[-1],
-        "entry":         round(closes[-1] * 1.001, 2),   # 0.1% above current
+        "entry":         round(closes[-1] * 1.001, 2),
         "stop":          stop,
-        "target":        target,
+        "target":        r2_target,
+        "r1_target":     r1_target,
         "risk_pct":      round(risk_amt / closes[-1] * 100, 2),
-        "rr":            round(risk_amt * 2.5 / risk_amt, 1),
+        "rr":            4.0,
         "smart_money":   smart_money,
         "bear_pressure": bear_pressure,
         "chase_risk":    chase_risk,
         "resonance":     resonance,
-        "reason":        "；".join(reasons) or "四模組共振",
+        "reason":        "；".join(reasons) or "V2嚴格四模組",
         "scanned_at":    datetime.now(timezone.utc).isoformat(),
     }
 

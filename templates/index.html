@@ -1559,6 +1559,27 @@ tbody td{padding:9px 10px}
       <div id="qt-wf-result"></div>
     </div>
 
+    <!-- V2 Strategy + Parameter Optimization -->
+    <div class="sr-card" style="margin-bottom:14px">
+      <div style="font-size:.78rem;font-weight:700;margin-bottom:12px">🏆 決策核心 V2 — 最高勝率策略</div>
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:10px">嚴格篩選：趨勢多頭（EMA200）＋布林緊縮＋OBV上升＋RSI甜區（45-68）＋部分出場（L1鎖利＋L2追蹤）</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div>
+          <div style="font-size:.7rem;color:var(--muted);margin-bottom:3px">排序指標</div>
+          <select id="qt-opt-metric" class="qty-input" style="padding:6px 10px;border-radius:6px;border:1px solid var(--surface2);background:var(--surface2);color:var(--text);font-size:.82rem">
+            <option value="win_rate">勝率</option>
+            <option value="profit_factor">獲利因子</option>
+            <option value="sortino">Sortino</option>
+            <option value="calmar">Calmar</option>
+            <option value="expectancy">期望值</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" style="font-size:.76rem" onclick="qtBacktestV2()">▶ 執行 V2 回測</button>
+        <button class="btn btn-secondary" style="font-size:.76rem" onclick="qtOptimize()">🔬 參數最佳化</button>
+      </div>
+      <div id="qt-v2-result"></div>
+    </div>
+
     <!-- Scheduler log -->
     <div class="sr-card">
       <div style="font-size:.78rem;font-weight:700;margin-bottom:8px">📋 排程器日誌
@@ -6261,6 +6282,106 @@ async function qtWalkForward() {
 function qtAutoExecute(symbol, entry, stop, target) {
   const candidate = { symbol, entry, stop, target, reason: '自動推薦進場' };
   qtExecuteCandidate(candidate);
+}
+
+async function qtBacktestV2() {
+  const el = document.getElementById('qt-v2-result');
+  if (!el) return;
+  if (!_lastOHLCV) { el.innerHTML = '<div style="color:var(--muted);font-size:.8rem">請先查詢一支股票</div>'; return; }
+  el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:6px 0">⏳ V2 回測中（嚴格篩選）…</div>';
+  try {
+    const ohlcv = _lastOHLCV.ohlcv.map(d => ({
+      date: d.date.toISOString().slice(0,10), open: d.open, high: d.high,
+      low: d.low, close: d.close, volume: d.volume,
+    }));
+    const r = await fetch('/api/backtest', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ strategy: 'decision_core_v2', ohlcv, params: {} }),
+    });
+    const j = await r.json();
+    if (!j.ok) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">${j.error}</div>`; return; }
+    const wr = j.win_rate || 0;
+    const wrColor = wr >= 60 ? 'var(--bull)' : wr >= 45 ? 'var(--neutral)' : 'var(--bear)';
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:.77rem;margin-bottom:8px">
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:.65rem;color:var(--muted)">勝率</div>
+          <div style="font-weight:700;color:${wrColor};font-size:1.1rem">${wr.toFixed(1)}%</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:.65rem;color:var(--muted)">總報酬</div>
+          <div style="font-weight:700;color:${(j.total_return||0)>=0?'var(--bull)':'var(--bear)'}">
+            ${(j.total_return||0).toFixed(1)}%</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:.65rem;color:var(--muted)">交易次數</div>
+          <div style="font-weight:700">${j.num_trades || 0}</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:.65rem;color:var(--muted)">Sortino</div>
+          <div style="font-weight:700">${j.sortino || 0}</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:.65rem;color:var(--muted)">獲利因子</div>
+          <div style="font-weight:700">${j.profit_factor || 0}</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center">
+          <div style="font-size:.65rem;color:var(--muted)">最大回撤</div>
+          <div style="font-weight:700;color:var(--bear)">${j.max_drawdown || 0}%</div>
+        </div>
+      </div>
+      <div style="font-size:.7rem;color:var(--muted)">
+        平均持倉 ${j.avg_holding||0} 天 · 期望值 ${j.expectancy||0}% · Calmar ${j.calmar||0}
+      </div>`;
+  } catch (e) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">失敗：${e.message}</div>`; }
+}
+
+async function qtOptimize() {
+  const el = document.getElementById('qt-v2-result');
+  if (!el) return;
+  if (!_lastOHLCV) { el.innerHTML = '<div style="color:var(--muted);font-size:.8rem">請先查詢一支股票</div>'; return; }
+  const metric = document.getElementById('qt-opt-metric')?.value || 'win_rate';
+  const metricLabels = {win_rate:'勝率', profit_factor:'獲利因子', sortino:'Sortino', calmar:'Calmar', expectancy:'期望值'};
+  el.innerHTML = `<div style="color:var(--muted);font-size:.8rem;padding:6px 0">⏳ 參數最佳化中（按 ${metricLabels[metric]||metric} 排序）…<br><span style="font-size:.65rem">網格搜尋 ~288 組參數，需 30–60 秒</span></div>`;
+  try {
+    const ohlcv = _lastOHLCV.ohlcv.map(d => ({
+      date: d.date.toISOString().slice(0,10), open: d.open, high: d.high,
+      low: d.low, close: d.close, volume: d.volume,
+    }));
+    const r = await fetch('/api/optimize', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ strategy: 'decision_core_v2', metric, ohlcv }),
+    });
+    const j = await r.json();
+    if (!j.ok) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">${j.error}</div>`; return; }
+    if (!j.top_params || j.top_params.length === 0) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:.8rem">無足夠交易次數的參數組合（樣本太短？）</div>'; return;
+    }
+    const rows = j.top_params.map((item, idx) => {
+      const p = item.params;
+      const wr = item.oos_win_rate;
+      const wrC = wr >= 60 ? 'var(--bull)' : wr >= 45 ? 'var(--neutral)' : 'var(--bear)';
+      return `
+        <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+          <div style="font-size:.72rem;font-weight:700;margin-bottom:6px">#${idx+1}
+            <span style="color:${wrC}">勝率 ${wr}%</span>
+            <span style="color:var(--muted);margin-left:6px;font-weight:400">報酬 ${item.oos_total_ret}%  交易 ${item.oos_trades}次  Sharpe ${item.oos_sharpe}</span>
+          </div>
+          <div style="font-size:.68rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px">
+            <span>主力>${p.sm_threshold}</span>
+            <span>空壓&lt;${p.bp_threshold}</span>
+            <span>追高&lt;${p.cr_threshold}</span>
+            <span>共振≥${p.rs_threshold}</span>
+            <span>RSI ${p.rsi_lo}–${p.rsi_hi}</span>
+          </div>
+        </div>`;
+    }).join('');
+    el.innerHTML = `
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px">
+        測試集：${j.test_period}  · 總測試：${j.total_tested} 組  · 排序：${metricLabels[metric]||metric}
+      </div>
+      ${rows}`;
+  } catch (e) { el.innerHTML = `<div style="color:var(--bear);font-size:.8rem">失敗：${e.message}</div>`; }
 }
 </script>
 </body>

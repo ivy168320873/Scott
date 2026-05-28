@@ -350,6 +350,24 @@ def api_walkforward():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# ── Parameter optimization endpoint ──────────────────────────────────────────
+
+@app.route("/api/optimize", methods=["POST"])
+def api_optimize():
+    try:
+        payload  = request.json or {}
+        strategy = payload.get("strategy", "decision_core_v2")
+        metric   = payload.get("metric", "win_rate")
+        ohlcv    = payload.get("ohlcv")
+        if not ohlcv:
+            return jsonify({"ok": False, "error": "ohlcv required"}), 400
+        result = _bt.optimize_parameters(ohlcv, strategy, metric)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Trading endpoints ─────────────────────────────────────────────────────────
 
 @app.route("/api/trade/status")
