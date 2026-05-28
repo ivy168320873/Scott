@@ -635,6 +635,20 @@ def api_analyst_start():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/analyst/fetch", methods=["POST"])
+def api_analyst_fetch():
+    """Auto-fetch industry news and Gooaye Podcast content."""
+    try:
+        import fetcher as _fetcher
+        payload = request.json or {}
+        topic   = payload.get("topic", "半導體 AI 科技").strip()
+        result  = _fetcher.fetch_all(topic)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/analyst/stream/<job_id>")
 def api_analyst_stream(job_id):
     import analyst as _analyst

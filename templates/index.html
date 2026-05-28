@@ -1704,27 +1704,53 @@ tbody td{padding:9px 10px}
     <!-- Input Panel -->
     <div class="sr-card" style="margin-bottom:14px">
       <div style="font-size:.84rem;font-weight:700;margin-bottom:4px">🧠 金融分析師多角辯論室</div>
-      <div style="font-size:.72rem;color:var(--muted);margin-bottom:14px">
-        甲（成長多頭）· 乙（風控空頭）· 丙（量化中性）三位分析師分別閱讀材料，獨立分析後進行交叉辯論，最終由委員會裁決。
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:12px">
+        甲（成長多頭）· 乙（風控空頭）· 丙（量化中性）三位分析師閱讀材料 → 獨立分析 → 交叉辯論 → 委員會最終裁決
       </div>
 
+      <!-- ── Auto-Fetch Row ── -->
+      <div style="background:rgba(210,168,255,.06);border:1px solid rgba(210,168,255,.2);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+        <div style="font-size:.72rem;font-weight:700;color:var(--purple);margin-bottom:8px">⚡ 自動抓取資料</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div style="flex:1;min-width:180px">
+            <div style="font-size:.66rem;color:var(--muted);margin-bottom:3px">研究主題 / 產業</div>
+            <input id="db-topic" type="text" value="半導體 AI 科技"
+              placeholder="例：台積電、輝達 AI、美國科技股…"
+              style="width:100%;padding:7px 11px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;font-size:.82rem;outline:none"
+            >
+          </div>
+          <button class="btn btn-secondary" style="font-size:.78rem;padding:8px 16px;border-color:var(--purple);color:var(--purple)" onclick="dbFetch()" id="db-fetch-btn">
+            🔄 自動抓取
+          </button>
+          <div id="db-fetch-status" style="font-size:.72rem;color:var(--muted);align-self:center"></div>
+        </div>
+        <!-- Fetch result badges -->
+        <div id="db-fetch-badges" style="display:none;margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+          <span id="db-badge-news" style="font-size:.66rem;padding:2px 8px;border-radius:10px;background:var(--surface2);color:var(--muted)">產業新聞 —</span>
+          <span id="db-badge-podcast" style="font-size:.66rem;padding:2px 8px;border-radius:10px;background:var(--surface2);color:var(--muted)">Gooaye Podcast —</span>
+        </div>
+      </div>
+
+      <!-- ── Manual Input Areas ── -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <div>
-          <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px;font-weight:600">📋 產業報告內容
-            <span style="font-weight:400;margin-left:4px">（貼上報告全文或摘要）</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <div style="font-size:.72rem;color:var(--muted);font-weight:600">📋 產業報告 / 財經新聞</div>
+            <button onclick="document.getElementById('db-report').value=''" style="font-size:.62rem;background:none;border:none;color:var(--muted);cursor:pointer">清除</button>
           </div>
           <textarea id="db-report"
-            placeholder="請貼上產業研究報告、法說會記錄、產業趨勢分析等內容…&#10;&#10;例：台積電 2025Q1 法說會重點、AI 伺服器供應鏈分析、半導體景氣週期報告…"
-            style="width:100%;height:160px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:.78rem;resize:vertical;outline:none;font-family:inherit;line-height:1.6"
+            placeholder="（自動抓取後將填入，或手動貼上）&#10;&#10;例：法說會重點、AI 伺服器供應鏈分析、半導體景氣週期報告…"
+            style="width:100%;height:170px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:.76rem;resize:vertical;outline:none;font-family:inherit;line-height:1.65"
           ></textarea>
         </div>
         <div>
-          <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px;font-weight:600">🎙️ 謝孟恭 Podcast 重點
-            <span style="font-weight:400;margin-left:4px">（貼上當日或近期內容摘要）</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <div style="font-size:.72rem;color:var(--muted);font-weight:600">🎙️ 謝孟恭 Gooaye 股癌 Podcast</div>
+            <button onclick="document.getElementById('db-podcast').value=''" style="font-size:.62rem;background:none;border:none;color:var(--muted);cursor:pointer">清除</button>
           </div>
           <textarea id="db-podcast"
-            placeholder="請貼上謝孟恭 Podcast 的逐字稿、重點筆記或摘要…&#10;&#10;例：今日節目提到半導體庫存去化完成、輝達訂單超預期、外資連續買超…"
-            style="width:100%;height:160px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:.78rem;resize:vertical;outline:none;font-family:inherit;line-height:1.6"
+            placeholder="（自動抓取後將填入最新集數標題與說明，或手動貼入逐字稿）&#10;&#10;例：今日提到半導體庫存去化完成、輝達超預期、外資連買…"
+            style="width:100%;height:170px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:.76rem;resize:vertical;outline:none;font-family:inherit;line-height:1.65"
           ></textarea>
         </div>
       </div>
@@ -1737,8 +1763,8 @@ tbody td{padding:9px 10px}
             <option value="claude-sonnet-4-6" selected>Sonnet（深度 ~90 秒）</option>
           </select>
         </div>
-        <button class="btn btn-primary" style="padding:10px 24px;font-size:.85rem" onclick="dbStart()" id="db-start-btn">
-          ▶ 開始辯論
+        <button class="btn btn-primary" style="padding:10px 28px;font-size:.88rem" onclick="dbStart()" id="db-start-btn">
+          ▶ 開始三方辯論
         </button>
         <div id="db-status" style="font-size:.74rem;color:var(--muted)"></div>
       </div>
@@ -6791,6 +6817,63 @@ const _DB_STEPS = {
   'debate_start_丙':   76, 'debate_done_丙':   87,
   'verdict_start':     90, 'verdict_done':    100,
 };
+
+async function dbFetch() {
+  const topic = document.getElementById('db-topic')?.value.trim() || '半導體 AI 科技';
+  const btn = document.getElementById('db-fetch-btn');
+  const statusEl = document.getElementById('db-fetch-status');
+  const badgesEl = document.getElementById('db-fetch-badges');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 抓取中…';
+  statusEl.textContent = '';
+  if (badgesEl) badgesEl.style.display = 'none';
+
+  try {
+    const r = await fetch('/api/analyst/fetch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ topic }),
+    });
+    const j = await r.json();
+
+    if (!j.ok) {
+      statusEl.innerHTML = `<span style="color:var(--bear)">❌ ${j.error}</span>`;
+      return;
+    }
+
+    // Fill text areas
+    if (j.report) document.getElementById('db-report').value = j.report;
+    if (j.podcast) document.getElementById('db-podcast').value = j.podcast;
+
+    // Update badges
+    const newsBadge    = document.getElementById('db-badge-news');
+    const podcastBadge = document.getElementById('db-badge-podcast');
+    if (newsBadge) {
+      newsBadge.textContent = j.report_ok
+        ? `✅ 產業新聞 ${j.news_count || ''}則`
+        : `⚠️ 新聞：${j.report_error || '失敗'}`;
+      newsBadge.style.background = j.report_ok ? 'rgba(63,185,80,.15)' : 'rgba(248,81,73,.12)';
+      newsBadge.style.color = j.report_ok ? 'var(--bull)' : 'var(--bear)';
+    }
+    if (podcastBadge) {
+      const podItems = j.podcast_items?.length || 0;
+      podcastBadge.textContent = j.podcast_ok
+        ? `✅ Gooaye 最新 ${podItems} 集`
+        : `⚠️ Podcast：${j.podcast_error || '失敗'}`;
+      podcastBadge.style.background = j.podcast_ok ? 'rgba(63,185,80,.15)' : 'rgba(248,81,73,.12)';
+      podcastBadge.style.color = j.podcast_ok ? 'var(--bull)' : 'var(--bear)';
+    }
+    if (badgesEl) badgesEl.style.display = 'flex';
+
+    statusEl.innerHTML = '<span style="color:var(--bull)">✅ 資料已填入，可直接點「開始辯論」</span>';
+  } catch(e) {
+    statusEl.innerHTML = `<span style="color:var(--bear)">❌ 抓取失敗：${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 自動抓取';
+  }
+}
 
 async function dbStart() {
   const report  = document.getElementById('db-report')?.value.trim() || '';
