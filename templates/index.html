@@ -1702,14 +1702,18 @@ tbody td{padding:9px 10px}
   <div id="debate-section" style="display:none">
 
     <!-- API Key Setup Banner -->
-    <div id="db-apikey-banner" style="display:none;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.3);border-radius:10px;padding:12px 16px;margin-bottom:14px">
-      <div style="font-size:.78rem;font-weight:700;color:var(--bear);margin-bottom:6px">⚠️ 需要設定 ANTHROPIC_API_KEY</div>
-      <div style="font-size:.72rem;color:var(--text);line-height:1.7">
-        辯論室需要 Claude AI 才能運作。請在 Railway 環境變數中設定：<br>
-        <code style="background:var(--surface2);padding:2px 8px;border-radius:4px;font-size:.75rem;color:var(--accent)">ANTHROPIC_API_KEY = sk-ant-api03-...</code>
+    <div id="db-apikey-banner" style="display:none;background:rgba(248,81,73,.10);border:2px solid rgba(248,81,73,.4);border-radius:12px;padding:16px 18px;margin-bottom:14px">
+      <div style="font-size:.84rem;font-weight:700;color:var(--bear);margin-bottom:8px">🔑 需要設定 ANTHROPIC_API_KEY — 辯論室才能啟動</div>
+      <div style="font-size:.73rem;color:var(--text);line-height:1.8">
+        辯論室需要 Claude AI 才能運作，請依下列步驟設定：<br>
+        <b style="color:var(--accent)">① </b>前往 <b>railway.app</b> → 你的專案<br>
+        <b style="color:var(--accent)">② </b>點選 <b>「Variables」</b> 分頁<br>
+        <b style="color:var(--accent)">③ </b>新增變數名稱：<code style="background:var(--surface2);padding:1px 7px;border-radius:4px;font-size:.76rem;color:var(--accent);letter-spacing:.5px">ANTHROPIC_API_KEY</code><br>
+        <b style="color:var(--accent)">④ </b>值填入你的 API Key（格式：<code style="background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:.73rem;color:var(--muted)">sk-ant-api03-…</code>）<br>
+        <b style="color:var(--accent)">⑤ </b>儲存後點 <b>「Redeploy」</b> 重新部署
       </div>
-      <div style="font-size:.68rem;color:var(--muted);margin-top:6px">
-        Railway → 你的專案 → Variables → 新增 ANTHROPIC_API_KEY → 重新部署
+      <div style="font-size:.68rem;color:var(--muted);margin-top:8px;border-top:1px solid rgba(248,81,73,.2);padding-top:8px">
+        取得 API Key：<b>console.anthropic.com</b> → API Keys → Create Key &nbsp;|&nbsp; 自動抓取功能不需要 API Key
       </div>
     </div>
 
@@ -6870,9 +6874,11 @@ async function dbFetch() {
       return;
     }
 
-    // Fill text areas
-    if (j.report)  document.getElementById('db-report').value  = j.report;
-    if (j.podcast) document.getElementById('db-podcast').value = j.podcast;
+    // Fill text areas — always assign (even empty) so placeholder disappears on success
+    const reportTA  = document.getElementById('db-report');
+    const podcastTA = document.getElementById('db-podcast');
+    if (reportTA)  { reportTA.value  = j.report  || ''; if (j.report)  reportTA.scrollTop  = 0; }
+    if (podcastTA) { podcastTA.value = j.podcast || ''; if (j.podcast) podcastTA.scrollTop = 0; }
 
     // Method badge
     const methodLabel = j.method === 'claude_websearch'
@@ -6928,8 +6934,9 @@ async function dbStart() {
   try {
     const cfg = await fetch('/api/analyst/config').then(r=>r.json());
     if (!cfg.api_key_set) {
-      statusEl.innerHTML = '<span style="color:var(--bear)">❌ ANTHROPIC_API_KEY 未設定，請在 Railway → Variables 新增後重新部署</span>';
-      document.getElementById('db-apikey-banner').style.display = 'block';
+      statusEl.innerHTML = '<span style="color:var(--bear)">❌ ANTHROPIC_API_KEY 未設定 — 請依上方紅色方塊說明設定後重新部署</span>';
+      const banner = document.getElementById('db-apikey-banner');
+      if (banner) { banner.style.display = 'block'; banner.scrollIntoView({behavior:'smooth', block:'nearest'}); }
       return;
     }
   } catch(_) {}

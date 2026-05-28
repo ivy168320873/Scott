@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request, Response
+from flask import Flask, render_template, jsonify, request, Response, make_response
 import requests as _req
 import pandas as pd
 import numpy as np
@@ -727,7 +727,10 @@ def api_optimizer_run():
 @app.route("/")
 def index():
     has_claude = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
-    return render_template("index.html", has_claude=has_claude)
+    resp = make_response(render_template("index.html", has_claude=has_claude))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 if __name__ == "__main__":

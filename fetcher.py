@@ -233,6 +233,71 @@ def _fetch_yt_transcript(video_id: str) -> str:
         return ""
 
 
+def _fetch_apple_podcast_rss(n: int = 5) -> dict:
+    """
+    Fetch Gooaye podcast via Apple Podcasts lookup → RSS feed URL → parse episodes.
+    More reliable than YouTube in cloud environments.
+    """
+    try:
+        # Step 1: Get RSS feed URL from iTunes lookup API
+        lookup = requests.get(
+            "https://itunes.apple.com/lookup",
+            params={"id": "1500839292", "country": "tw", "entity": "podcast"},
+            headers=_HEADERS, timeout=10,
+        )
+        if lookup.status_code != 200:
+            return {"ok": False, "error": f"iTunes lookup HTTP {lookup.status_code}", "content": "", "items": []}
+
+        results = lookup.json().get("results", [])
+        if not results:
+            return {"ok": False, "error": "iTunes lookup 無結果", "content": "", "items": []}
+
+        feed_url = results[0].get("feedUrl", "")
+        if not feed_url:
+            # Fallback: known Gooaye RSS URL
+            feed_url = "https://anchor.fm/s/1a3093cc/podcast/rss"
+
+        # Step 2: Fetch and parse RSS feed
+        rss = requests.get(feed_url, headers=_HEADERS, timeout=12)
+        if rss.status_code != 200:
+            return {"ok": False, "error": f"RSS HTTP {rss.status_code}", "content": "", "items": []}
+
+        root = ET.fromstring(rss.content)
+        channel = root.find("channel")
+        if channel is None:
+            return {"ok": False, "error": "RSS 解析失敗", "content": "", "items": []}
+
+        items_out = []
+        for item in channel.findall("item")[:n]:
+            title   = (item.findtext("title") or "").strip()
+            pub     = (item.findtext("pubDate") or "")[:16].strip()
+            desc_raw = item.findtext("description") or item.findtext("{http://www.itunes.com/dtds/podcast-1.0.dtd}summary") or ""
+            # Strip HTML tags from description
+            desc = re.sub(r"<[^>]+>", "", desc_raw).strip()
+            desc = re.sub(r"\s+", " ", desc)[:800]
+            items_out.append({"title": title, "date": pub, "description": desc})
+
+        if not items_out:
+            return {"ok": False, "error": "RSS 無集數", "content": "", "items": []}
+
+        lines = ["=== 謝孟恭 Gooaye 股癌 Podcast（Apple Podcasts RSS）===\n"]
+        lines.append("（財經 Podcast，每日更新台股、美股、總經投資觀點）\n")
+        for v in items_out:
+            lines.append(f"【{v['date']}】{v['title']}")
+            if v["description"]:
+                lines.append(f"內容摘要：{v['description']}")
+            lines.append("")
+
+        return {
+            "ok":      True,
+            "content": "\n".join(lines),
+            "items":   items_out,
+            "has_deep_content": any(v["description"] for v in items_out),
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "content": "", "items": []}
+
+
 def _fetch_gooaye_yt_rss(n: int = 4) -> dict:
     """Fetch Gooaye YouTube RSS and extract deep per-video content."""
     url = f"https://www.youtube.com/feeds/videos.xml?channel_id={_GOOAYE_YT_CHANNEL}"
@@ -476,12 +541,17 @@ def _fetch_macro_context() -> dict:
 
 def fetch_direct(topic: str) -> dict:
     """
-    Fallback fetch: direct scraping from Yahoo Finance, Anue, YouTube RSS.
+    Fallback fetch: direct scraping from Yahoo Finance, Anue, Apple/YouTube RSS.
+    Tries Apple Podcasts RSS first (more reliable in cloud), then YouTube RSS.
     """
     news  = _fetch_yahoo_news(topic, n=12)
     macro = _fetch_macro_context()
-    yt    = _fetch_gooaye_yt_rss(n=4)
     anue  = _fetch_anue_news(n=8)
+
+    # Podcast: try Apple Podcasts RSS first, then YouTube RSS
+    pod = _fetch_apple_podcast_rss(n=5)
+    if not pod["ok"] or not pod.get("content"):
+        pod = _fetch_gooaye_yt_rss(n=4)
 
     report_parts = []
     if news["ok"]:    report_parts.append(news["content"])
@@ -492,13 +562,13 @@ def fetch_direct(topic: str) -> dict:
         "ok":           True,
         "method":       "direct_scrape",
         "report":       "\n\n".join(report_parts) or "（直接抓取無結果）",
-        "podcast":      yt.get("content", ""),
+        "podcast":      pod.get("content", ""),
         "report_ok":    news["ok"] or anue["ok"],
-        "podcast_ok":   yt["ok"],
+        "podcast_ok":   pod["ok"],
         "report_error": news.get("error", "") if not news["ok"] else "",
-        "podcast_error": yt.get("error", "")   if not yt["ok"]   else "",
+        "podcast_error": pod.get("error", "")  if not pod["ok"]  else "",
         "news_count":   news.get("count", 0),
-        "podcast_items": yt.get("items", []),
+        "podcast_items": pod.get("items", []),
     }
 
 
