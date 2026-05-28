@@ -381,6 +381,14 @@ tbody td{padding:9px 10px}
 
 /* ── Market Radar ── */
 #radar-section{display:none}
+#debate-section{display:none}
+.db-card{background:var(--surface);border-radius:12px;padding:14px 16px;border-left:3px solid var(--border)}
+.db-card-hdr{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.db-card-name{font-size:.82rem;font-weight:700}
+.db-card-title{font-size:.7rem;color:var(--muted)}
+.db-card-body{font-size:.78rem;line-height:1.72;color:var(--text);white-space:pre-wrap}
+.db-spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--purple);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .radar-watchlist{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px}
 .radar-watchlist h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
 .wl-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
@@ -872,6 +880,7 @@ tbody td{padding:9px 10px}
     <button class="tab" onclick="switchTab('position')">部位管理</button>
     <button class="tab" onclick="switchTab('radar')">市場雷達</button>
     <button class="tab" onclick="switchTab('quant')" style="color:#e3b341">⚡ 量化交易</button>
+    <button class="tab" onclick="switchTab('debate')" style="color:#d2a8ff">🧠 分析師辯論室</button>
   </div>
 
   <div id="detail">
@@ -1687,6 +1696,96 @@ tbody td{padding:9px 10px}
 
   </div>
 
+  <!-- ════════════════════════════════════════════════════════════
+       分析師辯論室
+  ═══════════════════════════════════════════════════════════════ -->
+  <div id="debate-section" style="display:none">
+
+    <!-- Input Panel -->
+    <div class="sr-card" style="margin-bottom:14px">
+      <div style="font-size:.84rem;font-weight:700;margin-bottom:4px">🧠 金融分析師多角辯論室</div>
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:14px">
+        甲（成長多頭）· 乙（風控空頭）· 丙（量化中性）三位分析師分別閱讀材料，獨立分析後進行交叉辯論，最終由委員會裁決。
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div>
+          <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px;font-weight:600">📋 產業報告內容
+            <span style="font-weight:400;margin-left:4px">（貼上報告全文或摘要）</span>
+          </div>
+          <textarea id="db-report"
+            placeholder="請貼上產業研究報告、法說會記錄、產業趨勢分析等內容…&#10;&#10;例：台積電 2025Q1 法說會重點、AI 伺服器供應鏈分析、半導體景氣週期報告…"
+            style="width:100%;height:160px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:.78rem;resize:vertical;outline:none;font-family:inherit;line-height:1.6"
+          ></textarea>
+        </div>
+        <div>
+          <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px;font-weight:600">🎙️ 謝孟恭 Podcast 重點
+            <span style="font-weight:400;margin-left:4px">（貼上當日或近期內容摘要）</span>
+          </div>
+          <textarea id="db-podcast"
+            placeholder="請貼上謝孟恭 Podcast 的逐字稿、重點筆記或摘要…&#10;&#10;例：今日節目提到半導體庫存去化完成、輝達訂單超預期、外資連續買超…"
+            style="width:100%;height:160px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:.78rem;resize:vertical;outline:none;font-family:inherit;line-height:1.6"
+          ></textarea>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div>
+          <div style="font-size:.68rem;color:var(--muted);margin-bottom:3px">AI 模型</div>
+          <select id="db-model" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.8rem">
+            <option value="claude-haiku-4-5-20251001">Haiku（快速 ~40 秒）</option>
+            <option value="claude-sonnet-4-6" selected>Sonnet（深度 ~90 秒）</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" style="padding:10px 24px;font-size:.85rem" onclick="dbStart()" id="db-start-btn">
+          ▶ 開始辯論
+        </button>
+        <div id="db-status" style="font-size:.74rem;color:var(--muted)"></div>
+      </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div id="db-progress-wrap" style="display:none;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;font-size:.72rem;color:var(--muted);margin-bottom:6px">
+        <span id="db-progress-label">準備中…</span>
+        <span id="db-progress-pct">0%</span>
+      </div>
+      <div style="background:var(--surface2);border-radius:4px;height:4px;overflow:hidden">
+        <div id="db-progress-bar" style="height:100%;background:var(--purple);border-radius:4px;width:0%;transition:width .4s ease"></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;font-size:.66rem;color:var(--muted)" id="db-step-indicators">
+        <span id="dbs-甲-a" style="padding:2px 8px;border-radius:10px;background:var(--surface2)">甲 分析</span>
+        <span id="dbs-乙-a" style="padding:2px 8px;border-radius:10px;background:var(--surface2)">乙 分析</span>
+        <span id="dbs-丙-a" style="padding:2px 8px;border-radius:10px;background:var(--surface2)">丙 分析</span>
+        <span style="color:var(--border)">·</span>
+        <span id="dbs-甲-d" style="padding:2px 8px;border-radius:10px;background:var(--surface2)">甲 辯論</span>
+        <span id="dbs-乙-d" style="padding:2px 8px;border-radius:10px;background:var(--surface2)">乙 辯論</span>
+        <span id="dbs-丙-d" style="padding:2px 8px;border-radius:10px;background:var(--surface2)">丙 辯論</span>
+        <span style="color:var(--border)">·</span>
+        <span id="dbs-verdict" style="padding:2px 8px;border-radius:10px;background:var(--surface2)">最終裁決</span>
+      </div>
+    </div>
+
+    <!-- Round 1: Analysis -->
+    <div id="db-round1" style="display:none;margin-bottom:14px">
+      <div style="font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">第一輪 — 獨立分析</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px" id="db-analysis-cards"></div>
+    </div>
+
+    <!-- Round 2: Debate -->
+    <div id="db-round2" style="display:none;margin-bottom:14px">
+      <div style="font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">第二輪 — 交叉辯論</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px" id="db-debate-cards"></div>
+    </div>
+
+    <!-- Final Verdict -->
+    <div id="db-verdict-wrap" style="display:none">
+      <div style="font-size:.72rem;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">最終裁決 — 投資委員會</div>
+      <div id="db-verdict-card" style="background:linear-gradient(135deg,rgba(210,168,255,.08),rgba(88,166,255,.05));border:1px solid rgba(210,168,255,.3);border-radius:12px;padding:18px 20px;font-size:.82rem;line-height:1.75;white-space:pre-wrap"></div>
+    </div>
+
+  </div>
+
 </div>
 
 <script>
@@ -2351,7 +2450,7 @@ document.getElementById('sym').addEventListener('keydown', e => { if (e.key === 
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','position','radar','quant'];
+  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','position','radar','quant','debate'];
   const idx = tabOrder.indexOf(tab);
   if (idx >= 0) document.querySelectorAll('.tab')[idx].classList.add('active');
 
@@ -2364,6 +2463,7 @@ function switchTab(tab) {
   document.getElementById('position-section').style.display = tab === 'position' ? 'block' : 'none';
   document.getElementById('radar-section').style.display    = tab === 'radar'    ? 'block' : 'none';
   document.getElementById('quant-section').style.display    = tab === 'quant'    ? 'block' : 'none';
+  document.getElementById('debate-section').style.display   = tab === 'debate'   ? 'block' : 'none';
 
   if (tab === 'signal' && _lastComputedData) startSignalRadar();
   else if (tab !== 'signal') { clearInterval(_sigTimer); _sigTimer = null; }
@@ -6674,6 +6774,202 @@ function _optRenderStability(j) {
       </table>
     </div>`;
 }
+
+// ══════════════════════════════════════════════════════
+// ANALYST DEBATE ENGINE (client-side)
+// ══════════════════════════════════════════════════════
+
+let _dbES = null;  // EventSource for streaming
+
+// Step → progress % mapping (7 steps total)
+const _DB_STEPS = {
+  'analysis_start_甲': 5,  'analysis_done_甲': 15,
+  'analysis_start_乙': 18, 'analysis_done_乙': 28,
+  'analysis_start_丙': 31, 'analysis_done_丙': 42,
+  'debate_start_甲':   46, 'debate_done_甲':   58,
+  'debate_start_乙':   62, 'debate_done_乙':   72,
+  'debate_start_丙':   76, 'debate_done_丙':   87,
+  'verdict_start':     90, 'verdict_done':    100,
+};
+
+async function dbStart() {
+  const report  = document.getElementById('db-report')?.value.trim() || '';
+  const podcast = document.getElementById('db-podcast')?.value.trim() || '';
+  if (!report && !podcast) {
+    document.getElementById('db-status').textContent = '⚠️ 請先貼上報告或 Podcast 內容';
+    return;
+  }
+
+  const model   = document.getElementById('db-model')?.value || 'claude-haiku-4-5-20251001';
+  const startBtn = document.getElementById('db-start-btn');
+  const statusEl = document.getElementById('db-status');
+
+  // Reset UI
+  startBtn.disabled = true;
+  startBtn.textContent = '⏳ 辯論進行中…';
+  statusEl.textContent = '';
+  document.getElementById('db-progress-wrap').style.display = 'block';
+  document.getElementById('db-round1').style.display = 'none';
+  document.getElementById('db-round2').style.display = 'none';
+  document.getElementById('db-verdict-wrap').style.display = 'none';
+  document.getElementById('db-analysis-cards').innerHTML = '';
+  document.getElementById('db-debate-cards').innerHTML = '';
+  document.getElementById('db-verdict-card').textContent = '';
+  _dbSetProgress(2, '啟動辯論引擎…');
+
+  // Reset step indicators
+  ['甲','乙','丙'].forEach(k => {
+    ['a','d'].forEach(t => {
+      const el = document.getElementById(`dbs-${k}-${t}`);
+      if (el) { el.style.background = 'var(--surface2)'; el.style.color = ''; }
+    });
+  });
+  const vi = document.getElementById('dbs-verdict');
+  if (vi) { vi.style.background = 'var(--surface2)'; vi.style.color = ''; }
+
+  if (_dbES) { _dbES.close(); _dbES = null; }
+
+  try {
+    const r = await fetch('/api/analyst/start', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ report, podcast, model }),
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      _dbError(j.error); return;
+    }
+    _dbStream(j.job_id);
+  } catch(e) {
+    _dbError(e.message);
+  }
+}
+
+function _dbStream(jobId) {
+  _dbES = new EventSource(`/api/analyst/stream/${jobId}`);
+  _dbES.onmessage = (e) => {
+    try { _dbHandleEvent(JSON.parse(e.data)); } catch(_) {}
+  };
+  _dbES.onerror = () => {
+    _dbError('串流連線中斷，請重試');
+    _dbES.close();
+  };
+}
+
+function _dbHandleEvent(msg) {
+  const step = msg.step;
+  const key  = step + (msg.analyst ? '_' + msg.analyst : '');
+  const pct  = _DB_STEPS[key] ?? _DB_STEPS[step] ?? null;
+  if (pct !== null) _dbSetProgress(pct, _dbStepLabel(step, msg));
+
+  // Step indicator colours
+  if (step === 'analysis_start') _dbIndicator(`dbs-${msg.analyst}-a`, 'running');
+  if (step === 'analysis_done')  _dbIndicator(`dbs-${msg.analyst}-a`, 'done');
+  if (step === 'debate_start')   _dbIndicator(`dbs-${msg.analyst}-d`, 'running');
+  if (step === 'debate_done')    _dbIndicator(`dbs-${msg.analyst}-d`, 'done');
+  if (step === 'verdict_start')  _dbIndicator('dbs-verdict', 'running');
+  if (step === 'verdict_done')   _dbIndicator('dbs-verdict', 'done');
+
+  if (step === 'analysis_done') {
+    document.getElementById('db-round1').style.display = 'block';
+    _dbAppendCard('db-analysis-cards', msg, false);
+  }
+  if (step === 'debate_done') {
+    document.getElementById('db-round2').style.display = 'block';
+    _dbAppendCard('db-debate-cards', msg, true);
+  }
+  if (step === 'verdict_done') {
+    document.getElementById('db-verdict-wrap').style.display = 'block';
+    document.getElementById('db-verdict-card').textContent = msg.content;
+  }
+  if (step === 'complete') {
+    _dbDone();
+  }
+  if (step === 'error') {
+    _dbError(msg.error || '未知錯誤');
+  }
+  if (step === 'timeout') {
+    _dbError('AI 回應逾時，請重試');
+  }
+}
+
+function _dbAppendCard(containerId, msg, isDebate) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  // Remove spinner placeholder if exists
+  const ph = el.querySelector(`[data-analyst="${msg.analyst}"]`);
+  if (ph) ph.remove();
+
+  const card = document.createElement('div');
+  card.className = 'db-card';
+  card.style.borderLeftColor = msg.color || 'var(--accent)';
+  card.innerHTML = `
+    <div class="db-card-hdr">
+      <span style="font-size:1.1rem">${msg.emoji || ''}</span>
+      <div>
+        <div class="db-card-name" style="color:${msg.color || 'var(--text)'}">${msg.name}</div>
+        <div class="db-card-title">${msg.title || (isDebate ? '交叉辯論回應' : '獨立分析')}</div>
+      </div>
+    </div>
+    <div class="db-card-body">${_dbEscape(msg.content)}</div>`;
+  el.appendChild(card);
+}
+
+function _dbSetProgress(pct, label) {
+  const bar = document.getElementById('db-progress-bar');
+  const lbl = document.getElementById('db-progress-label');
+  const pctEl = document.getElementById('db-progress-pct');
+  if (bar) bar.style.width = pct + '%';
+  if (lbl) lbl.textContent = label;
+  if (pctEl) pctEl.textContent = Math.round(pct) + '%';
+}
+
+function _dbIndicator(id, state) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (state === 'running') {
+    el.style.background = 'rgba(210,168,255,.2)';
+    el.style.color = 'var(--purple)';
+  } else if (state === 'done') {
+    el.style.background = 'rgba(63,185,80,.15)';
+    el.style.color = 'var(--bull)';
+  }
+}
+
+function _dbStepLabel(step, msg) {
+  const n = msg.name || '';
+  const labels = {
+    'analysis_start': `${n} 分析中…`,
+    'analysis_done':  `${n} 分析完成`,
+    'debate_start':   `${n} 辯論中…`,
+    'debate_done':    `${n} 辯論完成`,
+    'verdict_start':  '委員會裁決中…',
+    'verdict_done':   '裁決完成',
+    'complete':       '辯論完成',
+  };
+  return labels[step] || step;
+}
+
+function _dbDone() {
+  if (_dbES) { _dbES.close(); _dbES = null; }
+  const btn = document.getElementById('db-start-btn');
+  if (btn) { btn.disabled = false; btn.textContent = '▶ 重新辯論'; }
+  _dbSetProgress(100, '✅ 辯論完成');
+}
+
+function _dbError(msg) {
+  if (_dbES) { _dbES.close(); _dbES = null; }
+  const btn = document.getElementById('db-start-btn');
+  if (btn) { btn.disabled = false; btn.textContent = '▶ 開始辯論'; }
+  const statusEl = document.getElementById('db-status');
+  if (statusEl) statusEl.innerHTML = `<span style="color:var(--bear)">❌ ${msg}</span>`;
+  _dbSetProgress(0, '發生錯誤');
+}
+
+function _dbEscape(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 
 // ══════════════════════════════════════════════════════
 // 24/7 MONITORING ENGINE (client-side)

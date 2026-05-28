@@ -617,6 +617,50 @@ def api_stream():
     )
 
 
+# ── Analyst Debate endpoints ──────────────────────────────────────────────────
+
+@app.route("/api/analyst/start", methods=["POST"])
+def api_analyst_start():
+    try:
+        import analyst as _analyst
+        payload  = request.json or {}
+        report   = payload.get("report", "").strip()
+        podcast  = payload.get("podcast", "").strip()
+        model    = payload.get("model", "claude-haiku-4-5-20251001")
+        if not report and not podcast:
+            return jsonify({"ok": False, "error": "請提供產業報告或 Podcast 內容"}), 400
+        job_id = _analyst.start_job(report, podcast, model)
+        return jsonify({"ok": True, "job_id": job_id})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/analyst/stream/<job_id>")
+def api_analyst_stream(job_id):
+    import analyst as _analyst
+    import queue as _queue
+    q = _analyst.get_queue(job_id)
+    if q is None:
+        return jsonify({"ok": False, "error": "job not found"}), 404
+
+    def generate():
+        while True:
+            try:
+                msg = q.get(timeout=180)
+                yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+                if msg.get("step") in ("complete", "error"):
+                    break
+            except _queue.Empty:
+                yield 'data: {"step":"timeout"}\n\n'
+                break
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ── Advanced Optimizer endpoint ──────────────────────────────────────────────
 
 @app.route("/api/optimizer/run", methods=["POST"])
