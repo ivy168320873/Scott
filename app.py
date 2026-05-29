@@ -758,6 +758,39 @@ def api_translate_news():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/deep-news/<symbol>")
+def api_deep_news(symbol):
+    """Deep news search for a symbol using Claude web search (requires API key)."""
+    try:
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"}), 400
+        from anthropic import Anthropic
+        client = Anthropic(api_key=key)
+        symbol = symbol.upper()[:10]
+        prompt = (
+            f"請搜尋 {symbol} 這支股票的最新資訊，整理成簡潔的投資參考摘要：\n"
+            "1. 最新重大新聞（近2週）\n"
+            "2. 最新財報重點或法說會內容\n"
+            "3. 分析師評級與目標價\n"
+            "4. 股價走勢與技術面關鍵位置\n"
+            "5. 主要風險與催化劑\n\n"
+            "請用繁體中文，條列清晰，每點附上資料來源與日期。"
+        )
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1800,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}],
+            messages=[{"role": "user", "content": prompt}],
+        )
+        texts = [b.text for b in resp.content if hasattr(b, "text") and b.text]
+        content = "\n\n".join(texts)
+        return jsonify({"ok": True, "symbol": symbol, "content": content})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")

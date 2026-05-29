@@ -427,9 +427,34 @@ def _fetch_article_text(url: str) -> str:
         return ""
 
 
+def _resolve_ticker(topic: str) -> str:
+    """If topic looks like a ticker (1-6 uppercase letters), resolve to full company name."""
+    if not re.match(r'^[A-Z]{1,6}$', topic.strip()):
+        return topic
+    try:
+        r = requests.get(
+            "https://query1.finance.yahoo.com/v1/finance/search",
+            params={"q": topic.strip(), "quotesCount": 1, "newsCount": 0},
+            headers=_HEADERS, timeout=5,
+        )
+        if r.status_code == 200:
+            quotes = r.json().get("quotes", [])
+            if quotes:
+                name = quotes[0].get("longname") or quotes[0].get("shortname") or ""
+                if name:
+                    return name
+    except Exception:
+        pass
+    return topic
+
+
 def _fetch_yahoo_news(topic: str, n: int = 12) -> dict:
     """Yahoo Finance news API with full article text extraction."""
-    queries = [topic, f"{topic} earnings outlook", f"{topic} supply chain"]
+    company = _resolve_ticker(topic)
+    if company != topic:
+        queries = [company, f"{topic} {company}", f"{topic} earnings"]
+    else:
+        queries = [topic, f"{topic} earnings outlook", f"{topic} supply chain"]
     seen:    set[str]  = set()
     results: list[dict] = []
 

@@ -781,6 +781,30 @@ tbody td{padding:9px 10px}
       <button class="btn btn-secondary" style="padding:4px 10px;font-size:.75rem;white-space:nowrap" onclick="addCustomScanSym()">加入掃描</button>
     </div>
     <div class="custom-scan-tags" id="custom-scan-tags"></div>
+    <!-- Filter bar -->
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 0 2px;font-size:.72rem;color:var(--muted)">
+      <span style="font-weight:600">🔍 篩選：</span>
+      <span>RSI</span>
+      <input id="ar-rsi-min" type="number" value="0" min="0" max="100" placeholder="最低"
+        style="width:46px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:2px 5px;font-size:.72rem">
+      <span>~</span>
+      <input id="ar-rsi-max" type="number" value="100" min="0" max="100" placeholder="最高"
+        style="width:46px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:2px 5px;font-size:.72rem">
+      <span style="margin-left:6px">量比≥</span>
+      <input id="ar-vol-min" type="number" value="0" min="0" step="0.1" placeholder="0"
+        style="width:46px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:2px 5px;font-size:.72rem">
+      <span style="margin-left:6px">排序</span>
+      <select id="ar-sort" style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:2px 5px;font-size:.72rem">
+        <option value="score">綜合評分</option>
+        <option value="buyScore">買入評分</option>
+        <option value="monsterScore">異動評分</option>
+        <option value="changePct">今日漲幅</option>
+        <option value="volumeRatio">量比</option>
+        <option value="rsi">RSI 值</option>
+      </select>
+      <button onclick="applyArFilters()" style="padding:2px 10px;background:var(--accent);border:none;border-radius:5px;color:#000;font-size:.72rem;cursor:pointer;font-weight:600">套用</button>
+      <button onclick="resetArFilters()" style="padding:2px 8px;background:none;border:1px solid var(--border);border-radius:5px;color:var(--muted);font-size:.72rem;cursor:pointer">重設</button>
+    </div>
     <div id="ar-loading" style="text-align:center;padding:10px 0 4px;color:var(--muted);font-size:.82rem">
       <span id="ar-loading-text">正在抓取納斯達克全市場數據…</span>
       <div class="radar-progress" style="max-width:320px;margin:8px auto 0">
@@ -1254,6 +1278,8 @@ tbody td{padding:9px 10px}
       <button class="int-btn" onclick="selectInterval('1m')">1分</button>
       <button class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem" onclick="reloadKline()">刷新</button>
       <button id="fib-btn" class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem" onclick="toggleFib()">費波納契</button>
+      <button id="ma20-btn" class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem;color:#e3b341;border-color:#e3b341" onclick="toggleMA('ma20')">MA20</button>
+      <button id="ma60-btn" class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem;color:#f0883e;border-color:#f0883e" onclick="toggleMA('ma60')">MA60</button>
       <span id="kline-demo-tag" class="demo-tag" style="display:none">模擬數據</span>
     </div>
     <div class="kline-chart-wrap">
@@ -2913,16 +2939,30 @@ function renderBacktest(d, strategy) {
     ${s.sub ? `<div class="bsub">${s.sub}</div>` : ''}
   </div>`).join('');
 
-  // ── Equity curve ──
+  // ── Equity curve with drawdown shading ──
   const dates = _lastOHLCV.map(o => o.date.slice(5));
+  let peak = d.equity_pct[0] ?? 0;
+  const ddData = d.equity_pct.map(v => { peak = Math.max(peak, v); return +(v - peak).toFixed(3); });
   if (_charts['bt-eq']) _charts['bt-eq'].destroy();
   _charts['bt-eq'] = new Chart(document.getElementById('bt-equity-chart'), {
     type: 'line',
     data: { labels: dates, datasets: [
-      { label: d.strategy_name, data: d.equity_pct, borderColor: '#58a6ff', borderWidth: 2, fill: false, tension: 0.3, pointRadius: 0 },
-      { label: '買入持有',      data: d.bh_pct,     borderColor: '#8b949e', borderWidth: 1.5, fill: false, tension: 0.3, borderDash: [4,3], pointRadius: 0 },
+      { label: d.strategy_name, data: d.equity_pct, borderColor: '#58a6ff', borderWidth: 2,
+        fill: false, tension: 0.3, pointRadius: 0, order: 1 },
+      { label: '買入持有', data: d.bh_pct, borderColor: '#8b949e', borderWidth: 1.5,
+        fill: false, tension: 0.3, borderDash: [4,3], pointRadius: 0, order: 2 },
+      { label: '回撤', data: ddData, borderColor: 'rgba(248,81,73,0)',
+        backgroundColor: 'rgba(248,81,73,0.13)', fill: 'origin',
+        tension: 0.3, pointRadius: 0, order: 3, yAxisID: 'y2' },
     ]},
-    options: { ...CDef, maintainAspectRatio: false }
+    options: {
+      ...CDef, maintainAspectRatio: false,
+      scales: {
+        y:  { position: 'left',  ticks: { color: '#8b949e', callback: v => v + '%' } },
+        y2: { position: 'right', ticks: { color: 'rgba(248,81,73,.6)', callback: v => v + '%' },
+              grid: { drawOnChartArea: false } },
+      }
+    }
   });
 
   // ── PnL distribution ──
@@ -3722,6 +3762,8 @@ async function autoRecommend(force = false) {
     try {
       const c = JSON.parse(localStorage.getItem('arCache') || 'null');
       if (c && (now - c.ts) < TTL) {
+        _allAutoRecScored = c.data;
+        _lastAutoRecMeta  = { sectorData: c.sectorData, nasdaqMeta: c.nasdaqMeta, rotData: c.rotData };
         renderAutoRec(c.data, c.sectorData, c.nasdaqMeta, c.rotData);
         return;
       }
@@ -3840,6 +3882,8 @@ async function autoRecommend(force = false) {
   try {
     localStorage.setItem('arCache', JSON.stringify({ ts: now, data: scored, sectorData, nasdaqMeta, rotData }));
   } catch {}
+  _allAutoRecScored = scored;
+  _lastAutoRecMeta  = { sectorData, nasdaqMeta, rotData };
   arLoading.style.display = 'none';
   renderAutoRec(scored, sectorData, nasdaqMeta, rotData);
 }
@@ -4665,6 +4709,47 @@ function calcKelly(composite, rrStr) {
 
 let _lastScoredInvest = null;
 let _lastUsedInvest   = null;
+let _allAutoRecScored = null;    // full unfiltered result set
+let _lastAutoRecMeta  = null;    // {sectorData, nasdaqMeta, rotData}
+
+function applyArFilters() {
+  if (!_allAutoRecScored) return;
+  const rsiMin  = parseFloat(document.getElementById('ar-rsi-min')?.value ?? 0)   || 0;
+  const rsiMax  = parseFloat(document.getElementById('ar-rsi-max')?.value ?? 100) || 100;
+  const volMin  = parseFloat(document.getElementById('ar-vol-min')?.value ?? 0)   || 0;
+  const sortKey = document.getElementById('ar-sort')?.value || 'score';
+
+  const filtered = _allAutoRecScored.filter(d => {
+    const rsi = d.indicators?.rsi ?? 50;
+    const vr  = d.volumeRatio ?? 0;
+    return rsi >= rsiMin && rsi <= rsiMax && vr >= volMin;
+  });
+
+  const sortFn = {
+    score:       (a, b) => b.score - a.score,
+    buyScore:    (a, b) => b.buyScore - a.buyScore,
+    monsterScore:(a, b) => b.monsterScore - a.monsterScore,
+    changePct:   (a, b) => b.changePct - a.changePct,
+    volumeRatio: (a, b) => b.volumeRatio - a.volumeRatio,
+    rsi:         (a, b) => b.indicators.rsi - a.indicators.rsi,
+  }[sortKey] || ((a, b) => b.score - a.score);
+
+  const sorted = [...filtered].sort(sortFn);
+  const { sectorData, nasdaqMeta, rotData } = _lastAutoRecMeta || {};
+  renderAutoRec(sorted, sectorData, nasdaqMeta, rotData);
+}
+
+function resetArFilters() {
+  const f = id => document.getElementById(id);
+  if (f('ar-rsi-min')) f('ar-rsi-min').value = '0';
+  if (f('ar-rsi-max')) f('ar-rsi-max').value = '100';
+  if (f('ar-vol-min')) f('ar-vol-min').value = '0';
+  if (f('ar-sort'))    f('ar-sort').value    = 'score';
+  if (_allAutoRecScored) {
+    const { sectorData, nasdaqMeta, rotData } = _lastAutoRecMeta || {};
+    renderAutoRec(_allAutoRecScored, sectorData, nasdaqMeta, rotData);
+  }
+}
 
 function reRenderInvest() {
   if (_lastScoredInvest && _lastUsedInvest) renderInvestmentPicks(_lastScoredInvest, _lastUsedInvest);
@@ -5176,16 +5261,46 @@ async function loadNews(symbol) {
   try {
     const r = await fetch(`/api/news/${encodeURIComponent(symbol)}`);
     const j = await r.json();
-    if (!j.news?.length) { area.innerHTML = '<div style="color:var(--muted);font-size:.84rem">暫無新聞</div>'; return; }
+    const deepBtn = `<div style="margin-top:8px;text-align:right">
+      <button id="deep-news-btn" onclick="loadDeepNews('${symbol}')"
+        style="font-size:.7rem;padding:3px 10px;background:none;border:1px solid var(--purple);border-radius:5px;color:var(--purple);cursor:pointer">
+        🧠 Claude 深度搜尋
+      </button>
+    </div>`;
+    if (!j.news?.length) {
+      area.innerHTML = '<div style="color:var(--muted);font-size:.84rem">暫無新聞</div>' + deepBtn;
+      return;
+    }
     area.innerHTML = `<div class="news-list">${j.news.map(n => {
       const ts = n.published ? new Date(n.published * 1000).toLocaleDateString('zh-TW') : '';
       return `<a class="news-item" href="${n.link}" target="_blank" rel="noopener noreferrer">
         <div class="ntitle">${n.title}</div>
         <div class="nmeta">${n.publisher}&nbsp;&nbsp;${ts}</div>
       </a>`;
-    }).join('')}</div>`;
+    }).join('')}</div>${deepBtn}<div id="deep-news-result" style="margin-top:8px"></div>`;
   } catch {
     area.innerHTML = '<div style="color:var(--muted);font-size:.84rem">新聞暫時無法載入</div>';
+  }
+}
+
+async function loadDeepNews(symbol) {
+  const btn = document.getElementById('deep-news-btn');
+  const result = document.getElementById('deep-news-result');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Claude 搜尋中…'; }
+  if (result) result.innerHTML = '';
+  try {
+    const r = await fetch(`/api/deep-news/${encodeURIComponent(symbol)}`);
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '搜尋失敗');
+    if (result) result.innerHTML = `
+      <div style="background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:8px;padding:12px;font-size:.76rem;line-height:1.7;white-space:pre-wrap;color:var(--text)">
+        <div style="font-size:.68rem;color:var(--purple);font-weight:600;margin-bottom:6px">🧠 Claude 深度分析 · ${symbol}</div>
+        ${j.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+      </div>`;
+    if (btn) { btn.textContent = '✅ 已完成'; }
+  } catch(e) {
+    if (result) result.innerHTML = `<div style="color:var(--bear);font-size:.76rem">❌ ${e.message}</div>`;
+    if (btn) { btn.textContent = '🧠 Claude 深度搜尋'; btn.disabled = false; }
   }
 }
 
@@ -5842,6 +5957,16 @@ async function loadMTF(symbol) {
 // ══════════════════════════════════════════════════════
 
 let _showFib = false;
+let _showMA20 = true;
+let _showMA60 = true;
+
+function toggleMA(which) {
+  if (which === 'ma20') _showMA20 = !_showMA20;
+  else _showMA60 = !_showMA60;
+  const btn = document.getElementById(which + '-btn');
+  if (btn) btn.style.opacity = (which === 'ma20' ? _showMA20 : _showMA60) ? '1' : '0.35';
+  if (_klineData) renderKlineChartWithFib(_klineData);
+}
 
 function calcFibLevels(bars) {
   const recent = bars.slice(-100);
@@ -5909,6 +6034,19 @@ function renderKlineChartWithFib(bars) {
         tension: 0,
       });
     });
+  }
+
+  // MA20 / MA60 overlays
+  const _allCloses = bars.map(b => b.c);
+  if (_showMA20) {
+    const ma20Full = sma(_allCloses, 20).slice(-N);
+    datasets.push({ type: 'line', label: 'MA20', data: ma20Full, borderColor: '#e3b341',
+      borderWidth: 1.5, fill: false, pointRadius: 0, tension: 0.3 });
+  }
+  if (_showMA60) {
+    const ma60Full = sma(_allCloses, 60).slice(-N);
+    datasets.push({ type: 'line', label: 'MA60', data: ma60Full, borderColor: '#f0883e',
+      borderWidth: 1.5, fill: false, pointRadius: 0, tension: 0.3 });
   }
 
   if (_charts['kline']) _charts['kline'].destroy();
