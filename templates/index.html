@@ -854,6 +854,17 @@ tbody td{padding:9px 10px}
         <div style="color:var(--muted);font-size:.8rem;padding:6px 0">點「抓取」載入川普最新發文訊號…</div>
       </div>
 
+      <!-- 4D Optimal Section -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('ar-4d','ar-4d-ti')">
+          🎯 四維度齊全 <span id="ar-4d-count" style="font-weight:400;font-size:.72rem;color:var(--muted)"></span>
+          <span id="ar-4d-ti" style="font-size:.75rem;margin-left:3px;opacity:.6">▾</span>
+        </div>
+      </div>
+      <div id="ar-4d" style="margin-bottom:16px">
+        <div style="color:var(--muted);font-size:.8rem;padding:6px 0">掃描中…</div>
+      </div>
+
       <div class="ar-sec-lbl">✅ 現在可以考慮買</div>
       <div class="cap-settings" style="margin:8px 0 10px">
         <label>💵 總資金 $</label>
@@ -3985,7 +3996,11 @@ async function autoRecommend(force = false) {
       monsterScore: mm.score, monsterMeta: mm,
       buyScore: calcBuyScore(d), btScore: calcBreakoutScore(d),
       indicators: { rsi: d.indicators.rsi, bbPctB: d.indicators.bbPctB,
-                    macdHist: d.indicators.macdHist },
+                    macdHist: d.indicators.macdHist,
+                    smartMoney:   d.indicators.smartMoney   ?? 0,
+                    bearPressure: d.indicators.bearPressure ?? 0,
+                    chaseRisk:    d.indicators.chaseRisk    ?? 0,
+                    resonance:    d.indicators.resonance    ?? 0 },
       volumeRatio: d.volumeRatio, bullMa: d.bullMa,
       preBreakScore: pbs.score, preBreakMeta: pbs,
       investRating: ir,
@@ -4197,6 +4212,7 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
 
   renderPreBreakout(scored, used);
   renderInvestmentPicks(scored, used);
+  render4DSection(scored);
 
   const ts = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
   renderSentiment(scored);
@@ -4753,6 +4769,79 @@ function calcInvestmentRating(d, preBreakScore) {
     tp1: { price: tp1price, pct: ((tp1price - d.price)/d.price*100).toFixed(1), rr: `風報比 1 : ${rr1.toFixed(1)}` },
     tp2: { price: tp2price, pct: ((tp2price - d.price)/d.price*100).toFixed(1), rr: `風報比 1 : ${(riskAmt>0?(tp2price-d.price)/riskAmt:0).toFixed(1)}` },
   };
+}
+
+// ══════════════════════════════════════════════════════
+// 四維度齊全篩選
+// ══════════════════════════════════════════════════════
+function render4DSection(scored) {
+  const el = document.getElementById('ar-4d');
+  if (!el) return;
+
+  const optimal = scored.filter(d => {
+    const sm = d.indicators.smartMoney   ?? 0;
+    const bp = d.indicators.bearPressure ?? 0;
+    const cr = d.indicators.chaseRisk    ?? 0;
+    const rs = d.indicators.resonance    ?? 0;
+    return sm > 60 && bp < 30 && cr < 50 && rs >= 60;
+  }).sort((a, b) => {
+    const s4 = d => {
+      const sm = d.indicators.smartMoney ?? 0;
+      const bp = d.indicators.bearPressure ?? 0;
+      const cr = d.indicators.chaseRisk ?? 0;
+      const rs = d.indicators.resonance ?? 0;
+      return sm + (100 - bp) + (100 - cr) + rs;
+    };
+    return s4(b) - s4(a);
+  });
+
+  const cntEl = document.getElementById('ar-4d-count');
+  if (cntEl) cntEl.textContent = optimal.length ? `(${optimal.length} 支符合)` : '(目前無)';
+
+  if (!optimal.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:6px 0">目前無股票同時滿足四維度最佳條件，市場偏向觀望</div>';
+    return;
+  }
+
+  el.innerHTML = optimal.slice(0, 8).map(d => {
+    const sm = d.indicators.smartMoney   ?? 0;
+    const bp = d.indicators.bearPressure ?? 0;
+    const cr = d.indicators.chaseRisk    ?? 0;
+    const rs = d.indicators.resonance    ?? 0;
+    const chg = d.changePct;
+
+    function dimBar(label, val, passThresh, isInverse) {
+      const pass = isInverse ? val < passThresh : val >= passThresh;
+      const barPct = Math.min(100, Math.round(val));
+      const barClr = pass ? 'var(--bull)' : 'rgba(248,81,73,.6)';
+      return `<div style="display:flex;align-items:center;gap:4px;margin-bottom:3px">
+        <div style="width:52px;font-size:.62rem;color:var(--muted);flex-shrink:0">${label}</div>
+        <div style="flex:1;height:5px;border-radius:3px;background:var(--surface2);overflow:hidden">
+          <div style="height:100%;width:${barPct}%;background:${barClr};border-radius:3px"></div>
+        </div>
+        <div style="width:26px;text-align:right;font-size:.62rem;font-weight:700;color:${barClr}">${Math.round(val)}</div>
+      </div>`;
+    }
+
+    return `<div class="auto-rec-card arc-buy" onclick="qs('${d.symbol}');switchTab('analysis')" style="border:1px solid rgba(63,185,80,.35)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+        <div>
+          <div class="arc-sym" style="color:var(--bull)">${d.symbol}${twName(d.symbol)?`<span style="font-size:.62rem;color:var(--muted);font-weight:400;margin-left:3px">${twName(d.symbol)}</span>`:''}</div>
+          <div class="arc-price">${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:.58rem;background:rgba(63,185,80,.15);border:1px solid rgba(63,185,80,.4);border-radius:5px;padding:2px 6px;color:var(--bull);white-space:nowrap">✅ 四維齊全</div>
+          <div style="font-size:.64rem;color:var(--muted);margin-top:3px">綜合分 ${Math.round(d.score)}</div>
+        </div>
+      </div>
+      <div>
+        ${dimBar('主力控盤', sm, 60, false)}
+        ${dimBar('空方壓力', bp, 30, true)}
+        ${dimBar('追高風險', cr, 50, true)}
+        ${dimBar('多週期共振', rs, 60, false)}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function renderPreBreakout(scored, usedSet) {
