@@ -854,6 +854,18 @@ tbody td{padding:9px 10px}
         <div style="color:var(--muted);font-size:.8rem;padding:6px 0">點「抓取」載入川普最新發文訊號…</div>
       </div>
 
+      <!-- 10x Candidates Section -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('ar-10x','ar-10x-ti')">
+          🚀 十倍股候選 <span id="ar-10x-count" style="font-weight:400;font-size:.72rem;color:var(--muted)"></span>
+          <span id="ar-10x-ti" style="font-size:.75rem;margin-left:3px;opacity:.6">▾</span>
+        </div>
+        <span style="font-size:.6rem;color:rgba(248,81,73,.7);border:1px solid rgba(248,81,73,.3);border-radius:4px;padding:1px 6px">高風險</span>
+      </div>
+      <div id="ar-10x" style="margin-bottom:16px">
+        <div style="color:var(--muted);font-size:.8rem;padding:6px 0">掃描中…</div>
+      </div>
+
       <!-- 4D Optimal Section -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('ar-4d','ar-4d-ti')">
@@ -3995,7 +4007,7 @@ async function autoRecommend(force = false) {
     const ir  = calcInvestmentRating(d, pbs.score);
     return {
       symbol: d.symbol, name: d.name, price: d.price, changePct: d.changePct,
-      score: d.score, pctFromHigh: d.pctFromHigh, isDemo: d.isDemo,
+      score: d.score, pctFromHigh: d.pctFromHigh, pctFromLow: d.pctFromLow, isDemo: d.isDemo,
       monsterScore: mm.score, monsterMeta: mm,
       buyScore: calcBuyScore(d), btScore: calcBreakoutScore(d),
       indicators: { rsi: d.indicators.rsi, bbPctB: d.indicators.bbPctB,
@@ -4216,6 +4228,7 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
   renderPreBreakout(scored, used);
   renderInvestmentPicks(scored, used);
   render4DSection(scored);
+  render10xSection(scored);
 
   const ts = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
   renderSentiment(scored);
@@ -4772,6 +4785,157 @@ function calcInvestmentRating(d, preBreakScore) {
     tp1: { price: tp1price, pct: ((tp1price - d.price)/d.price*100).toFixed(1), rr: `風報比 1 : ${rr1.toFixed(1)}` },
     tp2: { price: tp2price, pct: ((tp2price - d.price)/d.price*100).toFixed(1), rr: `風報比 1 : ${(riskAmt>0?(tp2price-d.price)/riskAmt:0).toFixed(1)}` },
   };
+}
+
+// ══════════════════════════════════════════════════════
+// 十倍股候選評分
+// ══════════════════════════════════════════════════════
+function calc10xScore(d) {
+  const price = d.price ?? 0;
+  const vr    = d.volumeRatio ?? 1;
+  const rsi   = d.indicators.rsi ?? 50;
+  const sm    = d.indicators.smartMoney   ?? 0;
+  const rs    = d.indicators.resonance    ?? 0;
+  const bp    = d.indicators.bearPressure ?? 50;
+  const mon   = d.monsterScore ?? 0;
+  const score = d.score ?? 50;
+  const pctFH = d.pctFromHigh ?? -50;
+  const pctFL = d.pctFromLow  ?? 0;
+  const chg   = d.changePct   ?? 0;
+
+  if (price <= 0) return { score: 0 };
+
+  // ── 1. Price sweet spot: $1-$50 small-cap room to grow ─────────────────────
+  const priceS = price < 1   ? 0  :
+                 price <= 3   ? 70 :
+                 price <= 10  ? 95 :
+                 price <= 25  ? 88 :
+                 price <= 50  ? 72 :
+                 price <= 100 ? 48 :
+                 price <= 200 ? 28 : 10;
+
+  // ── 2. Volume explosion: big money accumulating ──────────────────────────
+  const volS = Math.min(Math.round(vr * 28), 100);
+
+  // ── 3. Momentum: broad composite score ──────────────────────────────────
+  const momS = Math.min(score, 100);
+
+  // ── 4. Smart money flow ─────────────────────────────────────────────────
+  const smS = sm;
+
+  // ── 5. Multi-timeframe resonance ────────────────────────────────────────
+  const rsS = rs;
+
+  // ── 6. Monster score (explosive move potential) ─────────────────────────
+  const monS = Math.min(Math.round(mon * 1.8), 100);
+
+  // ── 7. Position vs highs: near breakout >> oversold recovery ────────────
+  const highS = pctFH >= -2  ? 100 :
+                pctFH >= -8  ? 82  :
+                pctFH >= -15 ? 62  :
+                pctFH >= -30 ? 40  : 20;
+
+  // ── 8. Bear pressure low (sellers retreating) ───────────────────────────
+  const bpS = bp < 20 ? 90 : bp < 35 ? 70 : bp < 55 ? 50 : 25;
+
+  // ── 9. Day surge signal ──────────────────────────────────────────────────
+  const chgS = chg > 10 ? 95 : chg > 5 ? 80 : chg > 2 ? 65 : chg > 0 ? 50 : 30;
+
+  const composite = Math.round(
+    priceS * 0.18 +
+    volS   * 0.20 +
+    momS   * 0.12 +
+    smS    * 0.14 +
+    rsS    * 0.10 +
+    monS   * 0.12 +
+    highS  * 0.08 +
+    bpS    * 0.04 +
+    chgS   * 0.02
+  );
+
+  // Labels
+  const priceLabel = price <= 3   ? '超低價微型股' :
+                     price <= 10  ? '低價小型股'   :
+                     price <= 25  ? '中低價成長股' :
+                     price <= 50  ? '中價成長股'   : '中大型成長股';
+
+  return {
+    score: Math.min(composite, 100),
+    priceLabel,
+    factors: {
+      priceS: Math.round(priceS), volS, momS: Math.round(momS),
+      smS: Math.round(smS), rsS: Math.round(rsS), monS: Math.round(monS),
+    },
+  };
+}
+
+function render10xSection(scored) {
+  const el = document.getElementById('ar-10x');
+  if (!el) return;
+
+  const candidates = scored
+    .map(d => ({ ...d, _tenX: calc10xScore(d) }))
+    .filter(d => d._tenX.score >= 58 && d.price >= 1 && d.price <= 200)
+    .sort((a, b) => b._tenX.score - a._tenX.score)
+    .slice(0, 10);
+
+  const cntEl = document.getElementById('ar-10x-count');
+  if (cntEl) cntEl.textContent = candidates.length ? `(${candidates.length} 支)` : '(目前無)';
+
+  if (!candidates.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:6px 0">目前無符合十倍股特徵的候選，市場偏向保守</div>';
+    return;
+  }
+
+  el.innerHTML = `
+    <div style="font-size:.68rem;color:rgba(248,81,73,.8);background:rgba(248,81,73,.06);border:1px solid rgba(248,81,73,.2);border-radius:8px;padding:7px 10px;margin-bottom:10px">
+      ⚠️ 十倍股候選為高波動高風險標的，基於量化模型篩選，不構成投資建議。建議搭配基本面研究。
+    </div>
+    <div class="auto-rec-grid">
+    ${candidates.map((d, idx) => {
+      const t = d._tenX;
+      const chg = d.changePct;
+      const scoreColor = t.score >= 80 ? '#ff3535' : t.score >= 70 ? '#ff6b35' : '#e3b341';
+      const barColor = t.score >= 80 ? 'linear-gradient(90deg,#ff3535,#ff6b35)' :
+                       t.score >= 70 ? 'linear-gradient(90deg,#ff6b35,#e3b341)' :
+                       'linear-gradient(90deg,#e3b341,#58a6ff)';
+
+      const factorBars = [
+        { l: '量能', v: t.factors.volS },
+        { l: '主力', v: t.factors.smS },
+        { l: '動能', v: t.factors.momS },
+        { l: '共振', v: t.factors.rsS },
+        { l: '爆發', v: t.factors.monS },
+      ].map(f => `<div style="display:flex;align-items:center;gap:3px;margin-bottom:2px">
+          <div style="width:26px;font-size:.58rem;color:var(--muted);flex-shrink:0">${f.l}</div>
+          <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
+            <div style="height:100%;width:${f.v}%;background:${scoreColor};border-radius:2px;opacity:.85"></div>
+          </div>
+          <div style="width:20px;text-align:right;font-size:.57rem;color:${scoreColor};font-weight:700">${f.v}</div>
+        </div>`).join('');
+
+      const rankLabel = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx+1}`;
+
+      return `<div class="auto-rec-card" onclick="qs('${d.symbol}');switchTab('analysis')"
+        style="border:1px solid rgba(255,107,53,.35);background:linear-gradient(135deg,var(--surface) 0%,rgba(255,107,53,.04) 100%);cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div>
+            <div style="font-size:.62rem;color:rgba(255,107,53,.7);margin-bottom:1px">${rankLabel} ${t.priceLabel}</div>
+            <div class="arc-sym" style="color:#ff6b35">${d.symbol}${twName(d.symbol)?`<span style="font-size:.6rem;color:var(--muted);font-weight:400;margin-left:3px">${twName(d.symbol)}</span>`:''}</div>
+            <div class="arc-price">$${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:1.7rem;font-weight:900;color:${scoreColor};line-height:1">${t.score}</div>
+            <div style="font-size:.58rem;color:var(--muted)">十倍分</div>
+          </div>
+        </div>
+        <div style="height:4px;background:var(--surface2);border-radius:2px;overflow:hidden;margin-bottom:8px">
+          <div style="height:100%;width:${t.score}%;background:${barColor};border-radius:2px"></div>
+        </div>
+        ${factorBars}
+      </div>`;
+    }).join('')}
+    </div>`;
 }
 
 // ══════════════════════════════════════════════════════
