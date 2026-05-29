@@ -32,6 +32,58 @@ _LOGIN_LOG: list[dict] = []   # in-memory log (last 200 entries)
 _MAX_LOG = 200
 _SERVER_START = datetime.now(timezone.utc)
 
+# ── Login rate limiting ───────────────────────────────────────────────────────
+_login_attempts: dict = {}   # ip -> {count, locked_until}
+_MAX_ATTEMPTS  = 5
+_LOCKOUT_SECS  = 15 * 60     # 15 minutes
+
+def _is_locked(ip: str) -> tuple[bool, int]:
+    rec = _login_attempts.get(ip, {})
+    remaining = int(rec.get("locked_until", 0) - _time.time())
+    if remaining > 0:
+        return True, remaining
+    if "locked_until" in rec:          # lock expired → clean up
+        _login_attempts.pop(ip, None)
+    return False, 0
+
+def _record_fail(ip: str):
+    rec = _login_attempts.get(ip, {"count": 0})
+    rec["count"] = rec.get("count", 0) + 1
+    if rec["count"] >= _MAX_ATTEMPTS:
+        rec["locked_until"] = _time.time() + _LOCKOUT_SECS
+    _login_attempts[ip] = rec
+
+def _reset_attempts(ip: str):
+    _login_attempts.pop(ip, None)
+
+# ── User data persistence (cross-device sync) ─────────────────────────────────
+import threading as _threading
+
+_USER_DATA_FILE  = os.environ.get("USER_DATA_FILE", "./user_data.json")
+_user_data_lock  = _threading.Lock()
+_user_data_mem: dict = {}
+
+def _load_user_data() -> dict:
+    global _user_data_mem
+    if _user_data_mem:
+        return dict(_user_data_mem)
+    try:
+        with open(_USER_DATA_FILE, "r", encoding="utf-8") as f:
+            _user_data_mem = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        _user_data_mem = {}
+    return dict(_user_data_mem)
+
+def _save_user_data(patch: dict):
+    global _user_data_mem
+    with _user_data_lock:
+        _user_data_mem.update(patch)
+        try:
+            with open(_USER_DATA_FILE, "w", encoding="utf-8") as f:
+                json.dump(_user_data_mem, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass  # best-effort write
+
 def _hash(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
 
@@ -92,19 +144,33 @@ def _require_auth():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
+    locked_secs = 0
     if request.method == "POST":
-        code = (request.form.get("code") or "").strip()
         ip = _get_ip()
         device = _parse_ua(request.headers.get("User-Agent", ""))
-        if _ACCESS_CODE and _hash(code) == _hash(_ACCESS_CODE):
-            session.permanent = True
-            session["auth"] = _hash(_ACCESS_CODE)
-            _append_log(ip, device, True, "登入成功")
-            return redirect(request.args.get("next") or "/")
+        blocked, secs = _is_locked(ip)
+        if blocked:
+            locked_secs = secs
+            error = f"嘗試次數過多，請等待 {secs // 60} 分 {secs % 60} 秒後再試"
+            _append_log(ip, device, False, f"已鎖定 {secs}s")
         else:
-            _append_log(ip, device, False, "認識碼錯誤")
-            error = "認識碼錯誤，請重試"
-    return render_template("login.html", error=error)
+            code = (request.form.get("code") or "").strip()
+            if _ACCESS_CODE and _hash(code) == _hash(_ACCESS_CODE):
+                _reset_attempts(ip)
+                session.permanent = True
+                session["auth"] = _hash(_ACCESS_CODE)
+                _append_log(ip, device, True, "登入成功")
+                return redirect(request.args.get("next") or "/")
+            else:
+                _record_fail(ip)
+                rec = _login_attempts.get(ip, {})
+                remain = _MAX_ATTEMPTS - rec.get("count", 0)
+                _append_log(ip, device, False, "認識碼錯誤")
+                if remain > 0:
+                    error = f"認識碼錯誤，還有 {remain} 次機會"
+                else:
+                    error = f"已鎖定 {_LOCKOUT_SECS // 60} 分鐘，請稍後再試"
+    return render_template("login.html", error=error, locked_secs=locked_secs)
 
 @app.route("/logout")
 def logout():
@@ -190,6 +256,64 @@ def api_admin_clear_cache():
     _daily_report_cache["report"] = None
     _daily_report_cache["ts"] = 0
     return jsonify(ok=True, message="每日報告快取已清空")
+
+@app.route("/api/admin/test-connections")
+def api_admin_test_connections():
+    """Test external API connectivity — shows in admin dashboard."""
+    results = {}
+    # Claude
+    try:
+        import anthropic as _ant
+        c = _ant.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+        m = c.messages.create(model="claude-haiku-4-5-20251001", max_tokens=8,
+                              messages=[{"role": "user", "content": "hi"}])
+        results["claude"] = {"ok": True, "detail": m.model}
+    except Exception as e:
+        results["claude"] = {"ok": False, "detail": str(e)[:120]}
+    # Alpha Vantage
+    av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
+    if av_key:
+        try:
+            r = _req.get("https://www.alphavantage.co/query",
+                         params={"function": "GLOBAL_QUOTE", "symbol": "IBM", "apikey": av_key},
+                         timeout=8)
+            d = r.json()
+            ok = bool(d.get("Global Quote"))
+            results["alpha_vantage"] = {"ok": ok, "detail": "連線正常" if ok else "API key 無效或達到限額"}
+        except Exception as e:
+            results["alpha_vantage"] = {"ok": False, "detail": str(e)[:120]}
+    else:
+        results["alpha_vantage"] = {"ok": False, "detail": "未設定 ALPHA_VANTAGE_KEY"}
+    # Yahoo Finance
+    try:
+        r = _req.get("https://query1.finance.yahoo.com/v8/finance/chart/AAPL",
+                     params={"range": "1d", "interval": "1d"}, headers=YAHOO_HEADERS, timeout=8)
+        results["yahoo"] = {"ok": r.status_code == 200, "detail": f"HTTP {r.status_code}"}
+    except Exception as e:
+        results["yahoo"] = {"ok": False, "detail": str(e)[:120]}
+    return jsonify(ok=True, results=results)
+
+@app.route("/api/user/data", methods=["GET", "POST"])
+def api_user_data():
+    """Cross-device localStorage sync endpoint."""
+    if request.method == "GET":
+        return jsonify(ok=True, data=_load_user_data())
+    patch = request.get_json(force=True, silent=True) or {}
+    if patch:
+        _save_user_data(patch)
+    return jsonify(ok=True)
+
+@app.route("/robots.txt")
+def robots_txt():
+    return Response("User-agent: *\nDisallow: /\n", mimetype="text/plain")
+
+@app.errorhandler(404)
+def not_found(e):
+    return render_template("error.html", code=404, msg="找不到此頁面"), 404
+
+@app.errorhandler(500)
+def server_error(e):
+    return render_template("error.html", code=500, msg="伺服器發生錯誤"), 500
 
 # Start background scheduler (only if SCHEDULER_ENABLE=true)
 _sched.start_scheduler()

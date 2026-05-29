@@ -323,6 +323,17 @@ tbody tr:hover{background:var(--surface2)}
       {% endif %}
     </div>
 
+    <!-- ── API Connection Test ── -->
+    <div class="section">
+      <div class="sec-hdr">
+        <h2>🔌 外部 API 連線測試</h2>
+        <button class="btn btn-ghost" style="font-size:.72rem;padding:4px 12px" onclick="runConnectionTest()">▶ 開始測試</button>
+      </div>
+      <div class="sec-body">
+        <div id="conn-result" style="color:var(--muted);font-size:.8rem">點擊「開始測試」來確認各 API 連線狀態</div>
+      </div>
+    </div>
+
     <!-- ── Quick Actions ── -->
     <div class="section">
       <div class="sec-hdr"><h2>⚡ 快捷操作</h2></div>
@@ -382,6 +393,29 @@ async function testAlert() {
     const j = await r.json();
     toast(j.ok ? '✅ 測試警報已發送' : '❌ 發送失敗：' + (j.error || ''), j.ok);
   } catch(e) { toast('❌ 連線錯誤', false); }
+}
+
+async function runConnectionTest() {
+  const el = document.getElementById('conn-result');
+  el.innerHTML = '<span style="color:var(--muted)">⏳ 測試中，請稍候…</span>';
+  try {
+    const r = await fetch('/api/admin/test-connections');
+    const j = await r.json();
+    if (!j.ok) { el.innerHTML = '<span style="color:var(--bear)">❌ 測試失敗</span>'; return; }
+    const icons = { claude: '🤖', alpha_vantage: '📊', yahoo: '🌐' };
+    const names = { claude: 'Claude AI', alpha_vantage: 'Alpha Vantage', yahoo: 'Yahoo Finance' };
+    el.innerHTML = Object.entries(j.results).map(([k, v]) => `
+      <div style="display:flex;align-items:center;gap:12px;padding:9px 12px;
+        background:var(--surface2);border:1px solid ${v.ok?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'};
+        border-radius:8px;margin-bottom:8px">
+        <span style="font-size:1.1rem">${icons[k]||'🔌'}</span>
+        <span style="font-weight:600;flex:1">${names[k]||k}</span>
+        <span style="color:${v.ok?'var(--bull)':'var(--bear)'};font-size:.78rem;font-weight:700">
+          ${v.ok?'✅ 正常':'❌ 異常'}
+        </span>
+        <span style="color:var(--muted);font-size:.72rem;font-family:monospace">${v.detail||''}</span>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = `<span style="color:var(--bear)">❌ 連線失敗：${e.message}</span>`; }
 }
 </script>
 </body>

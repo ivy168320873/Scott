@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scott · {{ code }}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;--bear:#f85149}
+  body{background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{text-align:center;max-width:420px}
+  .code{font-size:5rem;font-weight:800;color:var(--bear);line-height:1;margin-bottom:12px}
+  .msg{font-size:1.1rem;color:var(--text);margin-bottom:8px}
+  .sub{font-size:.82rem;color:var(--muted);margin-bottom:28px;line-height:1.6}
+  a{display:inline-block;padding:10px 24px;background:var(--accent);border-radius:9px;
+    color:#000;font-weight:700;text-decoration:none;font-size:.88rem}
+  a:hover{opacity:.85}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="code">{{ code }}</div>
+  <div class="msg">{{ msg }}</div>
+  <div class="sub">
+    {% if code == 404 %}你要找的頁面不存在，可能已被移除或網址輸入錯誤
+    {% else %}伺服器發生了一些問題，請稍後再試
+    {% endif %}
+  </div>
+  <a href="/">← 回到主頁</a>
+</div>
+</body>
+</html>

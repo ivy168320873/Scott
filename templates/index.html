@@ -2087,6 +2087,52 @@ tbody td{padding:9px 10px}
 
 <script>
 // ══════════════════════════════════════════════════════
+// 0. Cross-device localStorage sync (server-backed)
+// ══════════════════════════════════════════════════════
+const _SYNC_KEYS = [
+  'portfolio_v1', 'alertSettings_v1', 'customScanList',
+  'signalHistory_v2', 'radarWatchlist', 'radarActive'
+];
+let _syncDebounce = {};
+
+async function _syncToServer(key, raw) {
+  if (!_SYNC_KEYS.includes(key)) return;
+  clearTimeout(_syncDebounce[key]);
+  _syncDebounce[key] = setTimeout(async () => {
+    try {
+      let val;
+      try { val = JSON.parse(raw); } catch { val = raw; }
+      await fetch('/api/user/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: val })
+      });
+    } catch {}
+  }, 800);  // debounce 800ms to avoid flood
+}
+
+async function _syncFromServer() {
+  try {
+    const r = await fetch('/api/user/data');
+    const j = await r.json();
+    if (!j.ok || !j.data) return;
+    _SYNC_KEYS.forEach(k => {
+      if (j.data[k] !== undefined) {
+        const v = j.data[k];
+        try { _origLSSet(k, typeof v === 'string' ? v : JSON.stringify(v)); } catch {}
+      }
+    });
+  } catch {}
+}
+
+// Patch localStorage to auto-sync writes to server
+const _origLSSet = localStorage.setItem.bind(localStorage);
+localStorage.setItem = function(key, value) {
+  _origLSSet(key, value);
+  _syncToServer(key, value);
+};
+
+// ══════════════════════════════════════════════════════
 // 1. Technical Indicator Calculations (pure JS)
 // ══════════════════════════════════════════════════════
 
@@ -4422,6 +4468,7 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
   document.getElementById('ar-cards').style.display = 'block';
   saveSignalSnapshot(scored);
   renderSignalHistory();
+  _checkAndSendAlerts(scored).catch(() => {});
 }
 
 // ══════════════════════════════════════════════════════
@@ -7405,6 +7452,13 @@ window.addEventListener('DOMContentLoaded', () => {
     fetchMacroNews();
     setInterval(() => fetchMacroNews(true), 10 * 60 * 1000);
   }, 4000);
+
+  // Sync localStorage from server (cross-device), then start AR
+  _syncFromServer().finally(() => {
+    // Re-render watchlist after server sync in case data updated
+    renderWatchlist();
+    renderCustomScanTags();
+  });
 
   // Auto recommend: start after initial NVDA load settles
   setTimeout(() => {

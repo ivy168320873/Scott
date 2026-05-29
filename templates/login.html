@@ -8,28 +8,22 @@
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
     --bg:#0d1117;--surface:#161b22;--border:#30363d;
-    --text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;--bear:#f85149;
+    --text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;--bear:#f85149;--warn:#e3b341;
   }
   body{
     background:var(--bg);color:var(--text);
     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    min-height:100vh;display:flex;align-items:center;justify-content:center;
-    padding:20px;
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
   }
   .card{
     background:var(--surface);border:1px solid var(--border);border-radius:16px;
-    padding:40px 36px;width:100%;max-width:380px;
-    box-shadow:0 8px 32px rgba(0,0,0,.4);
+    padding:40px 36px;width:100%;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.4);
   }
-  .logo{
-    text-align:center;margin-bottom:28px;
-  }
+  .logo{text-align:center;margin-bottom:28px}
   .logo-icon{font-size:2.4rem;display:block;margin-bottom:8px}
   .logo-title{font-size:1.35rem;font-weight:700;letter-spacing:.02em}
   .logo-sub{font-size:.75rem;color:var(--muted);margin-top:4px}
-  label{
-    display:block;font-size:.75rem;color:var(--muted);margin-bottom:6px;
-  }
+  label{display:block;font-size:.75rem;color:var(--muted);margin-bottom:6px}
   input[type="password"]{
     width:100%;padding:11px 14px;font-size:.92rem;
     background:var(--bg);border:1px solid var(--border);border-radius:9px;
@@ -37,21 +31,30 @@
     font-family:inherit;letter-spacing:.08em;
   }
   input[type="password"]:focus{border-color:var(--accent)}
+  input[type="password"]:disabled{opacity:.5;cursor:not-allowed}
   .btn{
     width:100%;margin-top:18px;padding:12px;
     background:var(--accent);border:none;border-radius:9px;
-    color:#000;font-size:.9rem;font-weight:700;cursor:pointer;
-    transition:opacity .15s;
+    color:#000;font-size:.9rem;font-weight:700;cursor:pointer;transition:opacity .15s;
   }
-  .btn:hover{opacity:.88}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn:not(:disabled):hover{opacity:.88}
   .error{
     margin-top:14px;padding:10px 14px;
     background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.35);
-    border-radius:8px;color:var(--bear);font-size:.8rem;text-align:center;
+    border-radius:8px;color:var(--bear);font-size:.8rem;text-align:center;line-height:1.6;
   }
-  .hint{
-    margin-top:20px;font-size:.68rem;color:var(--muted);text-align:center;line-height:1.6;
+  .locked{
+    margin-top:14px;padding:14px;
+    background:rgba(227,179,65,.1);border:1px solid rgba(227,179,65,.4);
+    border-radius:8px;color:var(--warn);font-size:.82rem;text-align:center;
   }
+  .countdown{font-size:1.4rem;font-weight:700;display:block;margin-top:6px}
+  .hint{margin-top:20px;font-size:.68rem;color:var(--muted);text-align:center;line-height:1.6}
+  .attempts-bar{
+    height:3px;border-radius:2px;background:var(--border);margin-top:14px;overflow:hidden;
+  }
+  .attempts-fill{height:100%;border-radius:2px;transition:width .3s,background .3s}
 </style>
 </head>
 <body>
@@ -61,6 +64,25 @@
     <div class="logo-title">Scott</div>
     <div class="logo-sub">量化交易分析系統</div>
   </div>
+
+  {% if locked_secs and locked_secs > 0 %}
+  <div class="locked">
+    🔒 登入已暫時鎖定
+    <span class="countdown" id="countdown"></span>
+    後可再試
+  </div>
+  <script>
+    let secs = {{ locked_secs }};
+    const el = document.getElementById('countdown');
+    function tick() {
+      const m = Math.floor(secs/60), s = secs%60;
+      el.textContent = m > 0 ? `${m} 分 ${s} 秒` : `${s} 秒`;
+      if (secs-- > 0) setTimeout(tick, 1000);
+      else location.reload();
+    }
+    tick();
+  </script>
+  {% else %}
   <form method="POST">
     <label for="code">🔑 請輸入認識碼</label>
     <input id="code" name="code" type="password" placeholder="••••••••"
@@ -70,7 +92,9 @@
   {% if error %}
   <div class="error">{{ error }}</div>
   {% endif %}
-  <div class="hint">此系統僅供授權裝置使用<br>如需重設認識碼請聯絡管理員</div>
+  {% endif %}
+
+  <div class="hint">此系統僅供授權裝置使用<br>連續輸入錯誤 5 次將鎖定 15 分鐘</div>
 </div>
 </body>
 </html>
