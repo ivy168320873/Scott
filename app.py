@@ -758,6 +758,18 @@ def api_translate_news():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/trump-picks")
+def api_trump_picks():
+    """Fetch Trump's Truth Social posts and extract stock signals."""
+    try:
+        import trump as _trump
+        result = _trump.fetch_and_analyze()
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/deep-news/<symbol>")
 def api_deep_news(symbol):
     """Deep news search for a symbol using Claude web search (requires API key)."""
