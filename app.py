@@ -1324,7 +1324,7 @@ def api_catalyst(symbol):
         return jsonify({"ok": True, "symbol": symbol, "data": None, "raw": raw})
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": _claude_error_msg(e)}), 500
 
 
 @app.route("/api/deep-news/<symbol>")
@@ -1360,6 +1360,20 @@ def api_deep_news(symbol):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# ── Shared Claude error mapper ────────────────────────────────────────────────
+
+def _claude_error_msg(e: Exception) -> str:
+    err = str(e)
+    if "credit balance is too low" in err or "credit_balance" in err:
+        return "⚠️ Anthropic API 額度不足，請至 console.anthropic.com → Billing 儲值後再試"
+    if "invalid_api_key" in err or "authentication" in err.lower():
+        return "⚠️ API Key 無效，請確認 ANTHROPIC_API_KEY 設定正確"
+    if "overloaded" in err or "529" in err:
+        return "⚠️ Claude 伺服器目前過載，請稍後幾分鐘再試"
+    if "rate_limit" in err or "429" in err:
+        return "⚠️ 請求過於頻繁，請稍等 1 分鐘再試"
+    return "⚠️ AI 回應失敗，請稍後再試"
+
 # ── AI Chat endpoint ──────────────────────────────────────────────────────────
 
 @app.route("/api/chat", methods=["POST"])
@@ -1392,7 +1406,7 @@ def api_chat():
         return jsonify({"ok": True, "reply": reply})
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": _claude_error_msg(e)}), 500
 
 
 # ── Daily report endpoint ──────────────────────────────────────────────────────
@@ -1431,7 +1445,7 @@ def api_daily_report():
         return jsonify({"ok": True, "report": report, "generated_at": generated_at, "cached": False})
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": _claude_error_msg(e)}), 500
 
 
 # ── Alerts endpoint ────────────────────────────────────────────────────────────
