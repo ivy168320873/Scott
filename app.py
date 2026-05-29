@@ -28,16 +28,58 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get("RAILWAY_ENVIRONMENT") == "
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 _ACCESS_CODE = os.environ.get("ACCESS_CODE", "")   # set in Railway → empty = no auth required
+_LOGIN_LOG: list[dict] = []   # in-memory log (last 200 entries)
+_MAX_LOG = 200
 
 def _hash(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
+
+def _parse_ua(ua: str) -> str:
+    """Return human-readable device name from User-Agent string."""
+    ua = ua or ""
+    # OS
+    if "iPhone" in ua:     os_name = "iPhone"
+    elif "iPad" in ua:     os_name = "iPad"
+    elif "Android" in ua:  os_name = "Android"
+    elif "Windows" in ua:  os_name = "Windows"
+    elif "Macintosh" in ua or "Mac OS" in ua: os_name = "Mac"
+    elif "Linux" in ua:    os_name = "Linux"
+    else:                  os_name = "未知裝置"
+    # Browser
+    if "Edg/" in ua or "Edge/" in ua:   browser = "Edge"
+    elif "OPR/" in ua or "Opera" in ua: browser = "Opera"
+    elif "Chrome/" in ua:               browser = "Chrome"
+    elif "Firefox/" in ua:              browser = "Firefox"
+    elif "Safari/" in ua:               browser = "Safari"
+    else:                               browser = "瀏覽器"
+    return f"{os_name} / {browser}"
+
+def _get_ip() -> str:
+    """Get real IP, respecting Railway's reverse proxy headers."""
+    return (request.headers.get("X-Forwarded-For") or
+            request.headers.get("X-Real-IP") or
+            request.remote_addr or "unknown").split(",")[0].strip()
+
+def _append_log(ip: str, device: str, success: bool, note: str = ""):
+    global _LOGIN_LOG
+    entry = {
+        "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "ip": ip,
+        "device": device,
+        "success": success,
+        "note": note,
+    }
+    _LOGIN_LOG.insert(0, entry)
+    _LOGIN_LOG = _LOGIN_LOG[:_MAX_LOG]
+    status = "✅ 成功" if success else "❌ 失敗"
+    print(f"[LOGIN] {status} | IP:{ip} | {device} | {note}", flush=True)
 
 @app.before_request
 def _require_auth():
     """Block every request unless the session is authenticated or ACCESS_CODE is unset."""
     if not _ACCESS_CODE:
         return  # auth disabled
-    if request.endpoint in ("login", "logout", "static"):
+    if request.endpoint in ("login", "logout", "admin_logins", "static"):
         return
     if session.get("auth") == _hash(_ACCESS_CODE):
         return
@@ -51,17 +93,34 @@ def login():
     error = None
     if request.method == "POST":
         code = (request.form.get("code") or "").strip()
+        ip = _get_ip()
+        device = _parse_ua(request.headers.get("User-Agent", ""))
         if _ACCESS_CODE and _hash(code) == _hash(_ACCESS_CODE):
             session.permanent = True
             session["auth"] = _hash(_ACCESS_CODE)
+            _append_log(ip, device, True, "登入成功")
             return redirect(request.args.get("next") or "/")
-        error = "認識碼錯誤，請重試"
+        else:
+            _append_log(ip, device, False, "認識碼錯誤")
+            error = "認識碼錯誤，請重試"
     return render_template("login.html", error=error)
 
 @app.route("/logout")
 def logout():
+    ip = _get_ip()
+    device = _parse_ua(request.headers.get("User-Agent", ""))
+    _append_log(ip, device, True, "登出")
     session.clear()
     return redirect(url_for("login"))
+
+@app.route("/admin/logins")
+def admin_logins():
+    """Login activity log — only accessible after authentication."""
+    return render_template("logins.html", logs=_LOGIN_LOG)
+
+@app.route("/api/admin/logins")
+def api_admin_logins():
+    return jsonify(ok=True, logs=_LOGIN_LOG)
 
 # Start background scheduler (only if SCHEDULER_ENABLE=true)
 _sched.start_scheduler()

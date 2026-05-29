@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scott · 登入紀錄</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--border:#30363d;
+    --text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;
+    --bull:#3fb950;--bear:#f85149;
+  }
+  body{background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    padding:24px 16px;max-width:860px;margin:0 auto}
+  .hdr{display:flex;align-items:center;justify-content:space-between;
+    flex-wrap:wrap;gap:12px;margin-bottom:24px}
+  .hdr h1{font-size:1.1rem;font-weight:700}
+  .hdr a{font-size:.78rem;color:var(--accent);text-decoration:none;
+    padding:5px 12px;border:1px solid var(--accent);border-radius:7px}
+  .hdr a:hover{background:rgba(88,166,255,.1)}
+  .stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    padding:12px 18px;flex:1;min-width:130px}
+  .stat-val{font-size:1.4rem;font-weight:700;margin-bottom:2px}
+  .stat-lbl{font-size:.68rem;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;background:var(--surface);
+    border:1px solid var(--border);border-radius:12px;overflow:hidden;font-size:.8rem}
+  thead tr{background:var(--surface2);color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
+  th,td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--border)}
+  tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:var(--surface2)}
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.68rem;font-weight:600}
+  .ok{background:rgba(63,185,80,.15);color:var(--bull);border:1px solid rgba(63,185,80,.3)}
+  .fail{background:rgba(248,81,73,.12);color:var(--bear);border:1px solid rgba(248,81,73,.3)}
+  .empty{color:var(--muted);font-size:.84rem;padding:32px;text-align:center}
+  .refresh{font-size:.7rem;color:var(--muted);margin-top:14px;text-align:right}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <h1>🔐 登入紀錄</h1>
+  <div style="display:flex;gap:8px">
+    <a href="javascript:location.reload()">🔄 重新整理</a>
+    <a href="/">← 回到主頁</a>
+    <a href="/logout">登出</a>
+  </div>
+</div>
+
+{% set total   = logs | length %}
+{% set success = logs | selectattr('success') | list | length %}
+{% set failed  = total - success %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-val">{{ total }}</div>
+    <div class="stat-lbl">總紀錄筆數</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val" style="color:var(--bull)">{{ success }}</div>
+    <div class="stat-lbl">成功登入</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val" style="color:var(--bear)">{{ failed }}</div>
+    <div class="stat-lbl">失敗嘗試</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val" style="font-size:1rem">{{ logs[0].time if logs else '—' }}</div>
+    <div class="stat-lbl">最後活動</div>
+  </div>
+</div>
+
+{% if logs %}
+<table>
+  <thead>
+    <tr>
+      <th>時間 (UTC)</th>
+      <th>IP 位址</th>
+      <th>裝置</th>
+      <th>狀態</th>
+      <th>備註</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for log in logs %}
+    <tr>
+      <td style="white-space:nowrap;color:var(--muted)">{{ log.time }}</td>
+      <td style="font-family:monospace;font-size:.75rem">{{ log.ip }}</td>
+      <td>{{ log.device }}</td>
+      <td>
+        {% if log.success and log.note != '登出' %}
+          <span class="badge ok">✅ 成功</span>
+        {% elif log.note == '登出' %}
+          <span class="badge" style="background:rgba(88,166,255,.1);color:var(--accent);border:1px solid rgba(88,166,255,.3)">↩ 登出</span>
+        {% else %}
+          <span class="badge fail">❌ 失敗</span>
+        {% endif %}
+      </td>
+      <td style="color:var(--muted)">{{ log.note }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<div class="refresh">⚠️ 紀錄儲存於記憶體，伺服器重啟後會清空。最多顯示 200 筆。</div>
+{% else %}
+<div class="empty">尚無登入紀錄<br><span style="font-size:.72rem">有人登入後會在這裡顯示</span></div>
+{% endif %}
+</body>
+</html>
