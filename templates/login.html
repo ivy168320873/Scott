@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scott · 認識碼驗證</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0d1117;--surface:#161b22;--border:#30363d;
+    --text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;--bear:#f85149;
+  }
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    padding:20px;
+  }
+  .card{
+    background:var(--surface);border:1px solid var(--border);border-radius:16px;
+    padding:40px 36px;width:100%;max-width:380px;
+    box-shadow:0 8px 32px rgba(0,0,0,.4);
+  }
+  .logo{
+    text-align:center;margin-bottom:28px;
+  }
+  .logo-icon{font-size:2.4rem;display:block;margin-bottom:8px}
+  .logo-title{font-size:1.35rem;font-weight:700;letter-spacing:.02em}
+  .logo-sub{font-size:.75rem;color:var(--muted);margin-top:4px}
+  label{
+    display:block;font-size:.75rem;color:var(--muted);margin-bottom:6px;
+  }
+  input[type="password"]{
+    width:100%;padding:11px 14px;font-size:.92rem;
+    background:var(--bg);border:1px solid var(--border);border-radius:9px;
+    color:var(--text);outline:none;transition:border-color .15s;
+    font-family:inherit;letter-spacing:.08em;
+  }
+  input[type="password"]:focus{border-color:var(--accent)}
+  .btn{
+    width:100%;margin-top:18px;padding:12px;
+    background:var(--accent);border:none;border-radius:9px;
+    color:#000;font-size:.9rem;font-weight:700;cursor:pointer;
+    transition:opacity .15s;
+  }
+  .btn:hover{opacity:.88}
+  .error{
+    margin-top:14px;padding:10px 14px;
+    background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.35);
+    border-radius:8px;color:var(--bear);font-size:.8rem;text-align:center;
+  }
+  .hint{
+    margin-top:20px;font-size:.68rem;color:var(--muted);text-align:center;line-height:1.6;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <span class="logo-icon">📈</span>
+    <div class="logo-title">Scott</div>
+    <div class="logo-sub">量化交易分析系統</div>
+  </div>
+  <form method="POST">
+    <label for="code">🔑 請輸入認識碼</label>
+    <input id="code" name="code" type="password" placeholder="••••••••"
+      autofocus autocomplete="current-password" required>
+    <button class="btn" type="submit">進入系統</button>
+  </form>
+  {% if error %}
+  <div class="error">{{ error }}</div>
+  {% endif %}
+  <div class="hint">此系統僅供授權裝置使用<br>如需重設認識碼請聯絡管理員</div>
+</div>
+</body>
+</html>

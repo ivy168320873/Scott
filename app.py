@@ -1,10 +1,10 @@
-from flask import Flask, render_template, jsonify, request, Response, make_response
+from flask import Flask, render_template, jsonify, request, Response, make_response, session, redirect, url_for
 import requests as _req
 import pandas as pd
 import numpy as np
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import time as _time
-import traceback, os, json
+import traceback, os, json, hashlib
 import smtplib
 import email.mime.multipart
 import email.mime.text
@@ -20,6 +20,48 @@ import scheduler as _sched
 import monitor as _mon
 
 app = Flask(__name__)
+
+# ── Session / Auth config ─────────────────────────────────────────────────────
+app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(24)
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("RAILWAY_ENVIRONMENT") == "production"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+
+_ACCESS_CODE = os.environ.get("ACCESS_CODE", "")   # set in Railway → empty = no auth required
+
+def _hash(code: str) -> str:
+    return hashlib.sha256(code.encode()).hexdigest()
+
+@app.before_request
+def _require_auth():
+    """Block every request unless the session is authenticated or ACCESS_CODE is unset."""
+    if not _ACCESS_CODE:
+        return  # auth disabled
+    if request.endpoint in ("login", "logout", "static"):
+        return
+    if session.get("auth") == _hash(_ACCESS_CODE):
+        return
+    # API calls return JSON 401 instead of redirect
+    if request.path.startswith("/api/"):
+        return jsonify(ok=False, error="Unauthorized"), 401
+    return redirect(url_for("login", next=request.path))
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        code = (request.form.get("code") or "").strip()
+        if _ACCESS_CODE and _hash(code) == _hash(_ACCESS_CODE):
+            session.permanent = True
+            session["auth"] = _hash(_ACCESS_CODE)
+            return redirect(request.args.get("next") or "/")
+        error = "認識碼錯誤，請重試"
+    return render_template("login.html", error=error)
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 # Start background scheduler (only if SCHEDULER_ENABLE=true)
 _sched.start_scheduler()
