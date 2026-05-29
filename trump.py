@@ -92,34 +92,40 @@ def _fetch_via_claude_search(client, n: int = 10) -> dict:
 # ── Signal Extraction ─────────────────────────────────────────────────────────
 
 _EXTRACT_PROMPT = """\
-你是一位分析川普貼文對股市影響的專家。
-請分析以下川普 Truth Social 貼文（或相關報導），提取所有對股票有影響的訊號。
+你是一位專業的川普政策股市影響分析師，擅長解讀川普言論對個股的短中長期影響。
+請分析以下川普 Truth Social 貼文（或相關報導），提取所有對股票有影響的訊號並進行深度分析。
 
 貼文內容：
 {posts}
 
-請輸出 JSON 陣列（只輸出純 JSON，不要 markdown，不要說明）：
+請輸出 JSON 陣列（只輸出純 JSON，不要 markdown code block，不要任何說明文字）：
 [
   {{
-    "ticker":     "股票代碼（如 TSLA）或 null",
-    "company":    "公司名稱（繁體中文）",
-    "sector":     "產業：科技/能源/國防/金融/製藥/汽車/鋼鐵/電商/其他",
-    "sentiment":  "bullish / bearish / neutral",
-    "signal":     "endorsement / tariff_threat / policy_benefit / deal / sanction / warning / mention",
-    "context":    "貼文重點（繁體中文，40字以內）",
-    "confidence": 1到10的整數
+    "ticker":        "股票代碼（如 TSLA）或 null",
+    "company":       "公司名稱（繁體中文）",
+    "sector":        "產業：科技/能源/國防/金融/製藥/汽車/鋼鐵/電商/其他",
+    "sentiment":     "bullish / bearish / neutral",
+    "signal":        "endorsement / tariff_threat / policy_benefit / deal / sanction / warning / mention",
+    "context":       "貼文重點（繁體中文，40字以內）",
+    "confidence":    1到10的整數（此訊號可靠性）,
+    "price_up_prob": 0到100的整數（股價上漲機率 %，bullish=60-90，bearish=10-40，neutral=45-55）,
+    "reasoning":     "為何此訊號影響股價的分析（繁體中文，60字以內，包含邏輯鏈：川普此言論→政策效果→產業影響→股價方向）",
+    "time_horizon":  "短期（1週）/ 中期（1個月）/ 長期（3個月+）",
+    "history_note":  "歷史上類似川普訊號的市場反應（繁體中文，30字以內，例如：2018年鋼鐵關稅後X鋼鐵股漲20%）"
   }}
 ]
 
-規則：
-- 只列出明確提及的公司或產業，不要猜測
-- tariff_threat = 加關稅威脅（空頭信號）
-- policy_benefit = 政策利多（多頭信號，如 LNG 出口、製造業回流）
-- endorsement = 川普明確背書或稱讚
-- deal = 提到商業協議或投資
-- warning = 負面點名（如 boycott、fake）
-- mention = 中性提及
+分析規則：
+- 只列出明確提及的公司、股票或受影響產業，不要憑空猜測
+- tariff_threat = 加關稅威脅 → bearish，price_up_prob 15-35
+- policy_benefit = 能源出口許可/製造業回流/減稅 → bullish，price_up_prob 60-80
+- endorsement = 川普明確稱讚或背書 → bullish，price_up_prob 65-85
+- deal = 商業協議/投資協議 → bullish，price_up_prob 60-75
+- sanction = 制裁/黑名單 → bearish，price_up_prob 5-25
+- warning = 負面點名（boycott/fake/bad）→ bearish，price_up_prob 10-30
+- mention = 中性提及 → neutral，price_up_prob 48-55
 - 如果完全沒有明確公司/股票，回傳空陣列 []
+- history_note 若無相關歷史資料，填「歷史案例待查」
 """
 
 
@@ -133,7 +139,7 @@ def _extract_signals(posts: list, client) -> list:
     try:
         resp = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=1800,
+            max_tokens=2500,
             messages=[{"role": "user", "content": _EXTRACT_PROMPT.format(posts=combined)}],
         )
         raw = resp.content[0].text if resp.content else "[]"

@@ -3711,22 +3711,44 @@ function renderTrumpPanel(data) {
   const cardsHtml = signals.map(s => {
     const cfg  = sentCfg[s.sentiment] || sentCfg.neutral;
     const slbl = signalLabel[s.signal] || s.signal || '提及';
+    const prob = typeof s.price_up_prob === 'number' ? s.price_up_prob : (s.sentiment === 'bullish' ? 70 : s.sentiment === 'bearish' ? 25 : 50);
+    const probColor = prob >= 60 ? 'var(--bull)' : prob <= 40 ? 'var(--bear)' : 'var(--neutral)';
     const conf = s.confidence >= 7 ? '🔥高' : s.confidence >= 4 ? '●中' : '○低';
+    const horizonColor = s.time_horizon?.includes('短期') ? '#58a6ff' : s.time_horizon?.includes('中期') ? '#e3b341' : '#8b949e';
     const tickerLink = s.ticker
-      ? `<span style="cursor:pointer;font-weight:800;color:${cfg.color};font-size:.88rem;text-decoration:underline"
-           onclick="qs('${s.ticker}');switchTab('analysis')" title="點擊查詢">${s.ticker}</span>`
+      ? `<span style="cursor:pointer;font-weight:800;color:${cfg.color};font-size:.9rem;text-decoration:underline"
+           onclick="qs('${s.ticker}');switchTab('analysis')" title="點擊查詢此股">↗ ${s.ticker}</span>`
       : '';
     return `
-      <div style="background:${cfg.bg};border:1px solid ${cfg.color}33;border-radius:9px;padding:9px 12px;margin-bottom:6px">
-        <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;flex-wrap:wrap">
+      <div style="background:${cfg.bg};border:1px solid ${cfg.color}33;border-radius:10px;padding:11px 13px;margin-bottom:8px">
+        <!-- Header row -->
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;flex-wrap:wrap">
           <span style="font-size:1rem">${cfg.icon}</span>
           ${tickerLink}
-          <span style="font-size:.82rem;font-weight:700;color:var(--text)">${s.company || ''}</span>
-          <span style="font-size:.68rem;color:${cfg.color};background:${cfg.bg};padding:1px 7px;border-radius:8px;border:1px solid ${cfg.color}55">${slbl}</span>
-          <span style="font-size:.66rem;color:var(--muted);margin-left:auto">${conf} 信心度 ${s.confidence}/10</span>
+          <span style="font-size:.84rem;font-weight:700;color:var(--text)">${s.company || ''}</span>
+          <span style="font-size:.68rem;color:${cfg.color};padding:1px 7px;border-radius:8px;border:1px solid ${cfg.color}55">${slbl}</span>
+          ${s.time_horizon ? `<span style="font-size:.65rem;color:${horizonColor};padding:1px 6px;border-radius:8px;border:1px solid ${horizonColor}44">${s.time_horizon}</span>` : ''}
+          <span style="font-size:.65rem;color:var(--muted);margin-left:auto">${conf} ${s.confidence}/10</span>
         </div>
-        <div style="font-size:.77rem;color:var(--text);line-height:1.5">${s.context || ''}</div>
-        <div style="font-size:.67rem;color:var(--muted);margin-top:3px">🏭 ${s.sector || '未知產業'}</div>
+        <!-- Context summary -->
+        <div style="font-size:.78rem;color:var(--text);line-height:1.55;margin-bottom:7px">${s.context || ''}</div>
+        <!-- Probability bar -->
+        <div style="margin-bottom:5px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+            <span style="font-size:.67rem;color:var(--muted)">股價上漲機率</span>
+            <span style="font-size:.76rem;font-weight:700;color:${probColor}">${prob}%</span>
+          </div>
+          <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${prob}%;background:${probColor};border-radius:3px;transition:width .4s"></div>
+          </div>
+        </div>
+        <!-- Reasoning -->
+        ${s.reasoning ? `<div style="font-size:.73rem;color:var(--muted);line-height:1.55;margin-bottom:4px;padding:5px 8px;background:var(--surface2);border-radius:6px;border-left:2px solid ${cfg.color}66">💡 ${s.reasoning}</div>` : ''}
+        <!-- History note + sector -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+          <span style="font-size:.65rem;color:var(--muted)">🏭 ${s.sector || '未知產業'}</span>
+          ${s.history_note && s.history_note !== '歷史案例待查' ? `<span style="font-size:.65rem;color:var(--neutral)">📜 ${s.history_note}</span>` : ''}
+        </div>
       </div>`;
   }).join('');
 
