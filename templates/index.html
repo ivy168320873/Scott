@@ -934,6 +934,13 @@ tbody td{padding:9px 10px}
         </div>
         <div id="ar-sentiment" style="margin-top:10px"></div>
       </div>
+      <!-- Historical Signal Tracking -->
+      <div style="margin-top:20px">
+        <div class="ar-sec-lbl" style="cursor:pointer" onclick="toggleSection('ar-history','ar-hist-ti')">
+          📅 歷史訊號追蹤 <span id="ar-hist-ti" style="font-size:.75rem">▾</span>
+        </div>
+        <div id="ar-history" style="margin-top:8px"></div>
+      </div>
     </div>
   </div>
 
@@ -4248,6 +4255,8 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
   document.getElementById('ar-status').textContent = '已完成';
   document.getElementById('ar-status').className = 'ar-status ready';
   document.getElementById('ar-cards').style.display = 'block';
+  saveSignalSnapshot(scored);
+  renderSignalHistory();
 }
 
 // ══════════════════════════════════════════════════════
