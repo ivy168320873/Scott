@@ -942,6 +942,19 @@ tbody td{padding:9px 10px}
         </div>
         <div id="ar-history" style="margin-top:8px"></div>
       </div>
+      <!-- Daily Market Report -->
+      <div style="margin-top:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div class="ar-sec-lbl" style="margin:0">📰 每日市場報告</div>
+          <button id="daily-report-btn" onclick="loadDailyReport()"
+            style="font-size:.72rem;padding:4px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer">
+            📰 生成今日報告
+          </button>
+        </div>
+        <div id="daily-report-content"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;min-height:40px;
+                 font-size:.75rem;color:var(--muted)">點擊「生成今日報告」以獲取 AI 分析的每日市場摘要</div>
+      </div>
     </div>
   </div>
 
@@ -1921,6 +1934,13 @@ tbody td{padding:9px 10px}
 
 </div>
 
+<!-- ── Chat FAB ── -->
+<button id="chat-fab" onclick="openChat()"
+  style="position:fixed;bottom:80px;right:20px;z-index:1000;width:52px;height:52px;border-radius:50%;border:none;
+         background:var(--surface2);color:var(--text);font-size:1.3rem;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.45);
+         display:flex;align-items:center;justify-content:center;transition:opacity .15s;border:1px solid var(--border)"
+  title="AI 問答" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">💬</button>
+
 <!-- ── Portfolio FAB ── -->
 <button id="portfolio-fab" onclick="openPortfolio()"
   style="position:fixed;bottom:20px;right:20px;z-index:1000;width:52px;height:52px;border-radius:50%;border:none;
@@ -2016,6 +2036,43 @@ tbody td{padding:9px 10px}
       <button onclick="saveAlertSettings()" style="flex:1;padding:8px;background:var(--accent);border:none;border-radius:7px;color:#000;font-weight:600;font-size:.82rem;cursor:pointer">儲存</button>
       <button onclick="testAlerts()" style="flex:1;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.82rem;cursor:pointer">立即測試</button>
       <button onclick="closeAlertModal()" style="padding:8px 14px;background:none;border:1px solid var(--border);border-radius:7px;color:var(--muted);font-size:.82rem;cursor:pointer">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── AI Chat Modal ── -->
+<div id="chat-modal"
+  style="display:none;position:fixed;inset:0;z-index:3500;background:rgba(0,0,0,.55);align-items:flex-end;justify-content:flex-end;padding:20px">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:400px;
+              height:520px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5)">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:1rem">🤖</span>
+        <span style="font-size:.9rem;font-weight:600;color:var(--text)">Scott AI 問答</span>
+        <span style="font-size:.65rem;color:var(--muted);background:var(--surface2);padding:1px 6px;border-radius:8px">Haiku</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="clearChat()" style="font-size:.65rem;padding:3px 8px;background:none;border:1px solid var(--border);border-radius:5px;color:var(--muted);cursor:pointer">清除</button>
+        <button onclick="closeChat()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.15rem;line-height:1">✕</button>
+      </div>
+    </div>
+    <!-- Messages -->
+    <div id="chat-messages"
+      style="flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="text-align:center;color:var(--muted);font-size:.72rem;padding:20px 0">
+        可問股票分析、策略、指標解讀…<br>目前分析的股票會自動帶入背景
+      </div>
+    </div>
+    <!-- Input -->
+    <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-shrink:0">
+      <textarea id="chat-input" placeholder="輸入問題… (Ctrl+Enter 送出)"
+        rows="2"
+        style="flex:1;resize:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+               color:var(--text);font-size:.78rem;padding:8px 10px;outline:none;line-height:1.5;font-family:inherit"
+        onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();sendChatMessage();}"></textarea>
+      <button onclick="sendChatMessage()"
+        style="padding:7px 14px;background:var(--accent);border:none;border-radius:8px;color:#000;font-size:.78rem;font-weight:600;cursor:pointer;white-space:nowrap">送出</button>
     </div>
   </div>
 </div>
@@ -5170,6 +5227,275 @@ function _renderCatalystBody(d) {
       </div>
     </div>
     <div style="margin-top:6px;font-size:.63rem;color:${hClr}">⏱ 題材發酵：${horizon || '未知'}</div>`;
+}
+
+// ══════════════════════════════════════════════════════
+// 歷史訊號追蹤
+// ══════════════════════════════════════════════════════
+function saveSignalSnapshot(scored) {
+  try {
+    const key = 'signalHistory_v2', today = new Date().toLocaleDateString('zh-TW');
+    let history = JSON.parse(localStorage.getItem(key) || '[]');
+    if (history.length && history[0].date === today) return;
+    const optimal4d = scored.filter(d => {
+      const sm = d.indicators?.smartMoney ?? 0, bp = d.indicators?.bearPressure ?? 0;
+      const cr = d.indicators?.chaseRisk  ?? 0, rs = d.indicators?.resonance    ?? 0;
+      return sm > 60 && bp < 30 && cr < 50 && rs >= 60;
+    }).map(d => ({ symbol: d.symbol, price: d.price, score: Math.round(d.score) }));
+    const tenX = scored.map(d => ({ ...d, _tx: calc10xScore(d) }))
+      .filter(d => d._tx.score >= 58 && d.price >= 1)
+      .sort((a, b) => b._tx.score - a._tx.score).slice(0, 8)
+      .map(d => ({ symbol: d.symbol, price: d.price, txScore: d._tx.score }));
+    history.unshift({ date: today, ts: Date.now(), optimal4d, tenX });
+    localStorage.setItem(key, JSON.stringify(history.slice(0, 30)));
+  } catch(e) {}
+}
+
+function renderSignalHistory() {
+  const el = document.getElementById('ar-history');
+  if (!el) return;
+  let history = [];
+  try { history = JSON.parse(localStorage.getItem('signalHistory_v2') || '[]'); } catch(e) {}
+  if (!history.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:6px 0">每次掃描後自動記錄，可在此追蹤歷史訊號後續漲跌。</div>';
+    return;
+  }
+  const priceOf = sym => _allAutoRecScored?.find(d => d.symbol === sym)?.price ?? null;
+  el.innerHTML = history.slice(0, 14).map(snap => {
+    const d4 = (snap.optimal4d || []).map(s => {
+      const cur = priceOf(s.symbol);
+      const chg = cur ? ((cur / s.price - 1) * 100).toFixed(1) : null;
+      const clr = chg > 0 ? 'var(--bull)' : chg < 0 ? 'var(--bear)' : 'var(--muted)';
+      return `<span style="margin-right:6px;font-size:.7rem">${s.symbol}<span style="color:${clr};margin-left:2px">${chg != null ? (chg > 0 ? '+' : '') + chg + '%' : ''}</span></span>`;
+    }).join('') || '<span style="color:var(--muted);font-size:.7rem">—</span>';
+    const tx = (snap.tenX || []).slice(0, 5).map(s => {
+      const cur = priceOf(s.symbol);
+      const chg = cur ? ((cur / s.price - 1) * 100).toFixed(1) : null;
+      const clr = chg > 0 ? 'var(--bull)' : chg < 0 ? 'var(--bear)' : 'var(--muted)';
+      return `<span style="margin-right:6px;font-size:.7rem">${s.symbol}<span style="color:${clr};margin-left:2px">${chg != null ? (chg > 0 ? '+' : '') + chg + '%' : ''}</span></span>`;
+    }).join('') || '<span style="color:var(--muted);font-size:.7rem">—</span>';
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px">
+      <div style="font-size:.64rem;color:var(--muted);margin-bottom:4px">${snap.date}</div>
+      <div style="margin-bottom:3px"><span style="font-size:.62rem;color:var(--bull);font-weight:700;margin-right:6px">🎯 四維度</span>${d4}</div>
+      <div><span style="font-size:.62rem;color:#ff6b35;font-weight:700;margin-right:6px">🚀 十倍股</span>${tx}</div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// 投資組合 / 交易日誌
+// ══════════════════════════════════════════════════════
+const PORTFOLIO_KEY = 'portfolio_v1';
+function _pLoad() { try { return JSON.parse(localStorage.getItem(PORTFOLIO_KEY) || '[]'); } catch(e) { return []; } }
+function _pSave(d) { try { localStorage.setItem(PORTFOLIO_KEY, JSON.stringify(d)); } catch(e) {} }
+function openPortfolio() { document.getElementById('portfolio-modal').style.display='flex'; renderPortfolio(); }
+function closePortfolio() { document.getElementById('portfolio-modal').style.display='none'; }
+
+function addPosition() {
+  const sym = (document.getElementById('pf-sym').value||'').toUpperCase().trim();
+  const shares = parseFloat(document.getElementById('pf-shares').value||0);
+  const price  = parseFloat(document.getElementById('pf-price').value||0);
+  const date   = document.getElementById('pf-date').value || new Date().toISOString().slice(0,10);
+  const note   = (document.getElementById('pf-note').value||'').trim();
+  if (!sym||!shares||!price) { alert('請填寫股票代碼、股數、買入價'); return; }
+  const data = _pLoad();
+  data.unshift({ id: Date.now().toString(36), symbol: sym, shares, buyPrice: price, buyDate: date, note, status: 'open' });
+  _pSave(data);
+  ['pf-sym','pf-shares','pf-price','pf-note'].forEach(id => { document.getElementById(id).value = ''; });
+  renderPortfolio();
+}
+function closePosition(id) {
+  const sp = prompt('請輸入賣出價格：'); if (!sp) return;
+  const sellPrice = parseFloat(sp); if (isNaN(sellPrice)||sellPrice<=0) { alert('無效價格'); return; }
+  _pSave(_pLoad().map(p => p.id===id ? { ...p, status:'closed', sellPrice, sellDate: new Date().toISOString().slice(0,10) } : p));
+  renderPortfolio();
+}
+function deletePosition(id) {
+  if (!confirm('確定刪除？')) return;
+  _pSave(_pLoad().filter(p => p.id!==id)); renderPortfolio();
+}
+function renderPortfolio() {
+  const el = document.getElementById('pf-body'); if (!el) return;
+  const data = _pLoad(), open = data.filter(p=>p.status==='open'), closed = data.filter(p=>p.status==='closed');
+  const curP = sym => _allAutoRecScored?.find(d=>d.symbol===sym)?.price ?? null;
+  let totalPnL = 0, totalCost = 0;
+  const openRows = open.map(p => {
+    const cur = curP(p.symbol), cost = p.shares*p.buyPrice;
+    const pnlAmt = cur ? (cur-p.buyPrice)*p.shares : null;
+    const pnlPct = cur ? ((cur/p.buyPrice-1)*100).toFixed(1) : null;
+    if (pnlAmt!=null) { totalPnL+=pnlAmt; totalCost+=cost; }
+    const clr = pnlPct>0?'var(--bull)':pnlPct<0?'var(--bear)':'var(--muted)';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px 8px;font-weight:700;color:var(--bull)">${p.symbol}</td>
+      <td style="padding:6px 8px;text-align:right">${p.shares}</td>
+      <td style="padding:6px 8px;text-align:right">${fmt(p.buyPrice)}</td>
+      <td style="padding:6px 8px;text-align:right">${cur?fmt(cur):'—'}</td>
+      <td style="padding:6px 8px;text-align:right;color:${clr}">${pnlPct!=null?(pnlPct>0?'+':'')+pnlPct+'%':'—'}</td>
+      <td style="padding:5px 4px;text-align:right;white-space:nowrap">
+        <button onclick="closePosition('${p.id}')" style="font-size:.6rem;padding:2px 6px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;margin-right:3px">賣出</button>
+        <button onclick="deletePosition('${p.id}')" style="font-size:.6rem;padding:2px 6px;background:none;border:1px solid rgba(248,81,73,.4);border-radius:4px;color:var(--bear);cursor:pointer">刪</button>
+      </td></tr>`;
+  }).join('');
+  const closedRows = closed.slice(0,10).map(p => {
+    const rp=((p.sellPrice/p.buyPrice-1)*100).toFixed(1), ra=(p.sellPrice-p.buyPrice)*p.shares;
+    const clr = ra>0?'var(--bull)':'var(--bear)';
+    return `<tr style="border-bottom:1px solid var(--border);opacity:.7">
+      <td style="padding:5px 8px;font-weight:700">${p.symbol}</td>
+      <td style="padding:5px 8px;text-align:right">${fmt(p.buyPrice)} → ${fmt(p.sellPrice)}</td>
+      <td style="padding:5px 8px;text-align:right;color:${clr}">${ra>0?'+':''}${rp}%</td>
+      <td style="padding:5px 8px;text-align:right;color:${clr}">${ra>0?'+':''}$${Math.abs(ra).toFixed(0)}</td>
+      <td style="padding:5px 8px;font-size:.65rem;color:var(--muted)">${p.sellDate||''}</td>
+      <td><button onclick="deletePosition('${p.id}')" style="font-size:.6rem;padding:2px 5px;background:none;border:1px solid rgba(248,81,73,.4);border-radius:4px;color:var(--bear);cursor:pointer">刪</button></td>
+    </tr>`;
+  }).join('');
+  const tp = totalCost>0?((totalPnL/totalCost)*100).toFixed(1):0, sc = totalPnL>=0?'var(--bull)':'var(--bear)';
+  el.innerHTML = (totalCost>0?`<div style="display:flex;gap:16px;padding:10px 12px;background:var(--surface2);border-radius:8px;margin-bottom:12px">
+    <div><div style="font-size:1.2rem;font-weight:900;color:${sc}">${totalPnL>=0?'+':''}$${Math.abs(totalPnL).toFixed(0)}</div><div style="font-size:.62rem;color:var(--muted)">持倉損益</div></div>
+    <div><div style="font-size:1.2rem;font-weight:900;color:${sc}">${totalPnL>=0?'+':''}${tp}%</div><div style="font-size:.62rem;color:var(--muted)">報酬率</div></div>
+    <div><div style="font-size:1.2rem;font-weight:900;color:var(--text)">${open.length}</div><div style="font-size:.62rem;color:var(--muted)">持倉股數</div></div>
+  </div>`:'')+(open.length?`<div style="font-size:.7rem;font-weight:700;margin-bottom:6px">📂 持倉中</div>
+  <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.72rem">
+    <thead><tr style="color:var(--muted);border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:4px 8px">股票</th><th style="text-align:right;padding:4px 8px">股數</th>
+      <th style="text-align:right;padding:4px 8px">買入</th><th style="text-align:right;padding:4px 8px">現價</th>
+      <th style="text-align:right;padding:4px 8px">損益</th><th></th>
+    </tr></thead><tbody>${openRows}</tbody></table></div>`:'<div style="color:var(--muted);font-size:.8rem;padding:8px 0">尚無持倉記錄</div>')
+  +(closed.length?`<div style="font-size:.7rem;font-weight:700;color:var(--muted);margin:12px 0 6px">📋 已平倉</div>
+  <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.72rem">
+    <thead><tr style="color:var(--muted);border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:4px 8px">股票</th><th style="text-align:right;padding:4px 8px">買入→賣出</th>
+      <th style="text-align:right;padding:4px 8px">報酬</th><th style="text-align:right;padding:4px 8px">損益</th>
+      <th style="padding:4px 8px">日期</th><th></th>
+    </tr></thead><tbody>${closedRows}</tbody></table></div>`:'');
+}
+
+// ══════════════════════════════════════════════════════
+// AI 聊天視窗
+// ══════════════════════════════════════════════════════
+let _chatHistory = [];
+function openChat()  { document.getElementById('chat-modal').style.display='flex'; document.getElementById('chat-input').focus(); }
+function closeChat() { document.getElementById('chat-modal').style.display='none'; }
+function clearChat() { _chatHistory=[]; _renderChatHistory(); }
+
+async function sendChatMessage() {
+  const inp = document.getElementById('chat-input');
+  const msg = (inp.value||'').trim(); if (!msg) return;
+  inp.value = '';
+  _chatHistory.push({ role:'user', text:msg });
+  _renderChatHistory();
+  const ctx = (typeof _lastSymbol!=='undefined' && _lastSymbol) ? _lastSymbol : '';
+  try {
+    const r = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message:msg, context:ctx }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error||'無法回應');
+    _chatHistory.push({ role:'assistant', text:j.reply });
+  } catch(e) {
+    _chatHistory.push({ role:'assistant', text:'❌ '+e.message, error:true });
+  }
+  _renderChatHistory();
+}
+
+function _renderChatHistory() {
+  const el = document.getElementById('chat-messages'); if (!el) return;
+  el.innerHTML = _chatHistory.map(m => {
+    const u = m.role==='user';
+    return `<div style="display:flex;justify-content:${u?'flex-end':'flex-start'};margin-bottom:10px">
+      <div style="max-width:82%;padding:9px 13px;border-radius:${u?'14px 14px 4px 14px':'14px 14px 14px 4px'};
+        background:${u?'rgba(88,166,255,.2)':'var(--surface2)'};border:1px solid ${u?'rgba(88,166,255,.3)':'var(--border)'};
+        font-size:.76rem;color:${m.error?'var(--bear)':'var(--text)'};line-height:1.6;white-space:pre-wrap">${m.text.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+    </div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+// ══════════════════════════════════════════════════════
+// 警報設定
+// ══════════════════════════════════════════════════════
+function openAlertSettings() { document.getElementById('alert-modal').style.display='flex'; loadAlertSettings(); }
+function closeAlertSettings() { document.getElementById('alert-modal').style.display='none'; }
+function loadAlertSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('alertSettings_v1')||'{}');
+    document.getElementById('alert-email').value      = s.email||'';
+    document.getElementById('alert-line-token').value = s.lineToken||'';
+    document.getElementById('alert-trig-4d').checked    = s.triggers?.optimal4d    ?? true;
+    document.getElementById('alert-trig-10x').checked   = s.triggers?.tenx         ?? true;
+    document.getElementById('alert-trig-daily').checked = s.triggers?.dailySummary ?? false;
+  } catch(e) {}
+}
+function saveAlertSettings() {
+  const s = { email:(document.getElementById('alert-email').value||'').trim(),
+    lineToken:(document.getElementById('alert-line-token').value||'').trim(),
+    triggers:{ optimal4d:document.getElementById('alert-trig-4d').checked,
+      tenx:document.getElementById('alert-trig-10x').checked,
+      dailySummary:document.getElementById('alert-trig-daily').checked } };
+  try { localStorage.setItem('alertSettings_v1',JSON.stringify(s)); } catch(e) {}
+  showToast('✅ 警報設定已儲存');
+}
+async function testAlerts() {
+  const s = JSON.parse(localStorage.getItem('alertSettings_v1')||'{}');
+  if (!s.email && !s.lineToken) { alert('請先填寫 Email 或 LINE Token'); return; }
+  const btn = document.getElementById('al-test-btn');
+  btn.disabled=true; btn.textContent='⏳ 發送中…';
+  try {
+    const r = await fetch('/api/alerts/send', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ signals:[{symbol:'TEST',note:'這是 Scott 警報測試訊息 ✅'}],
+        type:'both', email:s.email, lineToken:s.lineToken }) });
+    const j = await r.json();
+    if (j.sent?.length) showToast('✅ 已發送：'+j.sent.join(', '));
+    else showToast('❌ '+(j.errors?.[0]||'發送失敗'), 'warning');
+  } catch(e) { showToast('❌ '+e.message, 'warning'); }
+  finally { btn.disabled=false; btn.textContent='立即測試'; }
+}
+
+function showToast(msg, isError=false) {
+  let t = document.getElementById('scott-toast');
+  if (!t) { t=document.createElement('div'); t.id='scott-toast';
+    t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 20px;border-radius:8px;font-size:.8rem;font-weight:600;transition:opacity .3s';
+    document.body.appendChild(t); }
+  t.textContent=msg; t.style.background=isError?'rgba(248,81,73,.9)':'rgba(63,185,80,.9)';
+  t.style.color='#fff'; t.style.opacity='1';
+  clearTimeout(t._tid); t._tid=setTimeout(()=>{t.style.opacity='0';},3000);
+}
+
+// ══════════════════════════════════════════════════════
+// 每日市場報告
+// ══════════════════════════════════════════════════════
+async function loadDailyReport() {
+  const btn = document.getElementById('daily-report-btn'), el = document.getElementById('daily-report-content');
+  if (!el) return;
+  if (btn) { btn.disabled=true; btn.textContent='⏳ 生成中…'; }
+  el.innerHTML='<div style="color:var(--muted);font-size:.8rem;padding:8px">正在搜尋今日市場數據…</div>';
+  try {
+    const r = await fetch('/api/daily-report'), j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    el.innerHTML=`<div style="font-size:.75rem;line-height:1.75;white-space:pre-wrap;color:var(--text)">${j.report.replace(/</g,'&lt;')}</div>
+      <div style="font-size:.6rem;color:var(--muted);margin-top:8px">生成時間：${j.generated_at}${j.cached?' （快取）':''}</div>`;
+    if (btn) { btn.textContent='🔄 重新生成'; btn.disabled=false; }
+  } catch(e) {
+    el.innerHTML=`<div style="color:var(--bear);font-size:.8rem">❌ ${e.message}</div>`;
+    if (btn) { btn.disabled=false; btn.textContent='📰 每日報告'; }
+  }
+}
+
+async function _checkAndSendAlerts(scored) {
+  try {
+    const s = JSON.parse(localStorage.getItem('alertSettings_v1')||'{}');
+    if (!s.email && !s.lineToken) return;
+    const signals = [];
+    if (s.triggers?.optimal4d) scored.filter(d => {
+      const sm=d.indicators?.smartMoney??0, bp=d.indicators?.bearPressure??0;
+      const cr=d.indicators?.chaseRisk??0, rs=d.indicators?.resonance??0;
+      return sm>60&&bp<30&&cr<50&&rs>=60;
+    }).slice(0,5).forEach(d => signals.push({symbol:d.symbol, note:`四維度齊全 ${Math.round(d.score)}分`}));
+    if (s.triggers?.tenx) scored.map(d=>({...d,_tx:calc10xScore(d)}))
+      .filter(d=>d._tx.score>=72&&d.price>=1).slice(0,3)
+      .forEach(d=>signals.push({symbol:d.symbol, note:`十倍股候選 ${d._tx.score}分`}));
+    if (!signals.length) return;
+    await fetch('/api/alerts/send', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({signals, type:'both', email:s.email, lineToken:s.lineToken}) });
+  } catch(e) {}
 }
 
 // ══════════════════════════════════════════════════════
