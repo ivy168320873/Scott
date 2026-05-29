@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scott · 主控後台</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--border:#30363d;
+  --text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;
+  --bull:#3fb950;--bear:#f85149;--warn:#e3b341;
+}
+body{background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  min-height:100vh;padding-bottom:40px}
+
+/* ── Sidebar layout ── */
+.layout{display:flex;min-height:100vh}
+.sidebar{width:210px;min-height:100vh;background:var(--surface);
+  border-right:1px solid var(--border);padding:20px 0;flex-shrink:0;
+  position:sticky;top:0;height:100vh;overflow-y:auto}
+.main{flex:1;padding:28px 28px;overflow-x:hidden}
+
+/* Sidebar nav */
+.brand{padding:4px 20px 20px;display:flex;align-items:center;gap:9px;
+  border-bottom:1px solid var(--border);margin-bottom:12px}
+.brand-icon{font-size:1.4rem}
+.brand-title{font-size:.92rem;font-weight:700;color:var(--accent)}
+.brand-sub{font-size:.6rem;color:var(--muted)}
+
+.nav-section{font-size:.6rem;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.08em;padding:12px 20px 6px;font-weight:600}
+.nav-item{display:flex;align-items:center;gap:9px;padding:8px 20px;
+  font-size:.8rem;color:var(--muted);text-decoration:none;cursor:pointer;
+  transition:background .12s,color .12s}
+.nav-item:hover,.nav-item.active{background:var(--surface2);color:var(--text)}
+.nav-item .icon{width:16px;text-align:center;flex-shrink:0}
+
+/* ── Top bar ── */
+.topbar{display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:24px;flex-wrap:wrap;gap:12px}
+.topbar h1{font-size:1.15rem;font-weight:700}
+.topbar-actions{display:flex;gap:8px}
+
+/* ── Stat cards ── */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:28px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:16px 18px;transition:border-color .15s}
+.stat-card:hover{border-color:var(--accent)}
+.sc-val{font-size:1.55rem;font-weight:700;margin-bottom:4px}
+.sc-lbl{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.sc-sub{font-size:.65rem;color:var(--muted);margin-top:3px}
+
+/* ── Section cards ── */
+.section{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  margin-bottom:18px;overflow:hidden}
+.sec-hdr{display:flex;align-items:center;justify-content:space-between;
+  padding:14px 18px;border-bottom:1px solid var(--border);background:var(--surface2)}
+.sec-hdr h2{font-size:.88rem;font-weight:600}
+.sec-body{padding:16px 18px}
+
+/* ── Tables ── */
+table{width:100%;border-collapse:collapse;font-size:.78rem}
+th{color:var(--muted);font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;
+   padding:6px 10px;border-bottom:1px solid var(--border);font-weight:500}
+td{padding:9px 10px;border-bottom:1px solid rgba(48,54,61,.5)}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--surface2)}
+
+/* ── Badges & buttons ── */
+.badge{display:inline-block;padding:2px 8px;border-radius:8px;font-size:.66rem;font-weight:600}
+.badge-ok{background:rgba(63,185,80,.15);color:var(--bull);border:1px solid rgba(63,185,80,.3)}
+.badge-fail{background:rgba(248,81,73,.12);color:var(--bear);border:1px solid rgba(248,81,73,.3)}
+.badge-warn{background:rgba(227,179,65,.12);color:var(--warn);border:1px solid rgba(227,179,65,.3)}
+.badge-info{background:rgba(88,166,255,.1);color:var(--accent);border:1px solid rgba(88,166,255,.25)}
+.badge-off{background:var(--surface2);color:var(--muted);border:1px solid var(--border)}
+
+.btn{padding:7px 16px;border:none;border-radius:8px;font-size:.78rem;font-weight:600;cursor:pointer;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn-primary{background:var(--accent);color:#000}
+.btn-danger{background:rgba(248,81,73,.2);color:var(--bear);border:1px solid rgba(248,81,73,.35)}
+.btn-ghost{background:none;color:var(--muted);border:1px solid var(--border)}
+
+/* ── Env grid ── */
+.env-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.env-item{display:flex;align-items:center;justify-content:space-between;
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 13px;font-size:.78rem}
+.env-key{font-family:monospace;font-size:.74rem;color:var(--text)}
+.env-val-yes{color:var(--bull);font-weight:700;font-size:.7rem}
+.env-val-no {color:var(--bear);font-weight:700;font-size:.7rem}
+
+/* ── Health row ── */
+.health-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.health-item{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:10px 13px;font-size:.78rem}
+.hi-val{font-weight:700;margin-bottom:2px}
+.hi-lbl{font-size:.66rem;color:var(--muted)}
+
+/* ── Toast ── */
+#admin-toast{position:fixed;top:20px;right:20px;z-index:9999;padding:10px 18px;
+  border-radius:9px;font-size:.8rem;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none}
+
+@media(max-width:640px){
+  .layout{flex-direction:column}
+  .sidebar{width:100%;min-height:unset;height:auto;position:static;
+    display:flex;flex-wrap:wrap;padding:12px;gap:4px}
+  .nav-section{display:none}
+  .main{padding:16px}
+  .stat-grid{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+
+<div id="admin-toast"></div>
+
+<div class="layout">
+  <!-- ── Sidebar ── -->
+  <nav class="sidebar">
+    <div class="brand">
+      <span class="brand-icon">📈</span>
+      <div>
+        <div class="brand-title">Scott</div>
+        <div class="brand-sub">主控後台</div>
+      </div>
+    </div>
+
+    <div class="nav-section">導航</div>
+    <a class="nav-item active" href="/admin"><span class="icon">🏠</span>總覽</a>
+    <a class="nav-item" href="/admin/logins"><span class="icon">🔐</span>登入紀錄</a>
+    <a class="nav-item" href="/"><span class="icon">📊</span>回主系統</a>
+
+    <div class="nav-section">快捷操作</div>
+    <a class="nav-item" href="#" onclick="adminAction('/api/admin/clear-log','清空登入紀錄？','登入紀錄已清空')"><span class="icon">🗑</span>清空登入紀錄</a>
+    <a class="nav-item" href="#" onclick="adminAction('/api/admin/clear-cache','清空每日報告快取？','快取已清空')"><span class="icon">🔄</span>清空報告快取</a>
+    <a class="nav-item" href="#" onclick="triggerScan()"><span class="icon">🔍</span>觸發立即掃描</a>
+
+    <div class="nav-section" style="margin-top:auto">帳戶</div>
+    <a class="nav-item" href="/logout"><span class="icon">↩</span>登出</a>
+  </nav>
+
+  <!-- ── Main ── -->
+  <main class="main">
+    <div class="topbar">
+      <h1>🏠 系統總覽</h1>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost" onclick="location.reload()">🔄 重新整理</button>
+      </div>
+    </div>
+
+    <!-- ── Stats ── -->
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="sc-val" style="color:var(--bull)">{{ total_logins }}</div>
+        <div class="sc-lbl">成功登入次數</div>
+        <div class="sc-sub">自伺服器啟動起</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" style="color:{% if failed_logins > 0 %}var(--bear){% else %}var(--muted){% endif %}">{{ failed_logins }}</div>
+        <div class="sc-lbl">失敗嘗試次數</div>
+        <div class="sc-sub">認識碼錯誤</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" style="font-size:1.1rem">{{ uptime }}</div>
+        <div class="sc-lbl">伺服器運行時間</div>
+        <div class="sc-sub">{{ server_start }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val">{{ log_count }}</div>
+        <div class="sc-lbl">登入紀錄筆數</div>
+        <div class="sc-sub">最多保留 200 筆</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val">{{ health.get('candidates', '—') }}</div>
+        <div class="sc-lbl">掃描候選股票</div>
+        <div class="sc-sub">排程掃描結果</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val">{{ health.get('positions', '—') }}</div>
+        <div class="sc-lbl">持倉數量</div>
+        <div class="sc-sub">交易系統持倉</div>
+      </div>
+    </div>
+
+    <!-- ── Last Login ── -->
+    {% if last_login %}
+    <div class="section" style="margin-bottom:18px">
+      <div class="sec-hdr">
+        <h2>👤 最後登入</h2>
+      </div>
+      <div class="sec-body" style="display:flex;gap:24px;flex-wrap:wrap;font-size:.82rem">
+        <div><span style="color:var(--muted)">時間：</span>{{ last_login.time }}</div>
+        <div><span style="color:var(--muted)">IP：</span><code style="font-size:.78rem">{{ last_login.ip }}</code></div>
+        <div><span style="color:var(--muted)">裝置：</span>{{ last_login.device }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- ── System Status ── -->
+    <div class="section">
+      <div class="sec-hdr"><h2>⚙️ 系統狀態</h2></div>
+      <div class="sec-body">
+        <div class="health-grid">
+          <div class="health-item">
+            <div class="hi-val">
+              {% if health.get('market', {}).get('is_open') %}
+                <span style="color:var(--bull)">● 開盤中</span>
+              {% else %}
+                <span style="color:var(--muted)">● 已收盤</span>
+              {% endif %}
+            </div>
+            <div class="hi-lbl">市場狀態</div>
+          </div>
+          <div class="health-item">
+            <div class="hi-val">
+              {% if sched.get('running') %}
+                <span style="color:var(--bull)">● 運行中</span>
+              {% else %}
+                <span style="color:var(--muted)">● 未啟用</span>
+              {% endif %}
+            </div>
+            <div class="hi-lbl">排程掃描</div>
+          </div>
+          <div class="health-item">
+            <div class="hi-val">
+              {% if health.get('kill_switch') %}
+                <span style="color:var(--bear)">🛑 啟動</span>
+              {% else %}
+                <span style="color:var(--bull)">✅ 正常</span>
+              {% endif %}
+            </div>
+            <div class="hi-lbl">停損保護</div>
+          </div>
+          <div class="health-item">
+            <div class="hi-val">
+              {% if cache_age is not none %}
+                <span style="color:var(--accent)">{{ cache_age }}分鐘前</span>
+              {% else %}
+                <span style="color:var(--muted)">尚未生成</span>
+              {% endif %}
+            </div>
+            <div class="hi-lbl">每日報告快取</div>
+          </div>
+          <div class="health-item">
+            <div class="hi-val">{{ sched.get('last_scan', '—') }}</div>
+            <div class="hi-lbl">最後掃描時間</div>
+          </div>
+          <div class="health-item">
+            <div class="hi-val">{{ sched.get('executed_today', 0) }}</div>
+            <div class="hi-lbl">今日執行交易</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Env Vars ── -->
+    <div class="section">
+      <div class="sec-hdr"><h2>🔑 環境變數設定</h2></div>
+      <div class="sec-body">
+        <div class="env-grid">
+          {% for key, val in env_status.items() %}
+          <div class="env-item">
+            <span class="env-key">{{ key }}</span>
+            {% if val == true %}
+              <span class="env-val-yes">✅ 已設定</span>
+            {% elif val == false %}
+              <span class="env-val-no">✗ 未設定</span>
+            {% else %}
+              <span class="badge badge-info">{{ val }}</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        <div style="font-size:.66rem;color:var(--muted);margin-top:10px">
+          ⚠️ 此頁面只顯示「是否設定」，不顯示實際值
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Recent Login Log ── -->
+    <div class="section">
+      <div class="sec-hdr">
+        <h2>🔐 近期登入紀錄（最新 30 筆）</h2>
+        <button class="btn btn-danger" style="font-size:.7rem;padding:4px 10px"
+          onclick="adminAction('/api/admin/clear-log','確定清空所有登入紀錄？','紀錄已清空')">清空</button>
+      </div>
+      {% if logs %}
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>時間 (UTC)</th><th>IP 位址</th><th>裝置</th><th>狀態</th><th>備註</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in logs %}
+            <tr>
+              <td style="white-space:nowrap;color:var(--muted);font-size:.72rem">{{ log.time }}</td>
+              <td><code style="font-size:.72rem">{{ log.ip }}</code></td>
+              <td style="font-size:.75rem">{{ log.device }}</td>
+              <td>
+                {% if log.note == '登出' %}
+                  <span class="badge badge-info">↩ 登出</span>
+                {% elif log.success %}
+                  <span class="badge badge-ok">✅ 成功</span>
+                {% else %}
+                  <span class="badge badge-fail">❌ 失敗</span>
+                {% endif %}
+              </td>
+              <td style="color:var(--muted);font-size:.75rem">{{ log.note }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="padding:10px 18px;font-size:.66rem;color:var(--muted);border-top:1px solid var(--border)">
+        顯示最新 30 筆 / 共 {{ log_count }} 筆 ·
+        <a href="/admin/logins" style="color:var(--accent)">查看全部</a>
+      </div>
+      {% else %}
+      <div class="sec-body" style="color:var(--muted);font-size:.82rem">尚無紀錄</div>
+      {% endif %}
+    </div>
+
+    <!-- ── Quick Actions ── -->
+    <div class="section">
+      <div class="sec-hdr"><h2>⚡ 快捷操作</h2></div>
+      <div class="sec-body" style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="triggerScan()">🔍 立即觸發掃描</button>
+        <button class="btn btn-ghost" onclick="adminAction('/api/admin/clear-cache','清空每日報告快取？','快取已清空')">🔄 清空報告快取</button>
+        <button class="btn btn-ghost" onclick="testAlert()">📡 發送測試警報</button>
+        <a href="/admin/logins" class="btn btn-ghost" style="text-decoration:none">📋 完整登入紀錄</a>
+        <a href="/" class="btn btn-ghost" style="text-decoration:none">📊 回主系統</a>
+        <a href="/logout" class="btn btn-danger" style="text-decoration:none">↩ 登出</a>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+function toast(msg, ok=true) {
+  const t = document.getElementById('admin-toast');
+  t.textContent = msg;
+  t.style.background = ok ? 'rgba(63,185,80,.95)' : 'rgba(248,81,73,.9)';
+  t.style.color = ok ? '#000' : '#fff';
+  t.style.opacity = '1';
+  clearTimeout(t._t);
+  t._t = setTimeout(() => { t.style.opacity = '0'; }, 3500);
+}
+
+async function adminAction(url, confirmMsg, successMsg) {
+  if (!confirm(confirmMsg)) return;
+  try {
+    const r = await fetch(url, { method: 'POST' });
+    const j = await r.json();
+    toast(j.ok ? '✅ ' + successMsg : '❌ ' + (j.message || '失敗'));
+    if (j.ok) setTimeout(() => location.reload(), 1200);
+  } catch(e) { toast('❌ 連線錯誤', false); }
+}
+
+async function triggerScan() {
+  try {
+    toast('⏳ 掃描啟動中…');
+    const r = await fetch('/api/scheduler/scan', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols: [] }) });
+    const j = await r.json();
+    toast(j.ok ? '✅ 掃描已在背景啟動' : '❌ ' + (j.message || '失敗'));
+  } catch(e) { toast('❌ 連線錯誤', false); }
+}
+
+async function testAlert() {
+  const s = JSON.parse(localStorage.getItem('alertSettings_v1') || '{}');
+  if (!s.email && !s.lineToken) { alert('請先在主系統設定警報 Email 或 LINE Token'); return; }
+  try {
+    const r = await fetch('/api/alerts/send', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signals: [{ symbol: 'TEST', note: '後台測試警報 ✅' }],
+        type: 'both', email: s.email, lineToken: s.lineToken }) });
+    const j = await r.json();
+    toast(j.ok ? '✅ 測試警報已發送' : '❌ 發送失敗：' + (j.error || ''), j.ok);
+  } catch(e) { toast('❌ 連線錯誤', false); }
+}
+</script>
+</body>
+</html>

@@ -30,6 +30,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 _ACCESS_CODE = os.environ.get("ACCESS_CODE", "")   # set in Railway → empty = no auth required
 _LOGIN_LOG: list[dict] = []   # in-memory log (last 200 entries)
 _MAX_LOG = 200
+_SERVER_START = datetime.now(timezone.utc)
 
 def _hash(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
@@ -79,7 +80,7 @@ def _require_auth():
     """Block every request unless the session is authenticated or ACCESS_CODE is unset."""
     if not _ACCESS_CODE:
         return  # auth disabled
-    if request.endpoint in ("login", "logout", "admin_logins", "static"):
+    if request.endpoint in ("login", "logout", "admin_logins", "admin_dashboard", "static"):
         return
     if session.get("auth") == _hash(_ACCESS_CODE):
         return
@@ -113,6 +114,62 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
+@app.route("/admin")
+def admin_dashboard():
+    """Master admin control panel."""
+    # uptime
+    delta = datetime.now(timezone.utc) - _SERVER_START
+    h, rem = divmod(int(delta.total_seconds()), 3600)
+    m, s   = divmod(rem, 60)
+    uptime_str = f"{h}h {m}m {s}s"
+
+    # login stats
+    total_logins  = sum(1 for l in _LOGIN_LOG if l["success"] and l["note"] != "登出")
+    failed_logins = sum(1 for l in _LOGIN_LOG if not l["success"])
+    last_login    = next((l for l in _LOGIN_LOG if l["success"] and l["note"] == "登入成功"), None)
+
+    # env vars presence (never expose values)
+    env_status = {
+        "ACCESS_CODE":    bool(os.environ.get("ACCESS_CODE")),
+        "SECRET_KEY":     bool(os.environ.get("SECRET_KEY")),
+        "ANTHROPIC_API_KEY": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "ALPHA_VANTAGE_KEY": bool(os.environ.get("ALPHA_VANTAGE_KEY")),
+        "LINE_NOTIFY_TOKEN": bool(os.environ.get("LINE_NOTIFY_TOKEN")),
+        "SMTP_HOST":      bool(os.environ.get("SMTP_HOST")),
+        "SCHEDULER_ENABLE": os.environ.get("SCHEDULER_ENABLE", "false"),
+        "RAILWAY_ENVIRONMENT": os.environ.get("RAILWAY_ENVIRONMENT", "—"),
+    }
+
+    # scheduler & health
+    try:
+        sched = _sched.get_scheduler_status()
+    except Exception:
+        sched = {}
+    try:
+        health = _mon.system_health()
+    except Exception:
+        health = {}
+
+    # daily report cache
+    cache_age = None
+    if _daily_report_cache.get("ts"):
+        cache_age = int((_time.time() - _daily_report_cache["ts"]) / 60)
+
+    return render_template("admin.html",
+        uptime=uptime_str,
+        server_start=_SERVER_START.strftime("%Y-%m-%d %H:%M UTC"),
+        total_logins=total_logins,
+        failed_logins=failed_logins,
+        last_login=last_login,
+        logs=_LOGIN_LOG[:30],
+        env_status=env_status,
+        sched=sched,
+        health=health,
+        cache_age=cache_age,
+        alert_settings=_alert_schedule_settings,
+        log_count=len(_LOGIN_LOG),
+    )
+
 @app.route("/admin/logins")
 def admin_logins():
     """Login activity log — only accessible after authentication."""
@@ -121,6 +178,18 @@ def admin_logins():
 @app.route("/api/admin/logins")
 def api_admin_logins():
     return jsonify(ok=True, logs=_LOGIN_LOG)
+
+@app.route("/api/admin/clear-log", methods=["POST"])
+def api_admin_clear_log():
+    global _LOGIN_LOG
+    _LOGIN_LOG = []
+    return jsonify(ok=True, message="登入紀錄已清空")
+
+@app.route("/api/admin/clear-cache", methods=["POST"])
+def api_admin_clear_cache():
+    _daily_report_cache["report"] = None
+    _daily_report_cache["ts"] = 0
+    return jsonify(ok=True, message="每日報告快取已清空")
 
 # Start background scheduler (only if SCHEDULER_ENABLE=true)
 _sched.start_scheduler()
