@@ -3944,6 +3944,7 @@ async function autoRecommend(force = false) {
   // ── Phase 1: NASDAQ screener (fast, server-cached 15 min) ─────────────────
   let nasdaqMeta = null;
   let deepCandidates = [];
+  let marketCapMap = {};
 
   arLoadingText.textContent = '正在抓取納斯達克全市場數據（3,000+ 支）…';
   try {
@@ -3951,6 +3952,9 @@ async function autoRecommend(force = false) {
     const sj = await sr.json();
     if (sj.ok && sj.stocks?.length > 0) {
       const all = sj.stocks;
+
+      // Build market cap map for 10x scoring
+      sj.stocks.forEach(s => { marketCapMap[s.symbol] = s.marketCap || 0; });
 
       // Quick score: abs(pctchange) matters most, then volume depth
       const qscored = all.map(s => {
@@ -4023,6 +4027,7 @@ async function autoRecommend(force = false) {
       volumeRatio: d.volumeRatio, bullMa: d.bullMa,
       preBreakScore: pbs.score, preBreakMeta: pbs,
       investRating: ir,
+      marketCap: marketCapMap[d.symbol] ?? 0,
     };
   });
 
@@ -4809,7 +4814,18 @@ function calc10xScore(d) {
 
   if (price <= 0) return { score: 0 };
 
-  // ── 1. Price sweet spot: $1-$50 small-cap room to grow ─────────────────────
+  // ── 0. Market cap score (primary size filter) ───────────────────────────────
+  const mc = d.marketCap ?? 0;
+  const mcapS = mc > 0 ? (
+    mc < 3e8  ? 95 :   // < $300M micro-cap: highest potential
+    mc < 1e9  ? 88 :   // < $1B small-cap: great
+    mc < 3e9  ? 75 :   // < $3B small-mid: good
+    mc < 10e9 ? 50 :   // < $10B mid-cap: ok
+    mc < 50e9 ? 30 :   // < $50B large: hard to 10x
+    15                  // mega-cap: very hard
+  ) : 55;  // unknown: neutral
+
+  // ── 1. Price sweet spot: $1-$50 small-cap room to grow (floor only) ─────────
   const priceS = price < 1   ? 0  :
                  price <= 3   ? 70 :
                  price <= 10  ? 95 :
@@ -4846,7 +4862,8 @@ function calc10xScore(d) {
   const chgS = chg > 10 ? 95 : chg > 5 ? 80 : chg > 2 ? 65 : chg > 0 ? 50 : 30;
 
   const composite = Math.round(
-    priceS * 0.18 +
+    mcapS  * 0.15 +
+    priceS * 0.03 +
     volS   * 0.20 +
     momS   * 0.12 +
     smS    * 0.14 +
@@ -4866,6 +4883,7 @@ function calc10xScore(d) {
   return {
     score: Math.min(composite, 100),
     priceLabel,
+    mcapS,
     factors: {
       priceS: Math.round(priceS), volS, momS: Math.round(momS),
       smS: Math.round(smS), rsS: Math.round(rsS), monS: Math.round(monS),
@@ -4879,7 +4897,7 @@ function render10xSection(scored) {
 
   const candidates = scored
     .map(d => ({ ...d, _tenX: calc10xScore(d) }))
-    .filter(d => d._tenX.score >= 58 && d.price >= 1 && d.price <= 200)
+    .filter(d => d._tenX.score >= 58 && d.price >= 1)
     .sort((a, b) => b._tenX.score - a._tenX.score)
     .slice(0, 10);
 
@@ -4927,12 +4945,15 @@ function render10xSection(scored) {
         </div>`).join('');
 
       const rankLabel = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx+1}`;
+      const mc = d.marketCap ?? 0;
+      const mcapLabel = mc > 0 ? (mc < 3e8 ? '微型股' : mc < 1e9 ? '小型股' : mc < 3e9 ? '小中型' : mc < 10e9 ? '中型股' : '大型股') : '';
+      const mcapColor = mc > 0 && mc < 3e9 ? 'var(--bull)' : 'var(--muted)';
 
       return `<div class="auto-rec-card" onclick="qs('${d.symbol}');switchTab('analysis')"
         style="border:1px solid rgba(255,107,53,.35);background:linear-gradient(135deg,var(--surface) 0%,rgba(255,107,53,.04) 100%);cursor:pointer">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
           <div>
-            <div style="font-size:.62rem;color:rgba(255,107,53,.7);margin-bottom:1px">${rankLabel} ${t.priceLabel}</div>
+            <div style="font-size:.62rem;color:rgba(255,107,53,.7);margin-bottom:1px;display:flex;align-items:center;gap:5px">${rankLabel} ${t.priceLabel}${mcapLabel ? `<span style="font-size:.58rem;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,.06);color:${mcapColor};border:1px solid ${mcapColor};opacity:.85">${mcapLabel}</span>` : ''}</div>
             <div class="arc-sym" style="color:#ff6b35">${d.symbol}${twName(d.symbol)?`<span style="font-size:.6rem;color:var(--muted);font-weight:400;margin-left:3px">${twName(d.symbol)}</span>`:''}</div>
             <div class="arc-price">$${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
           </div>
@@ -5128,7 +5149,7 @@ async function runBatch4DBacktest() {
   const btn = document.getElementById('bt4d-btn');
   const resEl = document.getElementById('ar-4d-bt-result');
   if (btn) btn.textContent = '⏳ 回測中…';
-  if (resEl) { resEl.style.display = 'block'; resEl.innerHTML = `<div style="color:var(--muted);font-size:.8rem;padding:8px 0">正在對 ${symbols.join(', ')} 執行決策核心回測（2年數據），請稍候…</div>`; }
+  if (resEl) { resEl.style.display = 'block'; resEl.innerHTML = `<div style="color:var(--muted);font-size:.8rem;padding:8px 0">正在對 ${symbols.join(', ')} 執行決策核心回測（5年數據），請稍候…</div>`; }
 
   try {
     const r = await fetch('/api/batch-backtest-4d', {

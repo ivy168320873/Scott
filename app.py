@@ -5,6 +5,9 @@ import numpy as np
 from datetime import datetime, timezone
 import time as _time
 import traceback, os, json
+import smtplib
+import email.mime.multipart
+import email.mime.text
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import demo_data as _demo
 import analyzer
@@ -21,6 +24,10 @@ app = Flask(__name__)
 # Start background scheduler (only if SCHEDULER_ENABLE=true)
 _sched.start_scheduler()
 
+# ── Module-level caches and settings ──────────────────────────────────────────
+_daily_report_cache: dict = {"report": None, "ts": 0}
+_alert_schedule_settings: dict = {"enabled": False, "time": "16:00", "timezone": "America/New_York"}
+
 YAHOO_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -30,6 +37,78 @@ YAHOO_HEADERS = {
     "Accept": "application/json",
     "Accept-Language": "en-US,en;q=0.9",
 }
+
+
+# ── Alpha Vantage OHLCV helper ────────────────────────────────────────────────
+
+def _fetch_ohlcv_alpha_vantage(symbol: str, av_key: str) -> dict | None:
+    """Fetch daily OHLCV from Alpha Vantage and return Yahoo-format dict, or None on failure."""
+    try:
+        r = _req.get(
+            "https://www.alphavantage.co/query",
+            params={
+                "function": "TIME_SERIES_DAILY_ADJUSTED",
+                "symbol": symbol,
+                "outputsize": "full",
+                "apikey": av_key,
+            },
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        ts_data = data.get("Time Series (Daily)")
+        if not ts_data:
+            return None
+        # Sort dates ascending
+        dates_sorted = sorted(ts_data.keys())
+        timestamps = []
+        opens, highs, lows, closes, volumes = [], [], [], [], []
+        last_close = None
+        for date_str in dates_sorted:
+            day = ts_data[date_str]
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                timestamps.append(int(dt.replace(tzinfo=timezone.utc).timestamp()))
+                opens.append(round(float(day.get("1. open", 0) or 0), 4))
+                highs.append(round(float(day.get("2. high", 0) or 0), 4))
+                lows.append(round(float(day.get("3. low", 0) or 0), 4))
+                closes.append(round(float(day.get("4. close", 0) or 0), 4))
+                volumes.append(int(float(day.get("6. volume", 0) or 0)))
+                last_close = closes[-1]
+            except (ValueError, TypeError):
+                continue
+        if not timestamps:
+            return None
+        prev_close = closes[-2] if len(closes) >= 2 else last_close
+        return {
+            "chart": {
+                "result": [{
+                    "meta": {
+                        "symbol": symbol.upper(),
+                        "longName": symbol.upper(),
+                        "regularMarketPrice": last_close,
+                        "previousClose": prev_close,
+                        "currency": "USD",
+                        "_source": "alpha_vantage",
+                    },
+                    "timestamp": timestamps,
+                    "indicators": {
+                        "quote": [{
+                            "open":   opens,
+                            "high":   highs,
+                            "low":    lows,
+                            "close":  closes,
+                            "volume": volumes,
+                        }]
+                    }
+                }],
+                "error": None
+            }
+        }
+    except Exception:
+        traceback.print_exc()
+        return None
 
 
 # ── Yahoo Finance proxy (CORS bypass) ─────────────────────────────────────────
@@ -53,7 +132,16 @@ def chart_proxy(symbol):
     except Exception:
         pass
 
-    # Fallback: generate demo data
+    # Intermediate fallback: Alpha Vantage
+    av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
+    if av_key:
+        av_result = _fetch_ohlcv_alpha_vantage(symbol, av_key)
+        if av_result:
+            resp = Response(json.dumps(av_result), status=200, mimetype="application/json")
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            return resp
+
+    # Final fallback: generate demo data
     hist = _demo.generate(symbol)
     name = _demo.name(symbol)
     timestamps = [int(ts.timestamp()) for ts in hist.index]
@@ -760,11 +848,12 @@ def api_translate_news():
 
 
 def _fetch_ohlcv_server(symbol: str) -> list | None:
-    """Fetch 2y daily OHLCV from Yahoo Finance (server-side). Returns list of dicts or None."""
+    """Fetch 2y daily OHLCV from Yahoo Finance (server-side). Returns list of dicts or None.
+    Falls back to Alpha Vantage if Yahoo fails and ALPHA_VANTAGE_KEY is set."""
     try:
         r = _req.get(
             f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
-            params={"range": "2y", "interval": "1d", "events": "history"},
+            params={"range": "5y", "interval": "1d", "events": "history"},
             headers=YAHOO_HEADERS, timeout=12,
         )
         if r.status_code != 200:
@@ -788,7 +877,35 @@ def _fetch_ohlcv_server(symbol: str) -> list | None:
                 continue
         return [r for r in rows if r["close"] > 0] or None
     except Exception:
-        return None
+        pass
+
+    # Intermediate fallback: Alpha Vantage
+    av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
+    if av_key:
+        try:
+            av_result = _fetch_ohlcv_alpha_vantage(symbol, av_key)
+            if av_result:
+                res = av_result["chart"]["result"][0]
+                q = res["indicators"]["quote"][0]
+                ts_list = res["timestamp"]
+                rows = []
+                for i, t in enumerate(ts_list):
+                    try:
+                        rows.append({
+                            "date":   datetime.utcfromtimestamp(t).strftime("%Y-%m-%d"),
+                            "open":   float(q["open"][i] or 0),
+                            "high":   float(q["high"][i] or 0),
+                            "low":    float(q["low"][i] or 0),
+                            "close":  float(q["close"][i] or 0),
+                            "volume": int(q["volume"][i] or 0),
+                        })
+                    except (TypeError, ValueError):
+                        continue
+                return [row for row in rows if row["close"] > 0] or None
+        except Exception:
+            pass
+
+    return None
 
 
 @app.route("/api/batch-backtest-4d", methods=["POST"])
@@ -809,7 +926,7 @@ def api_batch_backtest_4d():
         def _run_one(sym):
             ohlcv = _fetch_ohlcv_server(sym)
             if not ohlcv:
-                hist = _demo.generate(sym, n=504)  # 2 years of trading days
+                hist = _demo.generate(sym, n=1260)  # 5 years of trading days
                 ohlcv = [
                     {"date": row.Index.strftime("%Y-%m-%d"),
                      "open": float(row.Open), "high": float(row.High),
@@ -947,6 +1064,177 @@ def api_deep_news(symbol):
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── AI Chat endpoint ──────────────────────────────────────────────────────────
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    """Conversational Claude endpoint for stock Q&A."""
+    try:
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"}), 400
+        from anthropic import Anthropic
+        payload = request.json or {}
+        message = (payload.get("message") or "").strip()[:1000]
+        context = (payload.get("context") or "").strip()[:200]
+        if not message:
+            return jsonify({"ok": False, "error": "message required"}), 400
+        client = Anthropic(api_key=key)
+        system = (
+            "你是一位專業的股票分析助理，擅長美股與台股技術分析、基本面分析和量化策略。"
+            "請用繁體中文回答，語氣專業但易懂，回答要具體有洞察力，不超過400字。"
+        )
+        ctx_prefix = (f"目前查看的股票：{context}\n") if context else ""
+        user_msg = ctx_prefix + message
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1200,
+            system=system,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        reply = resp.content[0].text if resp.content else ""
+        return jsonify({"ok": True, "reply": reply})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Daily report endpoint ──────────────────────────────────────────────────────
+
+@app.route("/api/daily-report")
+def api_daily_report():
+    """Generate a daily market summary. Cached 2 hours."""
+    try:
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"}), 400
+        now = _time.time()
+        if _daily_report_cache["report"] and now - _daily_report_cache["ts"] < 7200:
+            return jsonify({"ok": True, "report": _daily_report_cache["report"],
+                            "generated_at": _daily_report_cache["generated_at"], "cached": True})
+        from anthropic import Anthropic
+        client = Anthropic(api_key=key)
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=2000,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}],
+            messages=[{"role": "user", "content": (
+                "請搜尋今日美股市場重點，用繁體中文整理以下內容：\n"
+                "1. 📊 今日大盤表現（S&P500、NASDAQ、道瓊）\n"
+                "2. 🔥 今日最強板塊與代表個股（漲幅前3）\n"
+                "3. 📉 今日最弱板塊（跌幅前3）\n"
+                "4. 📰 影響市場的重大新聞（Fed、財報、地緣政治）\n"
+                "5. 🔮 明日關注重點（重要財報、經濟數據）\n"
+                "請條列清晰，每點簡潔20-40字。"
+            )}],
+        )
+        texts = [b.text for b in resp.content if hasattr(b, "text") and b.text]
+        report = "\n\n".join(texts)
+        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+        _daily_report_cache.update({"report": report, "ts": now, "generated_at": generated_at})
+        return jsonify({"ok": True, "report": report, "generated_at": generated_at, "cached": False})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Alerts endpoint ────────────────────────────────────────────────────────────
+
+@app.route("/api/alerts/send", methods=["POST"])
+def api_alerts_send():
+    """Send alerts via email and/or LINE Notify."""
+    try:
+        payload     = request.json or {}
+        signals     = payload.get("signals", [])
+        alert_type  = payload.get("type", "both")
+        email_to    = payload.get("email") or os.environ.get("ALERT_EMAIL_TO", "")
+        line_token  = payload.get("lineToken") or os.environ.get("LINE_NOTIFY_TOKEN", "")
+        sent = []
+        errors = []
+
+        msg_lines = ["📈 Scott 股票訊號提醒"]
+        for s in signals[:10]:
+            sym  = s.get("symbol", "")
+            note = s.get("note", "")
+            msg_lines.append(f"• {sym}: {note}" if note else f"• {sym}")
+        plain_text = "\n".join(msg_lines)
+
+        # ── LINE Notify ───────────────────────────────────────────────────────
+        if alert_type in ("line", "both") and line_token:
+            try:
+                lr = _req.post(
+                    "https://notify-api.line.me/api/notify",
+                    headers={"Authorization": f"Bearer {line_token}"},
+                    data={"message": "\n" + plain_text},
+                    timeout=10,
+                )
+                if lr.status_code == 200:
+                    sent.append("line")
+                else:
+                    errors.append(f"LINE {lr.status_code}: {lr.text[:100]}")
+            except Exception as ex:
+                errors.append(f"LINE error: {str(ex)[:80]}")
+
+        # ── Email ─────────────────────────────────────────────────────────────
+        if alert_type in ("email", "both") and email_to:
+            try:
+                smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+                smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+                smtp_user = os.environ.get("SMTP_USER", "")
+                smtp_pass = os.environ.get("SMTP_PASS", "")
+                from_addr = os.environ.get("ALERT_EMAIL_FROM", smtp_user)
+
+                subject = f"📈 Scott 訊號 {datetime.now().strftime('%m/%d')}"
+                rows_html = "".join(
+                    f"<tr><td style='padding:6px 10px;border-bottom:1px solid #333;font-weight:700;color:#58a6ff'>{s.get('symbol','')}</td>"
+                    f"<td style='padding:6px 10px;border-bottom:1px solid #333;color:#e6edf3'>{s.get('note','')}</td></tr>"
+                    for s in signals[:10]
+                )
+                html_body = f"""<div style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:20px;border-radius:10px">
+<h2 style="color:#58a6ff">📈 Scott 股票訊號提醒</h2>
+<table style="border-collapse:collapse;width:100%"><thead>
+<tr><th style="text-align:left;padding:6px 10px;color:#8b949e">股票</th><th style="text-align:left;padding:6px 10px;color:#8b949e">訊號</th></tr>
+</thead><tbody>{rows_html}</tbody></table>
+<p style="color:#8b949e;font-size:12px;margin-top:16px">⚠️ 此為量化模型訊號，不構成投資建議。</p></div>"""
+
+                msg = email.mime.multipart.MIMEMultipart("alternative")
+                msg["Subject"] = subject
+                msg["From"]    = from_addr
+                msg["To"]      = email_to
+                msg.attach(email.mime.text.MIMEText(plain_text, "plain", "utf-8"))
+                msg.attach(email.mime.text.MIMEText(html_body,  "html",  "utf-8"))
+
+                if smtp_port == 465:
+                    with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as srv:
+                        if smtp_user and smtp_pass:
+                            srv.login(smtp_user, smtp_pass)
+                        srv.sendmail(from_addr, [email_to], msg.as_bytes())
+                else:
+                    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as srv:
+                        srv.ehlo(); srv.starttls(); srv.ehlo()
+                        if smtp_user and smtp_pass:
+                            srv.login(smtp_user, smtp_pass)
+                        srv.sendmail(from_addr, [email_to], msg.as_bytes())
+                sent.append("email")
+            except Exception as ex:
+                errors.append(f"Email error: {str(ex)[:120]}")
+
+        return jsonify({"ok": len(sent) > 0 or not errors, "sent": sent, "errors": errors})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/alerts/schedule-status", methods=["GET", "POST"])
+def api_alerts_schedule_status():
+    if request.method == "POST":
+        data = request.json or {}
+        _alert_schedule_settings.update({
+            k: data[k] for k in ("enabled", "time", "timezone") if k in data
+        })
+    return jsonify({"ok": True, "settings": _alert_schedule_settings})
 
 
 # ── Main page ──────────────────────────────────────────────────────────────────
