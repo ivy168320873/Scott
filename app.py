@@ -722,6 +722,42 @@ def api_optimizer_run():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# ── Batch news headline translation ──────────────────────────────────────────
+
+@app.route("/api/translate-news", methods=["POST"])
+def api_translate_news():
+    """Batch-translate English news headlines to Traditional Chinese using Claude Haiku."""
+    try:
+        import re as _re
+        titles = (request.json or {}).get("titles", [])[:20]
+        if not titles:
+            return jsonify({"ok": False, "error": "no titles"})
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"})
+        from anthropic import Anthropic
+        client = Anthropic(api_key=key)
+        numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(titles))
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1200,
+            messages=[{"role": "user", "content": (
+                "請將以下英文財經新聞標題翻譯成繁體中文。\n"
+                "只輸出翻譯結果，保持原本編號，每行一條，不要加任何說明：\n\n"
+                + numbered
+            )}],
+        )
+        text = resp.content[0].text if resp.content else ""
+        lines = [l.strip() for l in text.strip().split("\n") if l.strip()]
+        translations = [_re.sub(r"^\d+[.、．]\s*", "", l) for l in lines]
+        while len(translations) < len(titles):
+            translations.append(titles[len(translations)])
+        return jsonify({"ok": True, "translations": translations[:len(titles)]})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")

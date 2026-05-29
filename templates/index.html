@@ -793,12 +793,26 @@ tbody td{padding:9px 10px}
       <!-- 1. Market Pulse — one-liner status -->
       <div id="ar-pulse" style="margin-bottom:10px"></div>
       <!-- 1b. News Intelligence -->
-      <div class="ar-sec-lbl" style="margin-bottom:8px">📰 產業即時情報 <span id="ar-news-sentiment" style="font-weight:400;letter-spacing:0"></span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('ar-news','ar-news-ti')">
+          📰 產業即時情報 <span id="ar-news-sentiment" style="font-weight:400;letter-spacing:0"></span>
+          <span id="ar-news-ti" style="font-size:.75rem;margin-left:3px;opacity:.6">▾</span>
+        </div>
+        <button id="ar-news-zh-btn" onclick="translateSection('ar-news','ar-news-zh-btn')"
+          style="font-size:.66rem;padding:2px 9px;background:none;border:1px solid var(--border);border-radius:5px;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0">🔤 翻譯</button>
+      </div>
       <div id="ar-news" style="margin-bottom:14px">
         <div style="color:var(--muted);font-size:.8rem;padding:6px 0">正在載入產業消息…</div>
       </div>
       <!-- 1c. Macro Panel -->
-      <div class="ar-sec-lbl" style="margin-bottom:8px">🌐 宏觀經濟警報 <span id="ar-macro-env" style="font-weight:400;letter-spacing:0"></span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('ar-macro','ar-macro-ti')">
+          🌐 宏觀經濟警報 <span id="ar-macro-env" style="font-weight:400;letter-spacing:0"></span>
+          <span id="ar-macro-ti" style="font-size:.75rem;margin-left:3px;opacity:.6">▾</span>
+        </div>
+        <button id="ar-macro-zh-btn" onclick="translateSection('ar-macro','ar-macro-zh-btn')"
+          style="font-size:.66rem;padding:2px 9px;background:none;border:1px solid var(--border);border-radius:5px;color:var(--muted);cursor:pointer;white-space:nowrap;flex-shrink:0">🔤 翻譯</button>
+      </div>
       <div id="ar-macro" style="margin-bottom:16px">
         <div style="color:var(--muted);font-size:.8rem;padding:6px 0">正在分析宏觀經濟數據…</div>
       </div>
@@ -3505,7 +3519,8 @@ function renderNewsPanel(newsMap) {
           <div style="background:${bc};border-radius:8px;padding:7px 10px;display:flex;gap:8px;align-items:flex-start">
             <span style="font-size:.95rem;flex-shrink:0;line-height:1.4">${e}</span>
             <div style="flex:1;min-width:0">
-              <div style="font-size:.79rem;line-height:1.45;color:var(--text)">${n.title}</div>
+              <div class="news-en" style="font-size:.79rem;line-height:1.45;color:var(--text)">${n.title}</div>
+              <div class="news-zh" style="display:none;font-size:.74rem;line-height:1.45;color:var(--accent);margin-top:1px"></div>
               <div style="font-size:.67rem;color:var(--muted);margin-top:2px">
                 <b style="color:${symC}">${n.sym}</b> · ${n.publisher||'新聞'} · ${timeAgo(n.published)}
               </div>
@@ -3520,6 +3535,64 @@ function renderNewsPanel(newsMap) {
 }
 
 // ══════════════════════════════════════════════════════
+// ── Collapsible sections ──────────────────────────────
+function toggleSection(id, iconId) {
+  const el   = document.getElementById(id);
+  const icon = document.getElementById(iconId);
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : '';
+  if (icon) icon.textContent = open ? '▸' : '▾';
+}
+
+// ── News Translation (batch, cached per section) ──────
+const _zhShown = {};
+
+async function translateSection(sectionId, btnId) {
+  const el  = document.getElementById(sectionId);
+  const btn = document.getElementById(btnId);
+  if (!el) return;
+
+  const enEls = [...el.querySelectorAll('.news-en')];
+  const zhEls = [...el.querySelectorAll('.news-zh')];
+  if (!enEls.length) { if (btn) btn.textContent = '🔤 暫無新聞'; return; }
+
+  // Toggle off if already showing
+  if (_zhShown[sectionId]) {
+    zhEls.forEach(z => { z.style.display = 'none'; });
+    _zhShown[sectionId] = false;
+    if (btn) { btn.textContent = '🔤 翻譯'; btn.style.color = 'var(--muted)'; btn.disabled = false; }
+    return;
+  }
+
+  // Toggle on if already translated
+  if (zhEls.every(z => z.textContent)) {
+    zhEls.forEach(z => { z.style.display = ''; });
+    _zhShown[sectionId] = true;
+    if (btn) { btn.textContent = '🔤 收起'; btn.style.color = 'var(--accent)'; btn.disabled = false; }
+    return;
+  }
+
+  // Fetch translations from server
+  if (btn) { btn.textContent = '⏳…'; btn.disabled = true; }
+  try {
+    const r = await fetch('/api/translate-news', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titles: enEls.map(e => e.textContent.trim()) }),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'translate error');
+    j.translations.forEach((zh, i) => {
+      if (zhEls[i]) { zhEls[i].textContent = zh; zhEls[i].style.display = ''; }
+    });
+    _zhShown[sectionId] = true;
+    if (btn) { btn.textContent = '🔤 收起'; btn.style.color = 'var(--accent)'; btn.disabled = false; }
+  } catch (err) {
+    if (btn) { btn.textContent = '🔤 翻譯'; btn.style.color = 'var(--bear)'; btn.disabled = false; }
+  }
+}
+
 // 宏觀經濟警報
 // ══════════════════════════════════════════════════════
 
@@ -3623,7 +3696,8 @@ function renderMacroPanel(news) {
           <div style="background:${bc};border-radius:7px;padding:6px 10px;display:flex;gap:7px;align-items:flex-start">
             <span style="font-size:.9rem;flex-shrink:0">${e}</span>
             <div style="flex:1;min-width:0">
-              <div style="font-size:.78rem;line-height:1.4;color:var(--text)">${n.title}</div>
+              <div class="news-en" style="font-size:.78rem;line-height:1.4;color:var(--text)">${n.title}</div>
+              <div class="news-zh" style="display:none;font-size:.74rem;line-height:1.4;color:var(--accent);margin-top:1px"></div>
               <div style="font-size:.66rem;color:var(--muted);margin-top:2px">${n.publisher||''} · ${timeAgo(n.published)}</div>
             </div>
           </div>
