@@ -860,7 +860,10 @@ tbody td{padding:9px 10px}
           🎯 四維度齊全 <span id="ar-4d-count" style="font-weight:400;font-size:.72rem;color:var(--muted)"></span>
           <span id="ar-4d-ti" style="font-size:.75rem;margin-left:3px;opacity:.6">▾</span>
         </div>
+        <button id="bt4d-btn" onclick="runBatch4DBacktest()"
+          style="font-size:.66rem;padding:2px 10px;background:none;border:1px solid var(--border);border-radius:5px;color:var(--muted);cursor:pointer;white-space:nowrap;display:none">📊 批次回測</button>
       </div>
+      <div id="ar-4d-bt-result" style="margin-bottom:10px;display:none"></div>
       <div id="ar-4d" style="margin-bottom:16px">
         <div style="color:var(--muted);font-size:.8rem;padding:6px 0">掃描中…</div>
       </div>
@@ -4798,6 +4801,12 @@ function render4DSection(scored) {
   const cntEl = document.getElementById('ar-4d-count');
   if (cntEl) cntEl.textContent = optimal.length ? `(${optimal.length} 支符合)` : '(目前無)';
 
+  // Show / hide batch backtest button
+  const btBtn = document.getElementById('bt4d-btn');
+  if (btBtn) btBtn.style.display = optimal.length ? '' : 'none';
+  // Store symbols for batch backtest
+  window._4dOptimalSymbols = optimal.slice(0, 12).map(d => d.symbol);
+
   if (!optimal.length) {
     el.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:6px 0">目前無股票同時滿足四維度最佳條件，市場偏向觀望</div>';
     return;
@@ -4842,6 +4851,97 @@ function render4DSection(scored) {
       </div>
     </div>`;
   }).join('');
+}
+
+async function runBatch4DBacktest() {
+  const symbols = window._4dOptimalSymbols;
+  if (!symbols || !symbols.length) { alert('沒有符合四維度的股票'); return; }
+
+  const btn = document.getElementById('bt4d-btn');
+  const resEl = document.getElementById('ar-4d-bt-result');
+  if (btn) btn.textContent = '⏳ 回測中…';
+  if (resEl) { resEl.style.display = 'block'; resEl.innerHTML = `<div style="color:var(--muted);font-size:.8rem;padding:8px 0">正在對 ${symbols.join(', ')} 執行決策核心回測（2年數據），請稍候…</div>`; }
+
+  try {
+    const r = await fetch('/api/batch-backtest-4d', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols }),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+
+    const agg = j.aggregate || {};
+    const results = j.results || [];
+    const valid = results.filter(r => r.num_trades >= 2);
+
+    const avgWrClr = (agg.avg_win_rate || 0) >= 60 ? 'var(--bull)' : (agg.avg_win_rate || 0) >= 45 ? 'var(--neutral)' : 'var(--bear)';
+    const pfClr = (agg.avg_profit_factor || 0) >= 1.5 ? 'var(--bull)' : (agg.avg_profit_factor || 0) >= 1 ? 'var(--neutral)' : 'var(--bear)';
+    const retClr = (agg.avg_annual_return || 0) > 0 ? 'var(--bull)' : 'var(--bear)';
+
+    const aggHtml = agg.symbols_tested ? `
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;padding:10px 12px;background:var(--surface2);border-radius:10px">
+        <div style="text-align:center">
+          <div style="font-size:1.3rem;font-weight:900;color:${avgWrClr}">${agg.avg_win_rate}%</div>
+          <div style="font-size:.62rem;color:var(--muted)">平均勝率</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:1.3rem;font-weight:900;color:${pfClr}">${agg.avg_profit_factor}</div>
+          <div style="font-size:.62rem;color:var(--muted)">平均獲利因子</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:1.3rem;font-weight:900;color:${retClr}">${agg.avg_annual_return > 0 ? '+' : ''}${agg.avg_annual_return}%</div>
+          <div style="font-size:.62rem;color:var(--muted)">平均年化報酬</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:1.3rem;font-weight:900;color:var(--bear)">${agg.avg_max_drawdown}%</div>
+          <div style="font-size:.62rem;color:var(--muted)">平均最大回撤</div>
+        </div>
+        <div style="text-align:center;margin-left:auto">
+          <div style="font-size:1.3rem;font-weight:900;color:var(--bull)">${agg.pass_60pct} / ${agg.symbols_tested}</div>
+          <div style="font-size:.62rem;color:var(--muted)">勝率≥60%</div>
+        </div>
+      </div>` : '';
+
+    const rowsHtml = valid.length ? `
+      <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:.72rem">
+        <thead>
+          <tr style="color:var(--muted);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 6px">股票</th>
+            <th style="text-align:right;padding:4px 6px">勝率</th>
+            <th style="text-align:right;padding:4px 6px">獲利因子</th>
+            <th style="text-align:right;padding:4px 6px">年化報酬</th>
+            <th style="text-align:right;padding:4px 6px">最大回撤</th>
+            <th style="text-align:right;padding:4px 6px">交易次數</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${valid.map(r => {
+            const wrC = r.win_rate >= 60 ? 'var(--bull)' : r.win_rate >= 45 ? 'var(--neutral)' : 'var(--bear)';
+            const pfC = r.profit_factor >= 1.5 ? 'var(--bull)' : r.profit_factor >= 1 ? 'var(--neutral)' : 'var(--bear)';
+            const retC = r.annual_return > 0 ? 'var(--bull)' : 'var(--bear)';
+            return `<tr style="border-bottom:1px solid var(--border)" onclick="qs('${r.symbol}');switchTab('analysis')" style="cursor:pointer">
+              <td style="padding:5px 6px;font-weight:700;color:var(--bull);cursor:pointer" onclick="qs('${r.symbol}');switchTab('analysis')">${r.symbol}</td>
+              <td style="text-align:right;padding:5px 6px;font-weight:700;color:${wrC}">${r.win_rate}%</td>
+              <td style="text-align:right;padding:5px 6px;color:${pfC}">${r.profit_factor === 999 ? '∞' : r.profit_factor}</td>
+              <td style="text-align:right;padding:5px 6px;color:${retC}">${r.annual_return > 0 ? '+' : ''}${r.annual_return}%</td>
+              <td style="text-align:right;padding:5px 6px;color:var(--bear)">${r.max_drawdown}%</td>
+              <td style="text-align:right;padding:5px 6px;color:var(--muted)">${r.num_trades}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>` : '<div style="color:var(--muted);font-size:.8rem;padding:4px 0">交易次數不足（需≥2次），策略信號條件極嚴，建議使用真實行情數據後再查看</div>';
+
+    const disclaimer = `<div style="font-size:.62rem;color:var(--muted);margin-top:6px;opacity:.7">⚠️ 回測為歷史數據模擬，過去績效不代表未來結果。部分股票使用示範數據。</div>`;
+
+    resEl.innerHTML = aggHtml + rowsHtml + disclaimer;
+  } catch (e) {
+    if (resEl) resEl.innerHTML = `<div style="color:var(--bear);font-size:.8rem;padding:6px 0">批次回測失敗：${e.message}</div>`;
+  } finally {
+    if (btn) btn.textContent = '📊 批次回測';
+  }
 }
 
 function renderPreBreakout(scored, usedSet) {

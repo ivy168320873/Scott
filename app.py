@@ -5,6 +5,7 @@ import numpy as np
 from datetime import datetime, timezone
 import time as _time
 import traceback, os, json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import demo_data as _demo
 import analyzer
 import backtest as _bt
@@ -753,6 +754,106 @@ def api_translate_news():
         while len(translations) < len(titles):
             translations.append(titles[len(translations)])
         return jsonify({"ok": True, "translations": translations[:len(titles)]})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _fetch_ohlcv_server(symbol: str) -> list | None:
+    """Fetch 2y daily OHLCV from Yahoo Finance (server-side). Returns list of dicts or None."""
+    try:
+        r = _req.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+            params={"range": "2y", "interval": "1d", "events": "history"},
+            headers=YAHOO_HEADERS, timeout=12,
+        )
+        if r.status_code != 200:
+            raise ValueError(f"Yahoo HTTP {r.status_code}")
+        j = r.json()
+        res = j["chart"]["result"][0]
+        q = res["indicators"]["quote"][0]
+        ts = res["timestamp"]
+        rows = []
+        for i, t in enumerate(ts):
+            try:
+                rows.append({
+                    "date":   datetime.utcfromtimestamp(t).strftime("%Y-%m-%d"),
+                    "open":   float(q["open"][i] or 0),
+                    "high":   float(q["high"][i] or 0),
+                    "low":    float(q["low"][i] or 0),
+                    "close":  float(q["close"][i] or 0),
+                    "volume": int(q["volume"][i] or 0),
+                })
+            except (TypeError, ValueError):
+                continue
+        return [r for r in rows if r["close"] > 0] or None
+    except Exception:
+        return None
+
+
+@app.route("/api/batch-backtest-4d", methods=["POST"])
+def api_batch_backtest_4d():
+    """
+    Run decision_core_v2 backtest on a list of symbols.
+    Accepts: { symbols: ["NVDA", "TSLA", ...] }   (max 12)
+    Returns per-symbol stats + aggregate summary.
+    """
+    try:
+        payload  = request.json or {}
+        symbols  = [s.upper() for s in (payload.get("symbols") or [])[:12]]
+        if not symbols:
+            return jsonify({"ok": False, "error": "no symbols provided"}), 400
+
+        results = []
+
+        def _run_one(sym):
+            ohlcv = _fetch_ohlcv_server(sym)
+            if not ohlcv:
+                hist = _demo.generate(sym, n=504)  # 2 years of trading days
+                ohlcv = [
+                    {"date": row.Index.strftime("%Y-%m-%d"),
+                     "open": float(row.Open), "high": float(row.High),
+                     "low":  float(row.Low),  "close": float(row.Close),
+                     "volume": int(row.Volume)}
+                    for row in hist.itertuples()
+                ]
+            r = _bt.run(ohlcv, "decision_core", {})
+            return {
+                "symbol":        sym,
+                "win_rate":      round(r.get("win_rate", 0), 1),
+                "profit_factor": round(r.get("profit_factor", 0), 2),
+                "num_trades":    r.get("num_trades", 0),
+                "annual_return": round(r.get("annual_return", 0), 2),
+                "max_drawdown":  round(r.get("max_drawdown", 0), 2),
+                "sharpe":        round(r.get("sharpe", 0), 2),
+                "expectancy":    round(r.get("expectancy", 0), 2),
+                "bh_return":     round(r.get("bh_return", 0), 2),
+                "is_demo":       len(ohlcv) > 0 and ohlcv[0].get("date","").startswith("20"),
+            }
+
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futures = {ex.submit(_run_one, s): s for s in symbols}
+            for f in as_completed(futures):
+                try:
+                    results.append(f.result())
+                except Exception as e:
+                    results.append({"symbol": futures[f], "error": str(e)})
+
+        results.sort(key=lambda x: x.get("win_rate", 0), reverse=True)
+
+        valid = [r for r in results if "win_rate" in r and r["num_trades"] >= 2]
+        agg = {}
+        if valid:
+            agg = {
+                "avg_win_rate":      round(sum(r["win_rate"]      for r in valid) / len(valid), 1),
+                "avg_profit_factor": round(sum(r["profit_factor"] for r in valid) / len(valid), 2),
+                "avg_annual_return": round(sum(r["annual_return"] for r in valid) / len(valid), 2),
+                "avg_max_drawdown":  round(sum(r["max_drawdown"]  for r in valid) / len(valid), 2),
+                "symbols_tested":    len(valid),
+                "pass_60pct":        sum(1 for r in valid if r["win_rate"] >= 60),
+            }
+
+        return jsonify({"ok": True, "results": results, "aggregate": agg})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
