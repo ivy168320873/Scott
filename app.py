@@ -871,6 +871,51 @@ def api_trump_picks():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/catalyst/<symbol>")
+def api_catalyst(symbol):
+    """
+    Fast catalyst / theme research for a single stock.
+    Returns structured JSON with theme, catalysts, bull/bear summary.
+    """
+    try:
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"}), 400
+        from anthropic import Anthropic
+        client = Anthropic(api_key=key)
+        symbol = symbol.upper()[:10]
+        prompt = (
+            f"請用繁體中文分析 {symbol} 這支股票的題材與催化劑，輸出 JSON（只輸出純 JSON，不加說明）：\n"
+            "{\n"
+            '  "company":    "公司中文名稱（10字內）",\n'
+            '  "theme":      "核心題材（AI/生技/新能源/國防/半導體…，30字內點出行業機遇）",\n'
+            '  "catalysts":  ["催化劑1（20字內）", "催化劑2", "催化劑3"],\n'
+            '  "bull_case":  "多頭理由：為什麼可能大漲或翻倍（50字內，具體說明邏輯）",\n'
+            '  "bear_case":  "空頭風險：最大潛在利空（30字內）",\n'
+            '  "analyst_tp": "分析師目標價或評級（如有，否則填 null）",\n'
+            '  "horizon":    "預期題材發酵時間：短期/中期/長期"\n'
+            "}\n"
+            f"請搜尋最新資訊（近1個月）再回答。只輸出 JSON，不要 markdown。"
+        )
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+            messages=[{"role": "user", "content": prompt}],
+        )
+        texts = [b.text for b in resp.content if hasattr(b, "text") and b.text]
+        raw = "\n".join(texts)
+        import re as _re
+        m = _re.search(r"\{.*\}", raw, _re.DOTALL)
+        if m:
+            data = json.loads(m.group(0))
+            return jsonify({"ok": True, "symbol": symbol, "data": data, "raw": raw})
+        return jsonify({"ok": True, "symbol": symbol, "data": None, "raw": raw})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/deep-news/<symbol>")
 def api_deep_news(symbol):
     """Deep news search for a symbol using Claude web search (requires API key)."""

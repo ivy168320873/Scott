@@ -856,14 +856,18 @@ tbody td{padding:9px 10px}
 
       <!-- 10x Candidates Section -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('ar-10x','ar-10x-ti')">
+        <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('ar-10x-wrap','ar-10x-ti')">
           🚀 十倍股候選 <span id="ar-10x-count" style="font-weight:400;font-size:.72rem;color:var(--muted)"></span>
           <span id="ar-10x-ti" style="font-size:.75rem;margin-left:3px;opacity:.6">▾</span>
         </div>
-        <span style="font-size:.6rem;color:rgba(248,81,73,.7);border:1px solid rgba(248,81,73,.3);border-radius:4px;padding:1px 6px">高風險</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button id="tenx-deep-btn" onclick="autoDeepSearch10x()" style="display:none;font-size:.66rem;padding:2px 10px;background:none;border:1px solid rgba(210,153,34,.5);border-radius:5px;color:rgba(210,153,34,.9);cursor:pointer;white-space:nowrap">🧠 自動深搜</button>
+          <span style="font-size:.6rem;color:rgba(248,81,73,.7);border:1px solid rgba(248,81,73,.3);border-radius:4px;padding:1px 6px">高風險</span>
+        </div>
       </div>
-      <div id="ar-10x" style="margin-bottom:16px">
-        <div style="color:var(--muted);font-size:.8rem;padding:6px 0">掃描中…</div>
+      <div id="ar-10x-wrap" style="margin-bottom:16px">
+        <div id="ar-10x"><div style="color:var(--muted);font-size:.8rem;padding:6px 0">掃描中…</div></div>
+        <div id="ar-10x-catalyst" style="margin-top:4px"></div>
       </div>
 
       <!-- 4D Optimal Section -->
@@ -4882,6 +4886,14 @@ function render10xSection(scored) {
   const cntEl = document.getElementById('ar-10x-count');
   if (cntEl) cntEl.textContent = candidates.length ? `(${candidates.length} 支)` : '(目前無)';
 
+  window._10xSymbols = candidates.map(d => d.symbol);
+  const deepBtn = document.getElementById('tenx-deep-btn');
+  if (deepBtn) deepBtn.style.display = candidates.length ? '' : 'none';
+
+  // Reset catalyst panel when re-rendered
+  const catPanel = document.getElementById('ar-10x-catalyst');
+  if (catPanel) catPanel.innerHTML = '';
+
   if (!candidates.length) {
     el.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:6px 0">目前無符合十倍股特徵的候選，市場偏向保守</div>';
     return;
@@ -4936,6 +4948,98 @@ function render10xSection(scored) {
       </div>`;
     }).join('')}
     </div>`;
+}
+
+const _10xCatalystCache = {};
+
+async function autoDeepSearch10x() {
+  const symbols = window._10xSymbols || [];
+  if (!symbols.length) return;
+
+  const btn = document.getElementById('tenx-deep-btn');
+  const panel = document.getElementById('ar-10x-catalyst');
+  if (!panel) return;
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 搜尋中…'; }
+
+  // Build placeholder cards
+  panel.innerHTML = symbols.map(sym => `
+    <div id="cat-card-${sym}" style="margin-bottom:10px;border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--surface)">
+      <div style="font-size:.75rem;font-weight:700;color:#e3b341;margin-bottom:6px">🧠 ${sym} 題材分析</div>
+      <div id="cat-body-${sym}" style="color:var(--muted);font-size:.76rem">⏳ 搜尋中…</div>
+    </div>`).join('');
+
+  let done = 0;
+  for (const sym of symbols) {
+    const bodyEl = document.getElementById(`cat-body-${sym}`);
+    const cardEl = document.getElementById(`cat-card-${sym}`);
+
+    // Use cache if available
+    if (_10xCatalystCache[sym]) {
+      if (bodyEl) bodyEl.innerHTML = _renderCatalystBody(_10xCatalystCache[sym]);
+      done++;
+      if (btn) btn.textContent = `⏳ ${done}/${symbols.length}`;
+      continue;
+    }
+
+    try {
+      const r = await fetch(`/api/catalyst/${encodeURIComponent(sym)}`);
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || '搜尋失敗');
+
+      const d = j.data;
+      if (d) {
+        _10xCatalystCache[sym] = d;
+        if (bodyEl) bodyEl.innerHTML = _renderCatalystBody(d);
+        if (cardEl) cardEl.style.borderColor = 'rgba(210,153,34,.3)';
+      } else {
+        // Fallback: show raw text
+        if (bodyEl) bodyEl.innerHTML = `<pre style="font-size:.7rem;white-space:pre-wrap;color:var(--text)">${(j.raw||'').slice(0,600)}</pre>`;
+      }
+    } catch(e) {
+      if (bodyEl) bodyEl.innerHTML = `<div style="color:var(--bear);font-size:.72rem">❌ ${e.message}</div>`;
+    }
+
+    done++;
+    if (btn) btn.textContent = `⏳ ${done}/${symbols.length}`;
+    await new Promise(res => setTimeout(res, 600)); // avoid rate-limit
+  }
+
+  if (btn) { btn.textContent = '✅ 深搜完成'; btn.disabled = false; }
+}
+
+function _renderCatalystBody(d) {
+  const horizon = d.horizon || '';
+  const hClr = horizon.includes('短') ? 'var(--bull)' : horizon.includes('長') ? '#58a6ff' : 'var(--neutral)';
+  const cats = (d.catalysts || []).slice(0, 4).map(c =>
+    `<span style="display:inline-block;background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.25);border-radius:4px;padding:1px 6px;font-size:.66rem;margin:2px 2px 2px 0;color:#e3b341">${c}</span>`
+  ).join('');
+
+  return `
+    <div style="margin-bottom:6px">
+      <span style="font-size:.64rem;font-weight:700;color:var(--muted);margin-right:4px">公司</span>
+      <span style="font-size:.76rem;color:var(--text)">${d.company || '—'}</span>
+      ${d.analyst_tp ? `<span style="margin-left:8px;font-size:.63rem;color:#58a6ff;background:rgba(88,166,255,.1);border-radius:3px;padding:1px 5px">📊 ${d.analyst_tp}</span>` : ''}
+    </div>
+    <div style="margin-bottom:6px">
+      <div style="font-size:.63rem;color:var(--muted);font-weight:700;margin-bottom:3px">📌 核心題材</div>
+      <div style="font-size:.76rem;color:var(--text);line-height:1.5">${d.theme || '—'}</div>
+    </div>
+    <div style="margin-bottom:6px">
+      <div style="font-size:.63rem;color:var(--muted);font-weight:700;margin-bottom:3px">⚡ 近期催化劑</div>
+      <div>${cats || '<span style="color:var(--muted);font-size:.72rem">暫無明確催化劑</span>'}</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+      <div style="flex:1;min-width:120px;background:rgba(63,185,80,.06);border:1px solid rgba(63,185,80,.2);border-radius:6px;padding:6px 8px">
+        <div style="font-size:.6rem;color:var(--bull);font-weight:700;margin-bottom:2px">🚀 多頭理由</div>
+        <div style="font-size:.72rem;color:var(--text);line-height:1.5">${d.bull_case || '—'}</div>
+      </div>
+      <div style="flex:1;min-width:120px;background:rgba(248,81,73,.06);border:1px solid rgba(248,81,73,.2);border-radius:6px;padding:6px 8px">
+        <div style="font-size:.6rem;color:var(--bear);font-weight:700;margin-bottom:2px">⚠️ 主要風險</div>
+        <div style="font-size:.72rem;color:var(--text);line-height:1.5">${d.bear_case || '—'}</div>
+      </div>
+    </div>
+    <div style="margin-top:6px;font-size:.63rem;color:${hClr}">⏱ 題材發酵：${horizon || '未知'}</div>`;
 }
 
 // ══════════════════════════════════════════════════════
