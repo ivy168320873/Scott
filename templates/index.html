@@ -3,7 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>股市即時動能分析</title>
+<title>Scott · 股市分析</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Scott">
+<link rel="apple-touch-icon" href="/static/icon.svg">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 :root {
@@ -4385,6 +4391,8 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
     const tags = (d.monsterMeta?.tags || []).slice(0, 3);
     const extraBadge = extra ? `<span class="mct mct-info" style="font-size:.63rem">${extra}</span>` : '';
     const rsiBadge = !tags.length ? `<span class="mct mct-info">RSI ${(d.indicators?.rsi||0).toFixed(0)}</span>` : '';
+    const hasNote  = !!_notes[d.symbol];
+    const hasAlert = _priceAlerts.some(a => a.symbol === d.symbol);
     return `<div class="auto-rec-card ${cls}" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div>
@@ -4398,6 +4406,21 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
       </div>
       <div class="arc-tags" style="margin-top:6px">
         ${extraBadge}${tags.map(t=>`<span class="mct mct-${t.cls}">${t.t}</span>`).join('')}${rsiBadge}
+        <span id="earn-${d.symbol}" style="font-size:.6rem;display:none;cursor:default"></span>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:7px;border-top:1px solid rgba(48,54,61,.5);padding-top:6px" onclick="event.stopPropagation()">
+        <button data-note-sym="${d.symbol}" onclick="openNoteModal('${d.symbol}')"
+          style="font-size:.65rem;padding:2px 8px;background:none;border:1px solid var(--border);border-radius:5px;
+                 color:${hasNote?'var(--warn)':'var(--muted)'};cursor:pointer"
+          title="${hasNote?'已有筆記，點擊編輯':'新增筆記'}">
+          📝 ${hasNote?'查看筆記':'筆記'}
+        </button>
+        <button data-alert-sym="${d.symbol}" onclick="openPaModal('${d.symbol}')"
+          style="font-size:.65rem;padding:2px 8px;background:none;border:1px solid var(--border);border-radius:5px;
+                 color:${hasAlert?'var(--accent)':'var(--muted)'};cursor:pointer"
+          title="設定價格警報">
+          🔔 警報
+        </button>
       </div>
     </div>`;
   }
@@ -4469,6 +4492,13 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
   saveSignalSnapshot(scored);
   renderSignalHistory();
   _checkAndSendAlerts(scored).catch(() => {});
+  // Load earnings dates for visible cards (non-blocking, staggered)
+  scored.slice(0, 20).forEach((d, i) => {
+    setTimeout(() => {
+      const el = document.getElementById('earn-' + d.symbol);
+      if (el) loadEarnings(d.symbol, el);
+    }, i * 150);
+  });
 }
 
 // ══════════════════════════════════════════════════════
@@ -8956,6 +8986,250 @@ async function testAlerts() {
   } catch (e) {
     showToast('❌ 連線失敗：' + e.message, 'warning');
   }
+}
+</script>
+
+<!-- ── Stock Note Modal ── -->
+<div id="note-modal" style="display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.6);
+  align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    width:100%;max-width:400px;padding:22px 24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 id="note-modal-title" style="font-size:.95rem;font-weight:700">📝 個股筆記</h3>
+      <button onclick="closeNoteModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.2rem">✕</button>
+    </div>
+    <textarea id="note-input" rows="5" placeholder="記錄看多/看空理由、目標價、停利停損點…"
+      style="width:100%;resize:vertical;background:var(--surface2);border:1px solid var(--border);
+             border-radius:8px;color:var(--text);font-size:.82rem;padding:10px 12px;
+             outline:none;font-family:inherit;line-height:1.6"></textarea>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button onclick="saveNote()" style="flex:1;padding:9px;background:var(--accent);border:none;
+        border-radius:8px;color:#000;font-weight:700;font-size:.82rem;cursor:pointer">儲存</button>
+      <button onclick="deleteNote()" style="padding:9px 14px;background:none;border:1px solid rgba(248,81,73,.4);
+        border-radius:8px;color:var(--bear);font-size:.82rem;cursor:pointer">刪除</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Price Alert Modal ── -->
+<div id="pa-modal" style="display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.6);
+  align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    width:100%;max-width:380px;padding:22px 24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 id="pa-modal-title" style="font-size:.95rem;font-weight:700">🔔 設定價格警報</h3>
+      <button onclick="closePaModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.2rem">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div>
+        <label style="font-size:.72rem;color:var(--muted);display:block;margin-bottom:5px">觸發條件</label>
+        <div style="display:flex;gap:8px">
+          <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;
+            background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:.82rem">
+            <input type="radio" name="pa-dir" value="above" checked> 股價高於
+          </label>
+          <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;
+            background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:.82rem">
+            <input type="radio" name="pa-dir" value="below"> 股價低於
+          </label>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:.72rem;color:var(--muted);display:block;margin-bottom:5px">目標價格 ($)</label>
+        <input id="pa-target" type="number" step="0.01" min="0" placeholder="例：150.00"
+          style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);
+                 border-radius:8px;color:var(--text);font-size:.88rem;outline:none">
+      </div>
+      <div>
+        <label style="font-size:.72rem;color:var(--muted);display:block;margin-bottom:5px">備註（選填）</label>
+        <input id="pa-note" type="text" placeholder="例：突破前高、支撐位…"
+          style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);
+                 border-radius:8px;color:var(--text);font-size:.82rem;outline:none">
+      </div>
+    </div>
+    <button onclick="savePriceAlert()" style="width:100%;margin-top:16px;padding:10px;
+      background:var(--accent);border:none;border-radius:8px;color:#000;font-weight:700;font-size:.85rem;cursor:pointer">
+      ＋ 新增警報
+    </button>
+    <div id="pa-existing" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+// 個股筆記
+// ══════════════════════════════════════════════════════
+let _notes = {};
+let _noteSymbol = null;
+
+async function _loadNotes() {
+  try {
+    const r = await fetch('/api/notes');
+    const j = await r.json();
+    if (j.ok) _notes = j.notes || {};
+  } catch {}
+}
+_loadNotes();
+
+function openNoteModal(symbol) {
+  _noteSymbol = symbol;
+  const existing = _notes[symbol];
+  document.getElementById('note-modal-title').textContent = `📝 ${symbol} 筆記`;
+  document.getElementById('note-input').value = existing?.note || '';
+  document.getElementById('note-modal').style.display = 'flex';
+  document.getElementById('note-input').focus();
+}
+function closeNoteModal() { document.getElementById('note-modal').style.display = 'none'; }
+
+async function saveNote() {
+  const note = document.getElementById('note-input').value.trim();
+  try {
+    await fetch(`/api/notes/${_noteSymbol}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ note })
+    });
+    if (note) _notes[_noteSymbol] = { note, updated: new Date().toLocaleString('zh-TW') };
+    else delete _notes[_noteSymbol];
+    showToast(note ? '📝 筆記已儲存' : '🗑 筆記已刪除', 'info');
+    closeNoteModal();
+    _refreshNoteIcons();
+  } catch(e) { showToast('❌ 儲存失敗', 'warning'); }
+}
+async function deleteNote() {
+  try {
+    await fetch(`/api/notes/${_noteSymbol}`, { method: 'DELETE' });
+    delete _notes[_noteSymbol];
+    showToast('🗑 筆記已刪除', 'info');
+    closeNoteModal();
+    _refreshNoteIcons();
+  } catch(e) { showToast('❌ 刪除失敗', 'warning'); }
+}
+function _refreshNoteIcons() {
+  document.querySelectorAll('[data-note-sym]').forEach(el => {
+    const sym = el.dataset.noteSym;
+    el.style.color = _notes[sym] ? 'var(--warn)' : 'var(--muted)';
+    el.title = _notes[sym] ? `筆記：${_notes[sym].note.slice(0,40)}…` : '新增筆記';
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// 價格警報
+// ══════════════════════════════════════════════════════
+let _paSymbol = null;
+let _priceAlerts = [];
+
+async function _loadPriceAlerts() {
+  try {
+    const r = await fetch('/api/price-alerts');
+    const j = await r.json();
+    if (j.ok) _priceAlerts = j.alerts || [];
+  } catch {}
+}
+_loadPriceAlerts();
+
+function openPaModal(symbol) {
+  _paSymbol = symbol;
+  document.getElementById('pa-modal-title').textContent = `🔔 ${symbol} 價格警報`;
+  document.getElementById('pa-target').value = '';
+  document.getElementById('pa-note').value = '';
+  document.querySelector('input[name="pa-dir"][value="above"]').checked = true;
+  _renderExistingAlerts();
+  document.getElementById('pa-modal').style.display = 'flex';
+  document.getElementById('pa-target').focus();
+}
+function closePaModal() { document.getElementById('pa-modal').style.display = 'none'; }
+
+function _renderExistingAlerts() {
+  const existing = _priceAlerts.filter(a => a.symbol === _paSymbol);
+  const el = document.getElementById('pa-existing');
+  if (!existing.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div style="font-size:.7rem;color:var(--muted);margin-bottom:6px">已設定的警報：</div>` +
+    existing.map(a => `
+      <div style="display:flex;align-items:center;justify-content:space-between;
+        padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;margin-bottom:5px;font-size:.75rem">
+        <span>${a.direction === 'above' ? '↑ 高於' : '↓ 低於'} <b>$${a.target}</b>${a.note ? ' · '+a.note : ''}</span>
+        <button onclick="deletePriceAlert('${a.symbol}','${a.direction}')"
+          style="background:none;border:none;color:var(--bear);cursor:pointer;font-size:.75rem;padding:0 4px">✕</button>
+      </div>`).join('');
+}
+
+async function savePriceAlert() {
+  const target = parseFloat(document.getElementById('pa-target').value);
+  const direction = document.querySelector('input[name="pa-dir"]:checked').value;
+  const note = document.getElementById('pa-note').value.trim();
+  if (!target || target <= 0) { showToast('請輸入有效目標價格', 'warning'); return; }
+  try {
+    await fetch('/api/price-alerts', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ symbol: _paSymbol, target, direction, note })
+    });
+    _priceAlerts = _priceAlerts.filter(a => !(a.symbol === _paSymbol && a.direction === direction));
+    _priceAlerts.push({ symbol: _paSymbol, target, direction, note });
+    showToast(`🔔 已設定：${_paSymbol} ${direction === 'above' ? '高於' : '低於'} $${target}`, 'info');
+    document.getElementById('pa-target').value = '';
+    document.getElementById('pa-note').value = '';
+    _renderExistingAlerts();
+    _refreshAlertIcons();
+  } catch(e) { showToast('❌ 設定失敗', 'warning'); }
+}
+
+async function deletePriceAlert(symbol, direction) {
+  try {
+    await fetch(`/api/price-alerts/${symbol}?direction=${direction}`, { method: 'DELETE' });
+    _priceAlerts = _priceAlerts.filter(a => !(a.symbol === symbol && a.direction === direction));
+    _renderExistingAlerts();
+    _refreshAlertIcons();
+    showToast('🗑 警報已刪除', 'info');
+  } catch {}
+}
+
+function _refreshAlertIcons() {
+  document.querySelectorAll('[data-alert-sym]').forEach(el => {
+    const sym = el.dataset.alertSym;
+    const has = _priceAlerts.some(a => a.symbol === sym);
+    el.style.color = has ? 'var(--accent)' : 'var(--muted)';
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// 財報日期快取
+// ══════════════════════════════════════════════════════
+const _earningsCache = {};
+
+async function loadEarnings(symbol, targetEl) {
+  if (_earningsCache[symbol] !== undefined) {
+    renderEarnings(_earningsCache[symbol], targetEl); return;
+  }
+  try {
+    const r = await fetch(`/api/earnings/${symbol}`);
+    const j = await r.json();
+    _earningsCache[symbol] = j.ok ? j : null;
+    renderEarnings(_earningsCache[symbol], targetEl);
+  } catch { _earningsCache[symbol] = null; }
+}
+
+function renderEarnings(data, el) {
+  if (!el) return;
+  if (!data || !data.next_earnings) { el.style.display = 'none'; return; }
+  const d = new Date(data.next_earnings + 'T00:00:00Z');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diff = Math.round((d - today) / 86400000);
+  const label = diff < 0 ? `財報已過 (${data.next_earnings})` :
+                diff === 0 ? '📅 今日財報' :
+                diff <= 7  ? `📅 財報 ${diff}天後` :
+                             `📅 財報 ${data.next_earnings}`;
+  const color = diff <= 3 && diff >= 0 ? 'var(--warn)' : diff < 0 ? 'var(--muted)' : 'var(--accent)';
+  el.style.display = 'inline-block';
+  el.style.color = color;
+  el.textContent = label;
+  el.title = `下次財報：${data.next_earnings}${data.forward_pe ? ' · 預期PE: '+data.forward_pe : ''}`;
+}
+
+// ══════════════════════════════════════════════════════
+// PWA Service Worker
+// ══════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
 }
 </script>
 </body>

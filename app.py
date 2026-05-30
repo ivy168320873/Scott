@@ -1399,7 +1399,7 @@ def api_chat():
         resp = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1200,
-            system=system,
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": user_msg}],
         )
         reply = resp.content[0].text if resp.content else ""
@@ -1446,6 +1446,186 @@ def api_daily_report():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": _claude_error_msg(e)}), 500
+
+
+# ── Stock Notes ────────────────────────────────────────────────────────────────
+
+@app.route("/api/notes", methods=["GET"])
+def api_notes_get():
+    data = _load_user_data()
+    return jsonify(ok=True, notes=data.get("stock_notes", {}))
+
+@app.route("/api/notes/<symbol>", methods=["POST", "DELETE"])
+def api_note_update(symbol):
+    symbol = symbol.upper()[:20]
+    data = _load_user_data()
+    notes = data.get("stock_notes", {})
+    if request.method == "DELETE":
+        notes.pop(symbol, None)
+    else:
+        body = request.get_json(force=True, silent=True) or {}
+        note = (body.get("note") or "").strip()[:500]
+        if note:
+            notes[symbol] = {"note": note, "updated": datetime.now().strftime("%Y-%m-%d %H:%M")}
+        else:
+            notes.pop(symbol, None)
+    _save_user_data({"stock_notes": notes})
+    return jsonify(ok=True)
+
+
+# ── Price Alerts ───────────────────────────────────────────────────────────────
+
+@app.route("/api/price-alerts", methods=["GET"])
+def api_price_alerts_get():
+    data = _load_user_data()
+    return jsonify(ok=True, alerts=data.get("price_alerts", []))
+
+@app.route("/api/price-alerts", methods=["POST"])
+def api_price_alerts_add():
+    body = request.get_json(force=True, silent=True) or {}
+    symbol  = (body.get("symbol") or "").upper().strip()[:20]
+    target  = float(body.get("target", 0))
+    direction = body.get("direction", "above")  # "above" | "below"
+    note    = (body.get("note") or "").strip()[:100]
+    if not symbol or target <= 0:
+        return jsonify(ok=False, error="需要 symbol 和 target"), 400
+    data = _load_user_data()
+    alerts = data.get("price_alerts", [])
+    alerts = [a for a in alerts if not (a["symbol"] == symbol and a["direction"] == direction)]
+    alerts.append({"symbol": symbol, "target": target, "direction": direction,
+                   "note": note, "created": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    _save_user_data({"price_alerts": alerts})
+    return jsonify(ok=True)
+
+@app.route("/api/price-alerts/<symbol>", methods=["DELETE"])
+def api_price_alerts_del(symbol):
+    symbol = symbol.upper()
+    direction = request.args.get("direction", "")
+    data = _load_user_data()
+    alerts = data.get("price_alerts", [])
+    alerts = [a for a in alerts if not (a["symbol"] == symbol and
+              (not direction or a["direction"] == direction))]
+    _save_user_data({"price_alerts": alerts})
+    return jsonify(ok=True)
+
+
+# ── Earnings Calendar ──────────────────────────────────────────────────────────
+
+@app.route("/api/earnings/<symbol>")
+def api_earnings(symbol):
+    """Fetch next earnings date from Yahoo Finance quoteSummary."""
+    symbol = symbol.upper()[:20]
+    try:
+        r = _req.get(
+            f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}",
+            params={"modules": "calendarEvents,defaultKeyStatistics"},
+            headers=YAHOO_HEADERS, timeout=10
+        )
+        if r.status_code != 200:
+            return jsonify(ok=False, error=f"Yahoo HTTP {r.status_code}"), 502
+        j = r.json()
+        result = j.get("quoteSummary", {}).get("result", [{}])[0] if j.get("quoteSummary", {}).get("result") else {}
+        cal = result.get("calendarEvents", {})
+        earnings_dates = cal.get("earnings", {}).get("earningsDate", [])
+        next_date = None
+        if earnings_dates:
+            ts = earnings_dates[0].get("raw")
+            if ts:
+                next_date = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+        eps_fwd = result.get("defaultKeyStatistics", {}).get("forwardEps", {}).get("fmt")
+        pe_fwd  = result.get("defaultKeyStatistics", {}).get("forwardPE", {}).get("fmt")
+        return jsonify(ok=True, symbol=symbol,
+                       next_earnings=next_date,
+                       forward_eps=eps_fwd,
+                       forward_pe=pe_fwd)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)[:100]), 500
+
+
+# ── Price alert background checker ────────────────────────────────────────────
+
+def _run_price_alert_checker():
+    """Check price alerts every 10 minutes and send notifications when triggered."""
+    _time.sleep(30)  # wait for app to boot
+    while True:
+        try:
+            data = _load_user_data()
+            alerts = data.get("price_alerts", [])
+            if alerts:
+                remaining, triggered = [], []
+                for a in alerts:
+                    try:
+                        r = _req.get(
+                            f"https://query1.finance.yahoo.com/v8/finance/chart/{a['symbol']}",
+                            params={"range": "1d", "interval": "1m"},
+                            headers=YAHOO_HEADERS, timeout=8)
+                        if r.status_code == 200:
+                            price = r.json()["chart"]["result"][0]["meta"]["regularMarketPrice"]
+                            hit = (a["direction"] == "above" and price >= a["target"]) or \
+                                  (a["direction"] == "below" and price <= a["target"])
+                            if hit:
+                                triggered.append({**a, "current_price": price})
+                            else:
+                                remaining.append(a)
+                        else:
+                            remaining.append(a)
+                    except Exception:
+                        remaining.append(a)
+                if triggered:
+                    _save_user_data({"price_alerts": remaining})
+                    # Send notification via existing alerts endpoint
+                    s = data.get("alertSettings_v1") or {}
+                    if isinstance(s, str):
+                        try: s = json.loads(s)
+                        except Exception: s = {}
+                    email = s.get("email", "")
+                    line_token = s.get("lineToken", "") or os.environ.get("LINE_NOTIFY_TOKEN", "")
+                    signals = [{"symbol": a["symbol"],
+                                "note": f"價格警報：{'高於' if a['direction']=='above' else '低於'} "
+                                        f"${a['target']} (現價 ${a['current_price']:.2f})"
+                                        f"{' — '+a['note'] if a.get('note') else ''}"}
+                               for a in triggered]
+                    if email or line_token:
+                        with app.app_context():
+                            _req.post(
+                                "http://localhost:" + str(int(os.environ.get("PORT", 8080))),
+                                timeout=5)
+                        # Use internal send logic directly
+                        try:
+                            _send_alerts_internal(signals, email, line_token)
+                        except Exception:
+                            pass
+                    print(f"[PRICE ALERT] Triggered: {[a['symbol'] for a in triggered]}", flush=True)
+        except Exception:
+            pass
+        _time.sleep(600)  # 10 minutes
+
+def _send_alerts_internal(signals, email, line_token):
+    """Shared alert sending logic (reused by price alert checker)."""
+    msg_lines = ["📊 Scott 價格警報"] + [f"  • {s['symbol']}: {s['note']}" for s in signals]
+    msg = "\n".join(msg_lines)
+    if line_token:
+        _req.post("https://notify-api.line.me/api/notify",
+                  headers={"Authorization": f"Bearer {line_token}"},
+                  data={"message": "\n" + msg}, timeout=10)
+    if email:
+        smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.environ.get("SMTP_PORT", 587))
+        smtp_user = os.environ.get("SMTP_USER", "")
+        smtp_pass = os.environ.get("SMTP_PASS", "")
+        if smtp_user and smtp_pass:
+            import smtplib, email.mime.text as _emt
+            m = _emt.MIMEText(msg, "plain", "utf-8")
+            m["Subject"] = "📊 Scott 價格警報"
+            m["From"] = smtp_user
+            m["To"] = email
+            with smtplib.SMTP(smtp_host, smtp_port) as srv:
+                srv.starttls()
+                srv.login(smtp_user, smtp_pass)
+                srv.sendmail(smtp_user, [email], m.as_string())
+
+_price_alert_thread = _threading.Thread(target=_run_price_alert_checker, daemon=True)
+_price_alert_thread.start()
 
 
 # ── Alerts endpoint ────────────────────────────────────────────────────────────
