@@ -468,6 +468,394 @@ def _fetch_ohlcv_twse(symbol: str) -> dict | None:
     return None   # both TSE and TPEX failed
 
 
+# ── Taiwan Stock 100-Point Momentum Score ─────────────────────────────────────
+
+_TW_INST_CACHE: dict = {}   # date_str → {stock_no: {foreign, trust}}
+_TW_MARG_CACHE: dict = {}   # date_str → {stock_no: {balance, short, buy, sell}}
+_TW_ATTN_CACHE: dict = {"ts": 0.0, "stocks": set()}
+_TW_CACHE_LOCK  = _threading.Lock()
+_TW_CACHE_TTL   = 6 * 3600  # 6 h
+
+
+def _tw_recent_dates(n: int = 7) -> list:
+    """Return last n weekday YYYYMMDD strings (newest first)."""
+    from datetime import date as _date, timedelta as _td
+    result, d = [], _date.today()
+    while len(result) < n:
+        if d.weekday() < 5:
+            result.append(d.strftime("%Y%m%d"))
+        d -= _td(days=1)
+    return result
+
+
+def _fetch_tw_inst_bulk(date_str: str) -> dict:
+    """Fetch TWSE T86 (all stocks institutional net buy) for one date."""
+    with _TW_CACHE_LOCK:
+        if date_str in _TW_INST_CACHE:
+            return _TW_INST_CACHE[date_str]
+    hdrs = {"User-Agent": "Mozilla/5.0 (compatible; Scott/1.0)"}
+    out: dict = {}
+    try:
+        r = _req.get(
+            "https://www.twse.com.tw/rwd/zh/fund/T86",
+            params={"date": date_str, "selectType": "ALLBUT0999", "response": "json"},
+            headers=hdrs, timeout=12,
+        )
+        if r.status_code == 200:
+            for row in r.json().get("data", []):
+                if len(row) < 8:
+                    continue
+                sn = str(row[0]).strip()
+                def _int(s):
+                    try: return int(str(s).replace(",", "").replace("+", "") or 0)
+                    except ValueError: return 0
+                out[sn] = {"foreign": _int(row[4]), "trust": _int(row[7])}
+    except Exception:
+        pass
+    with _TW_CACHE_LOCK:
+        _TW_INST_CACHE[date_str] = out
+    return out
+
+
+def _fetch_tw_marg_bulk(date_str: str) -> dict:
+    """Fetch TWSE margin trading data for one date."""
+    with _TW_CACHE_LOCK:
+        if date_str in _TW_MARG_CACHE:
+            return _TW_MARG_CACHE[date_str]
+    hdrs = {"User-Agent": "Mozilla/5.0 (compatible; Scott/1.0)"}
+    out: dict = {}
+    try:
+        r = _req.get(
+            "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN",
+            params={"date": date_str, "selectType": "STOCK", "response": "json"},
+            headers=hdrs, timeout=12,
+        )
+        if r.status_code == 200:
+            for row in r.json().get("data", []):
+                if len(row) < 12:
+                    continue
+                sn = str(row[0]).strip()
+                def _int(s):
+                    try: return int(str(s).replace(",", "") or 0)
+                    except ValueError: return 0
+                out[sn] = {
+                    "balance": _int(row[5]),
+                    "short":   _int(row[10]),
+                    "buy":     _int(row[2]),
+                    "sell":    _int(row[3]),
+                }
+    except Exception:
+        pass
+    with _TW_CACHE_LOCK:
+        _TW_MARG_CACHE[date_str] = out
+    return out
+
+
+def _get_attention_stocks() -> set:
+    """Return TWSE attention / disposal stock numbers (cached 6h)."""
+    now = _time.time()
+    with _TW_CACHE_LOCK:
+        if now - _TW_ATTN_CACHE["ts"] < _TW_CACHE_TTL:
+            return _TW_ATTN_CACHE["stocks"].copy()
+    stocks: set = set()
+    try:
+        r = _req.get(
+            "https://www.twse.com.tw/rwd/zh/announcement/attention",
+            params={"response": "json"},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; Scott/1.0)"},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            for row in r.json().get("data", []):
+                if row and row[0]:
+                    stocks.add(str(row[0]).strip())
+    except Exception:
+        pass
+    with _TW_CACHE_LOCK:
+        _TW_ATTN_CACHE.update({"ts": now, "stocks": stocks})
+    return stocks
+
+
+def _get_tw_inst_3d(stock_no: str) -> dict:
+    """Aggregate 3-day institutional net buy/sell for stock_no (parallel fetch)."""
+    dates = _tw_recent_dates(6)
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        bulks = list(ex.map(_fetch_tw_inst_bulk, dates))
+    foreign = trust = days = 0
+    for bulk in bulks:
+        if stock_no in bulk:
+            foreign += bulk[stock_no]["foreign"]
+            trust   += bulk[stock_no]["trust"]
+            days    += 1
+        if days >= 3:
+            break
+    return {"foreign_3d": foreign, "trust_3d": trust, "days": days}
+
+
+def _get_tw_marg(stock_no: str) -> dict:
+    """Get latest available margin trading data for stock_no."""
+    for d in _tw_recent_dates(5):
+        bulk = _fetch_tw_marg_bulk(d)
+        if stock_no in bulk:
+            return bulk[stock_no]
+    return {}
+
+
+def _sma(series: list, n: int) -> float:
+    valid = [v for v in series[-n:] if v]
+    return sum(valid) / len(valid) if valid else 0.0
+
+
+def _check_ej_pattern(closes: list, highs: list, volumes: list) -> bool:
+    """Heuristic 隔日沖: volume spike day followed by next-day close < prev close, 2+ times in 5 days."""
+    if len(closes) < 6 or len(volumes) < 6:
+        return False
+    avg = _sma(volumes, 20) or _sma(volumes, len(volumes))
+    if not avg:
+        return False
+    count = 0
+    for i in range(-5, -1):
+        try:
+            if volumes[i] > avg * 2.5 and closes[i + 1] < closes[i] * 0.985:
+                count += 1
+        except IndexError:
+            continue
+    return count >= 2
+
+
+def _calc_tw_score(symbol: str) -> dict | None:
+    """Calculate 100-point Taiwan stock momentum score (量價45 + 籌碼35 + 基本面20)."""
+    stock_no = symbol.upper().replace(".TWO", "").replace(".TW", "").strip()
+    if not stock_no.isdigit():
+        return None
+
+    ohlcv = _fetch_ohlcv_twse(symbol)
+    if not ohlcv:
+        return None
+
+    res    = ohlcv["chart"]["result"][0]
+    meta   = res["meta"]
+    q      = res["indicators"]["quote"][0]
+    closes  = [v for v in q.get("close",  []) if v]
+    opens   = [v for v in q.get("open",   []) if v]
+    highs   = [v for v in q.get("high",   []) if v]
+    lows    = [v for v in q.get("low",    []) if v]
+    volumes = [v for v in q.get("volume", []) if v]
+    n = min(len(closes), len(opens), len(highs), len(lows), len(volumes))
+    if n < 20:
+        return None
+    closes = closes[-n:]; opens = opens[-n:]; highs = highs[-n:]
+    lows   = lows[-n:];   volumes = volumes[-n:]
+
+    # ── 1. 量價分 45 ────────────────────────────────────────────────────────
+    vp = 0
+    avg5  = _sma(volumes,  5)
+    avg20 = _sma(volumes, 20)
+    today_vol = volumes[-1]
+    vol_ratio = today_vol / avg5 if avg5 > 0 else 1.0
+
+    if   vol_ratio >= 3.0: vs = 15
+    elif vol_ratio >= 2.0: vs = 11
+    elif vol_ratio >= 1.5: vs =  8
+    elif vol_ratio >= 1.0: vs =  5
+    else:                  vs =  1
+    vp += vs
+
+    h20 = max(highs[-20:])
+    if   closes[-1] >  h20:          b20_pts = 10
+    elif closes[-1] >= h20 * 0.97:   b20_pts =  6
+    else:                             b20_pts =  0
+    vp += b20_pts
+
+    if len(highs) >= 60:
+        h60 = max(highs[-60:])
+        if   closes[-1] >  h60:         b60_pts = 10
+        elif closes[-1] >= h60 * 0.97:  b60_pts =  6
+        else:                            b60_pts =  0
+        broke60 = closes[-1] > h60
+    else:
+        b60_pts = 5      # insufficient data → neutral
+        broke60 = None
+        h60 = None
+    vp += b60_pts
+
+    ma5  = _sma(closes,  5)
+    ma10 = _sma(closes, 10)
+    ma20 = _sma(closes, 20)
+    ma60 = _sma(closes, min(60, n))
+    ma_pts = (3 if ma5 > ma10 else 0) + (3 if ma10 > ma20 else 0) + (4 if ma20 > ma60 else 0)
+    vp += ma_pts
+
+    # ── 2. 籌碼分 35 ────────────────────────────────────────────────────────
+    inst   = _get_tw_inst_3d(stock_no)
+    marg   = _get_tw_marg(stock_no)
+    f3d    = inst.get("foreign_3d", 0)
+    t3d    = inst.get("trust_3d",   0)
+    m_bal  = marg.get("balance", 0)
+    m_sht  = marg.get("short",   0)
+    m_buy  = marg.get("buy",     0)
+
+    chip = 0
+    if   f3d >  5000: chip += 12
+    elif f3d >  1000: chip +=  9
+    elif f3d >   300: chip +=  6
+    elif f3d >     0: chip +=  3
+    elif f3d < -1000: chip -=  4
+
+    if   t3d >  1000: chip += 12
+    elif t3d >   300: chip +=  9
+    elif t3d >    50: chip +=  6
+    elif t3d >     0: chip +=  3
+    elif t3d <  -300: chip -=  4
+
+    if m_buy > 0:
+        chip += 3
+    squeeze = False
+    if m_bal > 0 and m_sht > 0:
+        sq_ratio = m_sht / m_bal
+        if sq_ratio > 0.15:
+            chip += 5
+            squeeze = True
+
+    no_chip_data = inst.get("days", 0) == 0
+    if no_chip_data:
+        chip = max(chip, 14)   # neutral fallback
+
+    # ── 3. 基本面 proxy 20 ──────────────────────────────────────────────────
+    if n >= 120:
+        ma120  = _sma(closes, 120)
+        pct120 = (closes[-1] - ma120) / ma120 * 100 if ma120 else 0
+        if   pct120 >  20: fund = 18
+        elif pct120 >  10: fund = 15
+        elif pct120 >   0: fund = 12
+        elif pct120 >  -5: fund =  8
+        else:              fund =  4
+        fund_note = f"距120日均線 {pct120:+.1f}%"
+    elif n >= 60:
+        ma60l  = _sma(closes, 60)
+        pct60  = (closes[-1] - ma60l) / ma60l * 100 if ma60l else 0
+        fund   = 15 if pct60 > 10 else 11 if pct60 > 0 else 7
+        fund_note = f"距60日均線 {pct60:+.1f}%"
+    else:
+        fund = 10
+        fund_note = "資料不足，使用中性值"
+
+    # ── 4. 排雷扣分 ─────────────────────────────────────────────────────────
+    deductions: list = []
+    warnings:   list = []
+
+    if avg20 > 0:
+        body   = abs(closes[-1] - opens[-1])
+        u_shad = highs[-1] - max(closes[-1], opens[-1])
+        if today_vol > avg20 * 2.0 and body > 0 and u_shad > body * 1.5:
+            deductions.append({"type": "爆量長上影線", "pts": -15, "icon": "🕯️"})
+
+    if n >= 4:
+        p3  = closes[-4] or closes[-1]
+        g3  = (closes[-1] - p3) / p3 * 100 if p3 else 0
+        if g3 > 25:
+            deductions.append({"type": f"短線過熱 {g3:.1f}%/3日", "pts": -10, "icon": "🔥"})
+        elif g3 > 15:
+            deductions.append({"type": f"漲勢偏快 {g3:.1f}%/3日", "pts":  -5, "icon": "⚡"})
+
+    if stock_no in _get_attention_stocks():
+        deductions.append({"type": "官方注意股", "pts": -15, "icon": "⛔"})
+        warnings.append("官方注意股")
+
+    if _check_ej_pattern(closes, highs, volumes):
+        deductions.append({"type": "疑似隔日沖分點污染", "pts": -8, "icon": "⚠"})
+        warnings.append("隔日沖")
+
+    # ── 5. 位階 52週 ─────────────────────────────────────────────────────────
+    n252  = min(252, len(highs))
+    hi52  = max(highs[-n252:])
+    lo52  = min(lows[-n252:])
+    rng   = hi52 - lo52
+    pos   = (closes[-1] - lo52) / rng * 100 if rng > 0 else 50.0
+    if pos < 33:
+        tier = {"label": "低位啟動", "color": "#3fb950", "icon": "🟢", "pct": round(pos, 1)}
+    elif pos < 66:
+        tier = {"label": "中位整理", "color": "#e3b341", "icon": "🟡", "pct": round(pos, 1)}
+    else:
+        tier = {"label": "高位謹慎", "color": "#f85149", "icon": "🔴", "pct": round(pos, 1)}
+
+    # ── 6. 總分 & 操作等級 ───────────────────────────────────────────────────
+    deduct = sum(d["pts"] for d in deductions)
+    raw    = min(vp, 45) + min(chip, 35) + min(fund, 20)
+    final  = max(0, min(100, raw + deduct))
+
+    if   final >= 85: level = {"grade": "A+", "label": "強力買進", "color": "#3fb950", "icon": "🔥"}
+    elif final >= 70: level = {"grade": "A",  "label": "值得關注", "color": "#58a6ff", "icon": "✅"}
+    elif final >= 55: level = {"grade": "B",  "label": "觀察等待", "color": "#e3b341", "icon": "👀"}
+    elif final >= 40: level = {"grade": "C",  "label": "謹慎操作", "color": "#f0883e", "icon": "⚠️"}
+    else:             level = {"grade": "D",  "label": "建議迴避", "color": "#f85149", "icon": "❌"}
+    if "隔日沖" in warnings:
+        level["ej"] = True
+
+    return {
+        "symbol":   symbol.upper(),
+        "longName": meta.get("longName", symbol),
+        "price":    closes[-1],
+        "score":    final,
+        "tier":     tier,
+        "level":    level,
+        "breakdown": {
+            "vol_price": {
+                "score": min(vp, 45), "max": 45,
+                "items": [
+                    {"label": "量比放大",    "pts": vs,     "detail": f"今量/{5}日均 = {vol_ratio:.1f}x"},
+                    {"label": "突破20日高",  "pts": b20_pts, "detail": f"20日高 = {h20:.2f}"},
+                    {"label": "突破60日高",  "pts": b60_pts, "detail": f"60日高 = {h60:.2f}" if h60 else "資料不足"},
+                    {"label": "均線多頭排列","pts": ma_pts,  "detail": f"5>{'>'.join(['10'] if ma5>ma10 else [])} 10>{'>'.join(['20'] if ma10>ma20 else [])} 20>{'>'.join(['60'] if ma20>ma60 else [])}"},
+                ],
+            },
+            "chip": {
+                "score": min(chip, 35), "max": 35,
+                "items": [
+                    {"label": "外資近3日",  "pts": min(12,max(-4,(12 if f3d>5000 else 9 if f3d>1000 else 6 if f3d>300 else 3 if f3d>0 else -4))), "detail": f"{f3d:+,} 張" if not no_chip_data else "資料未取得"},
+                    {"label": "投信近3日",  "pts": min(12,max(-4,(12 if t3d>1000 else 9 if t3d>300 else 6 if t3d>50 else 3 if t3d>0 else -4))), "detail": f"{t3d:+,} 張" if not no_chip_data else "資料未取得"},
+                    {"label": "融資動向",   "pts": 3 if m_buy > 0 else 0, "detail": f"融資餘額 {m_bal:,} 張"},
+                    {"label": "軋空潛力",   "pts": 5 if squeeze else 0,   "detail": "券資比高，軋空動能" if squeeze else "無明顯軋空"},
+                ],
+            },
+            "fundamental": {
+                "score": min(fund, 20), "max": 20,
+                "items": [
+                    {"label": "中長期趨勢", "pts": fund, "detail": fund_note},
+                ],
+            },
+        },
+        "deductions": deductions,
+        "warnings":   warnings,
+        "meta": {
+            "vol_ratio": round(vol_ratio, 2),
+            "ma5":   round(ma5,  2),
+            "ma20":  round(ma20, 2),
+            "ma60":  round(ma60, 2),
+            "hi52w": round(hi52, 2),
+            "lo52w": round(lo52, 2),
+        },
+    }
+
+
+@app.route("/api/tw-score/<symbol>")
+def tw_score_api(symbol):
+    auth = _require_auth()
+    if auth:
+        return auth
+    sym = symbol.upper()
+    if not (sym.endswith(".TW") or sym.endswith(".TWO")):
+        return jsonify({"error": "only .TW / .TWO symbols supported"}), 400
+    try:
+        data = _calc_tw_score(sym)
+        if not data:
+            return jsonify({"error": "data unavailable"}), 503
+        return jsonify(data)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 # ── Alpha Vantage OHLCV helper ────────────────────────────────────────────────
 
 def _fetch_ohlcv_alpha_vantage(symbol: str, av_key: str) -> dict | None:

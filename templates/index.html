@@ -1005,6 +1005,37 @@ tbody td{padding:9px 10px}
     </div>
     <div class="ph" id="ph"></div>
 
+    <!-- Taiwan Stock Momentum Score Panel -->
+    <div id="tw-score-panel" style="display:none;margin-bottom:14px">
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <span style="font-size:.95rem;font-weight:700;color:var(--text)">📊 台股動能評分</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="tw-tier-badge" style="font-size:.78rem;padding:3px 10px;border-radius:20px;font-weight:700"></span>
+            <span id="tw-score-num" style="font-size:2rem;font-weight:900;line-height:1"></span>
+            <span style="font-size:.7rem;color:var(--muted)">/100</span>
+          </div>
+        </div>
+        <!-- Level badge -->
+        <div id="tw-level-row" style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span id="tw-level-badge" style="font-size:.88rem;font-weight:700;padding:5px 14px;border-radius:8px"></span>
+          <span id="tw-ej-warning" style="display:none;font-size:.78rem;background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.4);padding:3px 10px;border-radius:6px;font-weight:700">⚠ 疑似隔日沖污染</span>
+        </div>
+        <!-- Score bar breakdown -->
+        <div id="tw-breakdown" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px"></div>
+        <!-- Deductions -->
+        <div id="tw-deductions" style="display:none;margin-bottom:12px">
+          <div style="font-size:.78rem;font-weight:600;color:var(--muted);margin-bottom:6px">排雷警示</div>
+          <div id="tw-deduction-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        </div>
+        <!-- Detail items expandable -->
+        <details style="margin-top:6px">
+          <summary style="font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none">▶ 詳細評分明細</summary>
+          <div id="tw-detail-table" style="margin-top:10px"></div>
+        </details>
+      </div>
+    </div>
+
     <!-- Extended Hours + Opening Signal Panels -->
     <div id="ext-panel" style="display:none">
       <div class="ext-panel">
@@ -3142,6 +3173,7 @@ async function search(sym) {
     updateFavBtn();
     loadRS(d.symbol);
     loadMTF(d.symbol);
+    loadTwScore(d.symbol);  // Taiwan momentum score (no-op for non-TW)
   } catch (e) {
     document.getElementById('loading').style.display = 'none';
     const em = document.getElementById('errmsg');
@@ -7230,6 +7262,117 @@ function renderKlineChartWithFib(bars) {
 
 // ══════════════════════════════════════════════════════
 // Feature 6: Earnings Calendar
+// ══════════════════════════════════════════════════════
+// Taiwan Stock 100-Point Momentum Score
+// ══════════════════════════════════════════════════════
+
+async function loadTwScore(symbol) {
+  const panel = document.getElementById('tw-score-panel');
+  const sym = (symbol || '').toUpperCase();
+  if (!sym.endsWith('.TW') && !sym.endsWith('.TWO')) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  document.getElementById('tw-score-num').textContent = '…';
+  document.getElementById('tw-breakdown').innerHTML = '<div style="color:var(--muted);font-size:.82rem">載入中…</div>';
+  try {
+    const r = await fetch(`/api/tw-score/${encodeURIComponent(sym)}`);
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+    renderTwScore(data);
+  } catch(e) {
+    document.getElementById('tw-breakdown').innerHTML = `<div style="color:var(--muted);font-size:.82rem">評分載入失敗：${e.message}</div>`;
+    document.getElementById('tw-score-num').textContent = '—';
+  }
+}
+
+function renderTwScore(d) {
+  const scoreEl   = document.getElementById('tw-score-num');
+  const tierBadge = document.getElementById('tw-tier-badge');
+  const levelBadge= document.getElementById('tw-level-badge');
+  const ejWarn    = document.getElementById('tw-ej-warning');
+  const breakdownEl = document.getElementById('tw-breakdown');
+  const deductEl  = document.getElementById('tw-deductions');
+  const deductList= document.getElementById('tw-deduction-list');
+  const detailEl  = document.getElementById('tw-detail-table');
+
+  scoreEl.textContent = d.score;
+  scoreEl.style.color = d.level.color;
+
+  // Tier badge (位階)
+  tierBadge.textContent = `${d.tier.icon} ${d.tier.label} ${d.tier.pct.toFixed(0)}%`;
+  tierBadge.style.cssText = `background:${d.tier.color}22;color:${d.tier.color};border:1px solid ${d.tier.color}66;font-size:.78rem;padding:3px 10px;border-radius:20px;font-weight:700`;
+
+  // Level badge (操作等級)
+  levelBadge.textContent = `${d.level.icon} ${d.level.grade}  ${d.level.label}`;
+  levelBadge.style.cssText = `background:${d.level.color}22;color:${d.level.color};border:1px solid ${d.level.color}55;font-size:.88rem;font-weight:700;padding:5px 14px;border-radius:8px`;
+
+  // 隔日沖警告
+  ejWarn.style.display = d.level.ej ? 'inline-flex' : 'none';
+
+  // Score bars
+  const cats = [
+    { key: 'vol_price',    label: '量價', color: '#58a6ff' },
+    { key: 'chip',         label: '籌碼', color: '#3fb950' },
+    { key: 'fundamental',  label: '基本面', color: '#e3b341' },
+  ];
+  breakdownEl.innerHTML = cats.map(c => {
+    const bd = d.breakdown[c.key];
+    const pct = bd.score / bd.max * 100;
+    const deductItem = c.key === 'vol_price' && d.deductions.length > 0
+      ? `<span style="font-size:.7rem;color:#f85149;margin-left:6px">-${Math.abs(d.deductions.reduce((a,b)=>a+b.pts,0))} 扣分</span>` : '';
+    return `<div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+        <span style="font-size:.8rem;color:var(--muted)">${c.label} <span style="font-size:.72rem">(滿${bd.max})</span></span>
+        <span style="font-size:.85rem;font-weight:700;color:${c.color}">${bd.score}${c.key==='vol_price'?deductItem:''}</span>
+      </div>
+      <div style="background:rgba(255,255,255,.07);border-radius:4px;height:7px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${c.color};border-radius:4px;transition:width .6s ease"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Deductions
+  if (d.deductions && d.deductions.length > 0) {
+    deductEl.style.display = 'block';
+    deductList.innerHTML = d.deductions.map(dd =>
+      `<span style="background:rgba(248,81,73,.12);color:#f85149;border:1px solid rgba(248,81,73,.35);
+        padding:3px 10px;border-radius:6px;font-size:.78rem;font-weight:600">
+        ${dd.icon} ${dd.type} <b>${dd.pts}</b>
+      </span>`
+    ).join('');
+  } else {
+    deductEl.style.display = 'none';
+  }
+
+  // Detail table
+  const allItems = [
+    ...d.breakdown.vol_price.items.map(i => ({...i, cat: '量價'})),
+    ...d.breakdown.chip.items.map(i => ({...i, cat: '籌碼'})),
+    ...d.breakdown.fundamental.items.map(i => ({...i, cat: '基本面'})),
+  ];
+  detailEl.innerHTML = `<table style="width:100%;font-size:.8rem;border-collapse:collapse">
+    <thead><tr style="color:var(--muted);border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:4px 6px">類別</th>
+      <th style="text-align:left;padding:4px 6px">項目</th>
+      <th style="text-align:right;padding:4px 6px">得分</th>
+      <th style="text-align:left;padding:4px 6px">說明</th>
+    </tr></thead>
+    <tbody>${allItems.map(it => `<tr style="border-bottom:1px solid rgba(255,255,255,.04)">
+      <td style="padding:4px 6px;color:var(--muted)">${it.cat}</td>
+      <td style="padding:4px 6px">${it.label}</td>
+      <td style="padding:4px 6px;text-align:right;font-weight:700;color:${it.pts>0?'#3fb950':it.pts<0?'#f85149':'var(--muted)'}">${it.pts>0?'+':''}${it.pts}</td>
+      <td style="padding:4px 6px;color:var(--muted);font-size:.75rem">${it.detail || ''}</td>
+    </tr>`).join('')}</tbody>
+  </table>
+  <div style="margin-top:8px;font-size:.74rem;color:var(--muted)">
+    52週範圍：低 ${d.meta.lo52w} ～ 高 ${d.meta.hi52w}
+    MA5 ${d.meta.ma5}  MA20 ${d.meta.ma20}  MA60 ${d.meta.ma60}
+    量比 ${d.meta.vol_ratio}x
+  </div>`;
+}
+
 // ══════════════════════════════════════════════════════
 
 async function loadEarnings(symbol) {
