@@ -4447,6 +4447,7 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
     const rsiBadge = !tags.length ? `<span class="mct mct-info">RSI ${(d.indicators?.rsi||0).toFixed(0)}</span>` : '';
     const hasNote  = !!_notes[d.symbol];
     const hasAlert = _priceAlerts.some(a => a.symbol === d.symbol);
+    const isTW = d.symbol.endsWith('.TW') || d.symbol.endsWith('.TWO');
     return `<div class="auto-rec-card ${cls}" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div>
@@ -4454,6 +4455,7 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
           <div class="arc-price">${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
         </div>
         <div style="text-align:right;flex-shrink:0">
+          ${isTW ? `<div id="tws-${d.symbol}" style="display:none;font-size:.65rem;font-weight:700;margin-bottom:3px;padding:2px 7px;border-radius:5px"></div>` : ''}
           <div style="font-size:1.45rem;font-weight:900;color:${scoreClr};line-height:1">${scoreVal}</div>
           <div style="font-size:.6rem;color:var(--muted)">${lbl}</div>
         </div>
@@ -4553,6 +4555,11 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
       if (el) loadEarnings(d.symbol, el);
     }, i * 150);
   });
+
+  // Load TW momentum score badges for Taiwan stocks
+  const twSyms = scored.filter(d => d.symbol.endsWith('.TW') || d.symbol.endsWith('.TWO'))
+                       .map(d => d.symbol).slice(0, 12);
+  if (twSyms.length) _loadTwScoreBadges(twSyms);
 }
 
 // ══════════════════════════════════════════════════════
@@ -7265,6 +7272,27 @@ function renderKlineChartWithFib(bars) {
 // ══════════════════════════════════════════════════════
 // Taiwan Stock 100-Point Momentum Score
 // ══════════════════════════════════════════════════════
+
+// Staggered batch loader for arcCard badges
+async function _loadTwScoreBadges(symbols) {
+  for (let i = 0; i < symbols.length; i++) {
+    const sym = symbols[i];
+    await new Promise(r => setTimeout(r, i === 0 ? 300 : 600)); // stagger requests
+    try {
+      const r = await fetch(`/api/tw-score/${encodeURIComponent(sym)}`);
+      if (!r.ok) continue;
+      const d = await r.json();
+      if (d.score == null) continue;
+      const el = document.getElementById('tws-' + sym);
+      if (!el) continue;
+      el.textContent = `台股 ${d.score} ${d.level.icon}`;
+      el.style.cssText = `display:block;font-size:.65rem;font-weight:700;margin-bottom:3px;
+        padding:2px 7px;border-radius:5px;text-align:center;
+        background:${d.level.color}22;color:${d.level.color};border:1px solid ${d.level.color}44`;
+      el.title = `${d.tier.icon}${d.tier.label} | ${d.level.label}${d.level.ej ? ' ⚠隔日沖' : ''}`;
+    } catch(e) { /* best-effort */ }
+  }
+}
 
 async function loadTwScore(symbol) {
   const panel = document.getElementById('tw-score-panel');

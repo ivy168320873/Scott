@@ -56,33 +56,62 @@ def _record_fail(ip: str):
 def _reset_attempts(ip: str):
     _login_attempts.pop(ip, None)
 
-# ── User data persistence (cross-device sync) ─────────────────────────────────
+# ── User data persistence (SQLite, cross-device sync) ─────────────────────────
 import threading as _threading
+import sqlite3 as _sqlite3
 
-_USER_DATA_FILE  = os.environ.get("USER_DATA_FILE", "./user_data.json")
-_user_data_lock  = _threading.Lock()
-_user_data_mem: dict = {}
+_USER_DATA_DB   = os.environ.get("USER_DATA_DB",   "./user_data.db")
+_USER_DATA_FILE = os.environ.get("USER_DATA_FILE", "./user_data.json")  # legacy, migrate only
+_user_data_lock = _threading.Lock()
+_user_data_mem: dict = {}   # in-memory read cache
+
+
+def _init_user_db():
+    """Create SQLite table; migrate from legacy JSON on first run."""
+    global _user_data_mem
+    con = _sqlite3.connect(_USER_DATA_DB, check_same_thread=False)
+    con.execute("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, ts TEXT)")
+    con.commit()
+    if con.execute("SELECT COUNT(*) FROM kv").fetchone()[0] == 0:
+        try:
+            with open(_USER_DATA_FILE, "r", encoding="utf-8") as f:
+                old = json.load(f)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for k, v in old.items():
+                con.execute("INSERT OR IGNORE INTO kv(key,value,ts) VALUES(?,?,?)",
+                            (k, json.dumps(v, ensure_ascii=False), now_iso))
+            con.commit()
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+    _user_data_mem = {r[0]: json.loads(r[1])
+                      for r in con.execute("SELECT key,value FROM kv")}
+    con.close()
+
+
+try:
+    _init_user_db()
+except Exception:
+    traceback.print_exc()
+
 
 def _load_user_data() -> dict:
-    global _user_data_mem
-    if _user_data_mem:
-        return dict(_user_data_mem)
-    try:
-        with open(_USER_DATA_FILE, "r", encoding="utf-8") as f:
-            _user_data_mem = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        _user_data_mem = {}
     return dict(_user_data_mem)
+
 
 def _save_user_data(patch: dict):
     global _user_data_mem
+    now_iso = datetime.now(timezone.utc).isoformat()
     with _user_data_lock:
         _user_data_mem.update(patch)
         try:
-            with open(_USER_DATA_FILE, "w", encoding="utf-8") as f:
-                json.dump(_user_data_mem, f, ensure_ascii=False, indent=2)
+            con = _sqlite3.connect(_USER_DATA_DB, check_same_thread=False)
+            for k, v in patch.items():
+                con.execute("INSERT OR REPLACE INTO kv(key,value,ts) VALUES(?,?,?)",
+                            (k, json.dumps(v, ensure_ascii=False), now_iso))
+            con.commit()
+            con.close()
         except Exception:
-            pass  # best-effort write
+            traceback.print_exc()
 
 def _hash(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
@@ -335,12 +364,21 @@ YAHOO_HEADERS = {
 
 # ── TWSE / TPEX fallback for Taiwan stocks ────────────────────────────────────
 
+_TW_OHLCV_CACHE: dict = {}   # symbol → {"ts": float, "data": dict}
+_TW_OHLCV_TTL   = 30 * 60   # 30 minutes
+
+
 def _fetch_ohlcv_twse(symbol: str) -> dict | None:
     """
     Fetch daily OHLCV from TWSE (上市) or TPEX (上櫃) for .TW / .TWO stocks.
     Uses official open-data APIs; fetches 14 months in parallel.
-    Returns Yahoo-format dict or None on failure.
+    Returns Yahoo-format dict or None on failure. Results cached 30 min.
     """
+    sym_key = symbol.upper()
+    cached = _TW_OHLCV_CACHE.get(sym_key)
+    if cached and _time.time() - cached["ts"] < _TW_OHLCV_TTL:
+        return cached["data"]
+
     stock_no = symbol.upper().replace(".TWO", "").replace(".TW", "").strip()
     if not stock_no.isdigit():
         return None
@@ -440,7 +478,7 @@ def _fetch_ohlcv_twse(symbol: str) -> dict | None:
 
         last_close = c_[-1]
         prev_close = c_[-2] if len(c_) >= 2 else last_close
-        return {
+        _result = {
             "chart": {
                 "result": [{
                     "meta": {
@@ -465,16 +503,21 @@ def _fetch_ohlcv_twse(symbol: str) -> dict | None:
                 "error": None,
             }
         }
+        _TW_OHLCV_CACHE[symbol.upper()] = {"ts": _time.time(), "data": _result}
+        return _result
     return None   # both TSE and TPEX failed
 
 
 # ── Taiwan Stock 100-Point Momentum Score ─────────────────────────────────────
 
-_TW_INST_CACHE: dict = {}   # date_str → {stock_no: {foreign, trust}}
-_TW_MARG_CACHE: dict = {}   # date_str → {stock_no: {balance, short, buy, sell}}
-_TW_ATTN_CACHE: dict = {"ts": 0.0, "stocks": set()}
-_TW_CACHE_LOCK  = _threading.Lock()
-_TW_CACHE_TTL   = 6 * 3600  # 6 h
+_TW_INST_CACHE:  dict = {}   # date_str → {stock_no: {foreign, trust}}
+_TW_MARG_CACHE:  dict = {}   # date_str → {stock_no: {balance, short, buy, sell}}
+_TW_ATTN_CACHE:  dict = {"ts": 0.0, "stocks": set()}
+_TW_FUND_CACHE:  dict = {}   # stock_no → {per, pbr, div_yield, rev_yoy, ts}
+_TW_SCORE_CACHE: dict = {}   # symbol → {"ts": float, "data": dict}
+_TW_CACHE_LOCK   = _threading.Lock()
+_TW_CACHE_TTL    = 6 * 3600   # 6 h
+_TW_SCORE_TTL    = 30 * 60    # 30 min
 
 
 def _tw_recent_dates(n: int = 7) -> list:
@@ -576,6 +619,85 @@ def _get_attention_stocks() -> set:
     return stocks
 
 
+def _fetch_tw_fundamental(stock_no: str, is_otc: bool = False) -> dict:
+    """
+    Fetch PE ratio, PBR, dividend yield from TWSE/TPEX openapi,
+    and monthly revenue YoY from MOPS.  Results cached 12 hours.
+    """
+    import re as _re
+    now = _time.time()
+    with _TW_CACHE_LOCK:
+        cached = _TW_FUND_CACHE.get(stock_no)
+        if cached and now - cached.get("ts", 0) < 12 * 3600:
+            return cached
+
+    hdrs = {"User-Agent": "Mozilla/5.0 (compatible; Scott/1.0)"}
+    result: dict = {"per": None, "pbr": None, "div_yield": None, "rev_yoy": None, "rev_mom": None}
+
+    # ── PE / PBR / yield ────────────────────────────────────────────────────
+    try:
+        if not is_otc:
+            r = _req.get("https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL",
+                         headers=hdrs, timeout=10)
+        else:
+            r = _req.get("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis",
+                         headers=hdrs, timeout=10)
+        if r.status_code == 200:
+            code_key = "Code" if not is_otc else "SecuritiesCompanyCode"
+            per_key  = "PER"  if not is_otc else "PE_ratio"
+            pbr_key  = "PBR"  if not is_otc else "PB_ratio"
+            dy_key   = "DividendYield" if not is_otc else "Dividend_yield"
+            for item in r.json():
+                if str(item.get(code_key, "")).strip() == stock_no:
+                    def _f(k):
+                        try: return float(str(item.get(k,"") or "").replace(",","")) or None
+                        except ValueError: return None
+                    result["per"]      = _f(per_key)
+                    result["pbr"]      = _f(pbr_key)
+                    result["div_yield"]= _f(dy_key)
+                    break
+    except Exception:
+        pass
+
+    # ── Monthly revenue YoY from MOPS ───────────────────────────────────────
+    try:
+        from datetime import date as _date
+        today    = _date.today()
+        roc_year = today.year - 1911
+        month    = today.month - 1 or 12
+        if month == 12:
+            roc_year -= 1
+        typek = "otc" if is_otc else "sii"
+        r = _req.post(
+            "https://mops.twse.com.tw/mops/web/ajax_t05st10_ifrs",
+            data={
+                "encodeURIComponent": "1", "step": "1", "firstin": "1",
+                "off": "1", "isQuery": "Y",
+                "TYPEK": typek,
+                "year": str(roc_year),
+                "month": f"{month:02d}",
+                "co_id": stock_no,
+            },
+            headers={**hdrs, "Referer": "https://mops.twse.com.tw/"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            # Extract numeric cells from revenue table; YoY is 7th column, MoM is 6th
+            cells = _re.findall(r'<td[^>]*>\s*([-+]?\d[\d,]*\.?\d*)\s*%?\s*</td>', r.text)
+            if len(cells) >= 7:
+                try: result["rev_mom"] = float(cells[5].replace(",", ""))
+                except (ValueError, IndexError): pass
+                try: result["rev_yoy"] = float(cells[6].replace(",", ""))
+                except (ValueError, IndexError): pass
+    except Exception:
+        pass
+
+    result["ts"] = now
+    with _TW_CACHE_LOCK:
+        _TW_FUND_CACHE[stock_no] = result
+    return result
+
+
 def _get_tw_inst_3d(stock_no: str) -> dict:
     """Aggregate 3-day institutional net buy/sell for stock_no (parallel fetch)."""
     dates = _tw_recent_dates(6)
@@ -625,11 +747,17 @@ def _check_ej_pattern(closes: list, highs: list, volumes: list) -> bool:
 
 def _calc_tw_score(symbol: str) -> dict | None:
     """Calculate 100-point Taiwan stock momentum score (量價45 + 籌碼35 + 基本面20)."""
+    sym_key = symbol.upper()
+    cached  = _TW_SCORE_CACHE.get(sym_key)
+    if cached and _time.time() - cached["ts"] < _TW_SCORE_TTL:
+        return cached["data"]
+
     stock_no = symbol.upper().replace(".TWO", "").replace(".TW", "").strip()
     if not stock_no.isdigit():
         return None
 
-    ohlcv = _fetch_ohlcv_twse(symbol)
+    is_otc = sym_key.endswith(".TWO")
+    ohlcv  = _fetch_ohlcv_twse(symbol)
     if not ohlcv:
         return None
 
@@ -721,24 +849,54 @@ def _calc_tw_score(symbol: str) -> dict | None:
     if no_chip_data:
         chip = max(chip, 14)   # neutral fallback
 
-    # ── 3. 基本面 proxy 20 ──────────────────────────────────────────────────
-    if n >= 120:
-        ma120  = _sma(closes, 120)
-        pct120 = (closes[-1] - ma120) / ma120 * 100 if ma120 else 0
-        if   pct120 >  20: fund = 18
-        elif pct120 >  10: fund = 15
-        elif pct120 >   0: fund = 12
-        elif pct120 >  -5: fund =  8
-        else:              fund =  4
-        fund_note = f"距120日均線 {pct120:+.1f}%"
-    elif n >= 60:
-        ma60l  = _sma(closes, 60)
-        pct60  = (closes[-1] - ma60l) / ma60l * 100 if ma60l else 0
-        fund   = 15 if pct60 > 10 else 11 if pct60 > 0 else 7
-        fund_note = f"距60日均線 {pct60:+.1f}%"
+    # ── 3. 基本面 20 (PE/PBR + MOPS 月營收 YoY) ─────────────────────────────
+    fdata     = _fetch_tw_fundamental(stock_no, is_otc)
+    per       = fdata.get("per")
+    pbr       = fdata.get("pbr")
+    rev_yoy   = fdata.get("rev_yoy")
+    div_yield = fdata.get("div_yield")
+
+    # PE 評分 (0-12分)
+    if per and per > 0:
+        if   per <  10: pe_pts = 12
+        elif per <  15: pe_pts = 10
+        elif per <  20: pe_pts =  8
+        elif per <  30: pe_pts =  5
+        else:           pe_pts =  2
+        pe_note = f"本益比 {per:.1f}x"
     else:
-        fund = 10
-        fund_note = "資料不足，使用中性值"
+        pe_pts  = 6    # neutral
+        pe_note = "本益比資料未取得"
+
+    # PBR + yield 評分 (0-4分)
+    pbr_pts = 0
+    if pbr and pbr > 0:
+        if   pbr < 1.0: pbr_pts = 4
+        elif pbr < 2.0: pbr_pts = 3
+        elif pbr < 3.5: pbr_pts = 2
+        else:           pbr_pts = 1
+    elif div_yield and div_yield > 0:
+        pbr_pts = 3 if div_yield >= 4 else 2 if div_yield >= 2 else 1
+
+    # 月營收 YoY 評分 (0-4分)
+    if rev_yoy is not None:
+        if   rev_yoy >  20: rev_pts = 4
+        elif rev_yoy >  10: rev_pts = 3
+        elif rev_yoy >   0: rev_pts = 2
+        elif rev_yoy > -10: rev_pts = 1
+        else:               rev_pts = 0
+        rev_note = f"月營收 YoY {rev_yoy:+.1f}%"
+    else:
+        rev_pts  = 2   # neutral
+        rev_note = "月營收資料未取得"
+
+    fund      = pe_pts + pbr_pts + rev_pts
+    fund_note = pe_note
+    fund_items = [
+        {"label": "本益比 (PE)",  "pts": pe_pts,  "detail": pe_note},
+        {"label": "股價淨值比",   "pts": pbr_pts, "detail": f"PBR {pbr:.2f}" if pbr else (f"殖利率 {div_yield:.1f}%" if div_yield else "無資料")},
+        {"label": "月營收 YoY",   "pts": rev_pts, "detail": rev_note},
+    ]
 
     # ── 4. 排雷扣分 ─────────────────────────────────────────────────────────
     deductions: list = []
@@ -792,7 +950,7 @@ def _calc_tw_score(symbol: str) -> dict | None:
     if "隔日沖" in warnings:
         level["ej"] = True
 
-    return {
+    _score_result = {
         "symbol":   symbol.upper(),
         "longName": meta.get("longName", symbol),
         "price":    closes[-1],
@@ -821,7 +979,7 @@ def _calc_tw_score(symbol: str) -> dict | None:
             "fundamental": {
                 "score": min(fund, 20), "max": 20,
                 "items": [
-                    {"label": "中長期趨勢", "pts": fund, "detail": fund_note},
+                    *fund_items,
                 ],
             },
         },
@@ -836,6 +994,8 @@ def _calc_tw_score(symbol: str) -> dict | None:
             "lo52w": round(lo52, 2),
         },
     }
+    _TW_SCORE_CACHE[sym_key] = {"ts": _time.time(), "data": _score_result}
+    return _score_result
 
 
 @app.route("/api/tw-score/<symbol>")
