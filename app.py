@@ -333,6 +333,127 @@ YAHOO_HEADERS = {
 }
 
 
+# ── TWSE / TPEX fallback for Taiwan stocks ────────────────────────────────────
+
+def _fetch_ohlcv_twse(symbol: str) -> dict | None:
+    """
+    Fetch daily OHLCV from TWSE (上市) or TPEX (上櫃) for .TW / .TWO stocks.
+    Uses official open-data APIs; fetches 14 months in parallel.
+    Returns Yahoo-format dict or None on failure.
+    """
+    stock_no = symbol.upper().replace(".TWO", "").replace(".TW", "").strip()
+    if not stock_no.isdigit():
+        return None
+
+    from datetime import date as _date
+    today = _date.today()
+
+    # Generate date strings for the last 14 months (YYYYMM01)
+    date_strs: list[str] = []
+    y, m = today.year, today.month
+    for _ in range(14):
+        date_strs.append(f"{y}{m:02d}01")
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+
+    tw_headers = {"User-Agent": "Mozilla/5.0 (compatible; Scott/1.0)"}
+
+    for is_otc in (False, True):
+        def _fetch_month(date_str: str) -> list:
+            try:
+                if not is_otc:
+                    r = _req.get(
+                        "https://www.twse.com.tw/exchangeReport/STOCK_DAY",
+                        params={"response": "json", "date": date_str, "stockNo": stock_no},
+                        headers=tw_headers, timeout=10,
+                    )
+                else:
+                    yy, mm = date_str[:4], date_str[4:6]
+                    r = _req.get(
+                        "https://www.tpex.org.tw/web/stock/aftertrading/"
+                        "daily_trading_info/st43_download.php",
+                        params={"l": "zh-tw", "d": f"{yy}/{mm}/01",
+                                "stkno": stock_no, "response": "json"},
+                        headers=tw_headers, timeout=10,
+                    )
+                if r.status_code == 200:
+                    return r.json().get("data", [])
+            except Exception:
+                pass
+            return []
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            month_results = list(ex.map(_fetch_month, date_strs))
+        all_rows = [row for batch in month_results for row in batch]
+
+        if not all_rows:
+            continue   # try TPEX next
+
+        # ── Parse rows ──────────────────────────────────────────────────────
+        # TSE/TPEX row: [ROC-date, volume, amount, open, high, low, close, chg, txn]
+        timestamps, opens, highs, lows, closes, volumes = [], [], [], [], [], []
+        for row in all_rows:
+            try:
+                if len(row) < 7:
+                    continue
+                parts = str(row[0]).strip().split("/")
+                if len(parts) != 3:
+                    continue
+                year = int(parts[0]) + 1911   # ROC → Gregorian
+                month_r, day_r = int(parts[1]), int(parts[2])
+                dt = datetime(year, month_r, day_r, tzinfo=timezone.utc)
+
+                def _p(x: str) -> float:
+                    return float(str(x).replace(",", "").strip())
+
+                o, h, l, c = _p(row[3]), _p(row[4]), _p(row[5]), _p(row[6])
+                v = int(_p(row[1]))
+                if c <= 0:
+                    continue
+                timestamps.append(int(dt.timestamp()))
+                opens.append(o); highs.append(h); lows.append(l)
+                closes.append(c); volumes.append(v)
+            except Exception:
+                continue
+
+        if not timestamps:
+            continue
+
+        # Sort ascending by timestamp
+        combined = sorted(zip(timestamps, opens, highs, lows, closes, volumes))
+        ts_, o_, h_, l_, c_, v_ = zip(*combined)
+
+        last_close = c_[-1]
+        prev_close = c_[-2] if len(c_) >= 2 else last_close
+        return {
+            "chart": {
+                "result": [{
+                    "meta": {
+                        "symbol": symbol.upper(),
+                        "longName": symbol.upper(),
+                        "regularMarketPrice": last_close,
+                        "previousClose":      prev_close,
+                        "currency": "TWD",
+                        "_source": "twse" if not is_otc else "tpex",
+                    },
+                    "timestamp": list(ts_),
+                    "indicators": {
+                        "quote": [{
+                            "open":   list(o_),
+                            "high":   list(h_),
+                            "low":    list(l_),
+                            "close":  list(c_),
+                            "volume": list(v_),
+                        }]
+                    }
+                }],
+                "error": None,
+            }
+        }
+    return None   # both TSE and TPEX failed
+
+
 # ── Alpha Vantage OHLCV helper ────────────────────────────────────────────────
 
 def _fetch_ohlcv_alpha_vantage(symbol: str, av_key: str) -> dict | None:
@@ -425,6 +546,15 @@ def chart_proxy(symbol):
             return resp
     except Exception:
         pass
+
+    # Taiwan stock fallback: TWSE / TPEX official API
+    sym_upper = symbol.upper()
+    if sym_upper.endswith(".TW") or sym_upper.endswith(".TWO"):
+        twse_result = _fetch_ohlcv_twse(sym_upper)
+        if twse_result:
+            resp = Response(json.dumps(twse_result), status=200, mimetype="application/json")
+            resp.headers["Access-Control-Allow-Origin"] = "*"
+            return resp
 
     # Intermediate fallback: Alpha Vantage
     av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
