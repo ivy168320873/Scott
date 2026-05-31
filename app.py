@@ -1016,6 +1016,104 @@ def tw_score_api(symbol):
         return jsonify({"error": str(e)}), 500
 
 
+# ── Taiwan full stock list (TWSE + TPEX) ──────────────────────────────────────
+
+_TW_STOCKLIST_CACHE: dict = {"ts": 0.0, "data": []}
+_TW_STOCKLIST_TTL   = 12 * 3600   # 12 hours
+
+
+def _fetch_tw_stocklist_full() -> list:
+    """
+    Fetch all TWSE-listed and TPEX-listed stocks with name + volume.
+    Returns list of {symbol, name, volume, price, market}, sorted by volume desc.
+    Results cached 12 h.
+    """
+    now = _time.time()
+    if now - _TW_STOCKLIST_CACHE["ts"] < _TW_STOCKLIST_TTL and _TW_STOCKLIST_CACHE["data"]:
+        return _TW_STOCKLIST_CACHE["data"]
+
+    hdrs = {"User-Agent": "Mozilla/5.0 (compatible; Scott/1.0)"}
+    result: list = []
+
+    def _int(s):
+        try: return int(str(s).replace(",", "").strip() or "0")
+        except (ValueError, TypeError): return 0
+
+    def _float(s):
+        try: return float(str(s).replace(",", "").strip() or "0")
+        except (ValueError, TypeError): return 0.0
+
+    # ── TWSE listed (上市) ──────────────────────────────────────────────────
+    try:
+        r = _req.get(
+            "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+            headers=hdrs, timeout=15,
+        )
+        if r.status_code == 200:
+            for item in r.json():
+                code = str(item.get("Code", "")).strip()
+                name = str(item.get("Name", "")).strip()
+                if not code.isdigit() or not name:
+                    continue
+                vol   = _int(item.get("TradeVolume", 0))
+                price = _float(item.get("ClosingPrice", 0))
+                if vol < 10 or price <= 0:
+                    continue
+                result.append({"symbol": f"{code}.TW", "name": name,
+                                "volume": vol, "price": price, "market": "twse"})
+    except Exception:
+        pass
+
+    # ── TPEX OTC (上櫃) ────────────────────────────────────────────────────
+    try:
+        r = _req.get(
+            "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
+            headers=hdrs, timeout=15,
+        )
+        if r.status_code == 200:
+            for item in r.json():
+                code = str(item.get("SecuritiesCompanyCode", "")).strip()
+                name = str(item.get("CompanyName", "") or item.get("Name", "")).strip()
+                if not code.isdigit() or not name:
+                    continue
+                vol   = _int(item.get("TradingShares", 0))
+                price = _float(item.get("Close", 0) or item.get("ClosingPrice", 0))
+                if vol < 10 or price <= 0:
+                    continue
+                result.append({"symbol": f"{code}.TWO", "name": name,
+                                "volume": vol, "price": price, "market": "tpex"})
+    except Exception:
+        pass
+
+    result.sort(key=lambda x: x["volume"], reverse=True)
+
+    if result:
+        _TW_STOCKLIST_CACHE.update({"ts": now, "data": result})
+
+    return result
+
+
+@app.route("/api/tw-stocklist")
+def tw_stocklist_api():
+    """Return Taiwan listed + OTC stocks sorted by volume. ?limit=N (default 500, max 2000)."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        limit = min(int(request.args.get("limit", 500)), 2000)
+        data  = _fetch_tw_stocklist_full()
+        resp  = Response(
+            json.dumps({"ok": True, "count": len(data), "data": data[:limit]},
+                       ensure_ascii=False),
+            status=200, mimetype="application/json"
+        )
+        resp.headers["Cache-Control"] = "public, max-age=3600"
+        return resp
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Alpha Vantage OHLCV helper ────────────────────────────────────────────────
 
 def _fetch_ohlcv_alpha_vantage(symbol: str, av_key: str) -> dict | None:

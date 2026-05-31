@@ -1583,9 +1583,13 @@ tbody td{padding:9px 10px}
         <span style="font-size:.76rem;color:var(--muted);align-self:center">快速選取：</span>
         <button class="preset-btn" onclick="loadPreset('美股科技')">🇺🇸 美股科技</button>
         <button class="preset-btn" onclick="loadPreset('美股金融ETF')">🇺🇸 金融/ETF</button>
-        <button class="preset-btn" onclick="loadPreset('台股大型')">🇹🇼 台股大型股</button>
+        <button class="preset-btn" onclick="loadPreset('台股大型')">🇹🇼 台股大型</button>
+        <button class="preset-btn" onclick="loadPreset('台股半導體')">🇹🇼 半導體</button>
+        <button class="preset-btn" onclick="loadPreset('台股電子')">🇹🇼 電子</button>
+        <button class="preset-btn" onclick="loadPreset('台股金融')">🇹🇼 金融</button>
+        <button class="preset-btn" onclick="loadPreset('台股中小型')">🇹🇼 中小型</button>
         <button class="preset-btn" onclick="loadPreset('台股ETF')">🇹🇼 台股ETF</button>
-        <button class="preset-btn" onclick="loadPreset('全部')">⚡ 全部（約50支）</button>
+        <button class="preset-btn" onclick="loadPreset('全部')">⚡ 全部</button>
         <button class="preset-btn" onclick="selectAllWatch(true)">全選</button>
         <button class="preset-btn" onclick="selectAllWatch(false)">全消</button>
       </div>
@@ -3589,11 +3593,34 @@ function twName(sym, fallback) {
   return TW_NAMES[sym] || fallback || '';
 }
 
+// Dynamic TW stock list — loaded once, populates TW_NAMES + used in auto-rec
+let _twFullList = [];   // [{symbol, name, volume, price}]
+let _twListLoaded = false;
+
+async function _ensureTwStockList() {
+  if (_twListLoaded) return _twFullList;
+  _twListLoaded = true;   // prevent double-fetch
+  try {
+    const r = await fetch('/api/tw-stocklist?limit=1000');
+    if (!r.ok) return _twFullList;
+    const d = await r.json();
+    if (d.ok && Array.isArray(d.data)) {
+      _twFullList = d.data;
+      // Auto-populate TW_NAMES with API data
+      d.data.forEach(item => {
+        if (item.name && !TW_NAMES[item.symbol]) TW_NAMES[item.symbol] = item.name;
+      });
+    }
+  } catch(e) { /* best-effort */ }
+  return _twFullList;
+}
+
 // ══════════════════════════════════════════════════════
 // Auto Recommend — 自動掃描推薦（產業分類版）
 // ══════════════════════════════════════════════════════
 
 const SECTOR_STOCKS = {
+  // ── 美股 ────────────────────────────────────────────────────────────────
   '半導體AI晶片':   { e:'💡', syms:['NVDA','AMD','AVGO','MRVL','MU','TSM','QCOM','ARM','SMCI','AMAT','KLAC','LRCX','ASML','ON','INTC'] },
   'AI雲端軟體':     { e:'🤖', syms:['MSFT','META','GOOGL','AMZN','PLTR','ORCL','NOW','CRM','SNOW','AI','SOUN','GOOG'] },
   '網路安全':       { e:'🛡', syms:['CRWD','PANW','ZS','FTNT','S','OKTA','CYBR','TMUS'] },
@@ -3603,8 +3630,49 @@ const SECTOR_STOCKS = {
   '加密區塊鏈':     { e:'₿',  syms:['COIN','MSTR','HOOD','CLSK','RIOT','CIFR'] },
   '電動車新能源':   { e:'⚡', syms:['TSLA','RIVN','NIO','LI','XPEV','CHPT','BLNK'] },
   '生技醫療GLP1':   { e:'💊', syms:['LLY','NVO','MRNA','ISRG','REGN','ABBV','HIMS','SEZL'] },
-  '台積電供應鏈':   { e:'🇹🇼', syms:['2330.TW','2303.TW','2308.TW','3034.TW','2454.TW','2379.TW','2395.TW','2357.TW','2317.TW','2382.TW'] },
   '大盤ETF':        { e:'📊', syms:['SPY','QQQ','SOXX','IWM','XLK','SOXL','ARKK','TQQQ'] },
+  // ── 台股半導體 ───────────────────────────────────────────────────────────
+  '台股半導體IC':   { e:'🇹🇼', syms:[
+    '2330.TW','2303.TW','2344.TW','2337.TW','5347.TW','2408.TW','2401.TW',
+    '3034.TW','2454.TW','2379.TW','6415.TW','2388.TW','4966.TW','3533.TW',
+    '3596.TW','6409.TW','2385.TW','3443.TW','3711.TW','2327.TW',
+  ]},
+  // ── 台股電子大型 ─────────────────────────────────────────────────────────
+  '台股電子EMS':    { e:'🖥', syms:[
+    '2317.TW','2382.TW','2357.TW','2308.TW','4938.TW','2353.TW','2356.TW',
+    '2324.TW','2301.TW','2376.TW','2377.TW','3231.TW','2395.TW','2392.TW',
+    '2474.TW','2365.TW','3673.TW','6669.TW','2362.TW','2367.TW',
+  ]},
+  // ── 台股PCB/被動元件 ─────────────────────────────────────────────────────
+  '台股PCB零組件':  { e:'🔌', syms:[
+    '3037.TW','2345.TW','6271.TW','6274.TW','3630.TW','2368.TW','2441.TW',
+    '8046.TW','3005.TW','2375.TW','6409.TW','2383.TW','2365.TW','8299.TW',
+    '2049.TW','3008.TW','2027.TW','2007.TW',
+  ]},
+  // ── 台股金融 ─────────────────────────────────────────────────────────────
+  '台股金融銀行':   { e:'🏦', syms:[
+    '2881.TW','2882.TW','2883.TW','2884.TW','2885.TW','2886.TW','2887.TW',
+    '2888.TW','2890.TW','2891.TW','2892.TW','5880.TW','2801.TW','2809.TW',
+    '2834.TW','2836.TW','2838.TW','5876.TW',
+  ]},
+  // ── 台股傳產/航運/能源 ───────────────────────────────────────────────────
+  '台股傳產航運':   { e:'🚢', syms:[
+    '2603.TW','2609.TW','2615.TW','2610.TW','2618.TW',
+    '2002.TW','1301.TW','1303.TW','6505.TW','1326.TW','1101.TW','1102.TW',
+    '2207.TW','2201.TW','2204.TW','9910.TW','1605.TW','2542.TW','1216.TW',
+  ]},
+  // ── 台股生技/醫療 ────────────────────────────────────────────────────────
+  '台股生技醫療':   { e:'💊', syms:[
+    '6446.TW','4743.TW','6470.TW','4967.TW','6582.TW','1789.TW','4174.TW',
+    '1762.TW','6456.TW','4142.TW','4144.TW','3130.TW','6472.TW','6550.TW',
+    '1795.TW','4126.TW','1707.TW','4726.TW',
+  ]},
+  // ── 台股中小型熱門 ───────────────────────────────────────────────────────
+  '台股中小型科技': { e:'🔥', syms:[
+    '6207.TW','3698.TW','3017.TW','6414.TW','3665.TW','3687.TW','6548.TW',
+    '4967.TW','6176.TW','3596.TW','6271.TW','2345.TW','3630.TW','6409.TW',
+    '3533.TW','4966.TW','5269.TW','6488.TWO','6533.TWO','3686.TWO',
+  ]},
 };
 
 // Derive unique scan list from sector map
@@ -4266,10 +4334,14 @@ async function autoRecommend(force = false) {
   arProg.style.width = '18%';
 
   // ── Phase 2: deep OHLCV scan ───────────────────────────────────────────────
-  // Always include Taiwan stocks + custom list regardless of screener result
-  const twSyms = [...new Set(
+  // Taiwan stocks: sector hardcoded list + top-volume from API (if loaded)
+  const twSectorSyms = [...new Set(
     Object.values(SECTOR_STOCKS).flatMap(cfg => cfg.syms.filter(s => s.includes('.')))
   )];
+  // Add top-50 by volume from the dynamic list (non-blocking: already loaded or empty)
+  const twApiSyms = _twFullList.slice(0, 50).map(d => d.symbol);
+  const twSyms = [...new Set([...twSectorSyms, ...twApiSyms])];
+
   const fallback = deepCandidates.length ? [] : AUTO_SCAN_LIST;
   const etfSyms = [...SECTOR_ETF_LIST.map(s => s.sym), ...ROT_BENCHMARK];
   const fullScanList = [...new Set([...deepCandidates, ...fallback, ...twSyms, ...etfSyms, ..._customScanList])];
@@ -7626,8 +7698,17 @@ function renderMoneyFlow(d) {
 const WATCHLIST_PRESETS = {
   '美股科技': ['NVDA','AAPL','MSFT','AMZN','META','GOOGL','TSLA','AMD','AVGO','PLTR','ARM','SMCI','ORCL','ADBE','CRM','MRVL','TSM','MU'],
   '美股金融ETF': ['JPM','BAC','GS','MS','V','MA','SPY','QQQ','IWM','SOXX','XLK','COIN','MSTR'],
-  '台股大型': ['2330.TW','2317.TW','2454.TW','2382.TW','2308.TW','3711.TW','2412.TW','2303.TW','2881.TW','2882.TW','2884.TW','2886.TW','2891.TW','1301.TW','1303.TW','6505.TW','3034.TW','2379.TW','3008.TW','2395.TW','2357.TW','2353.TW'],
-  '台股ETF': ['0050.TW','0056.TW','00878.TW','00881.TW'],
+  '台股大型': [
+    '2330.TW','2317.TW','2454.TW','2382.TW','2308.TW','3711.TW','2412.TW','2303.TW',
+    '2881.TW','2882.TW','2884.TW','2886.TW','2891.TW','2892.TW','5880.TW',
+    '1301.TW','1303.TW','6505.TW','3034.TW','2379.TW','3008.TW','2395.TW',
+    '2357.TW','2353.TW','2002.TW','2603.TW','2609.TW','2615.TW','1216.TW',
+  ],
+  '台股半導體': [...new Set(SECTOR_STOCKS['台股半導體IC'].syms)],
+  '台股電子': [...new Set([...SECTOR_STOCKS['台股電子EMS'].syms, ...SECTOR_STOCKS['台股PCB零組件'].syms])],
+  '台股金融': [...new Set(SECTOR_STOCKS['台股金融銀行'].syms)],
+  '台股中小型': [...new Set(SECTOR_STOCKS['台股中小型科技'].syms)],
+  '台股ETF': ['0050.TW','0056.TW','00878.TW','00881.TW','00850.TW','00919.TW','00929.TW'],
 };
 WATCHLIST_PRESETS['全部'] = [
   ...new Set([...WATCHLIST_PRESETS['美股科技'], ...WATCHLIST_PRESETS['美股金融ETF'],
@@ -7658,6 +7739,7 @@ window.addEventListener('DOMContentLoaded', () => {
   renderHistoryRow();
   renderCustomScanTags();
   loadCapSettings();
+  _ensureTwStockList();  // pre-fetch TW stock list & populate TW_NAMES (non-blocking)
   search('NVDA');
   // Market status badge (no network needed)
   const ms = getMarketStatus();
