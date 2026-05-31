@@ -360,6 +360,8 @@ def _fetch_ohlcv_twse(symbol: str) -> dict | None:
     tw_headers = {"User-Agent": "Mozilla/5.0 (compatible; Scott/1.0)"}
 
     for is_otc in (False, True):
+        long_name: list[str] = [""]   # mutable container so inner fn can update
+
         def _fetch_month(date_str: str) -> list:
             try:
                 if not is_otc:
@@ -378,7 +380,19 @@ def _fetch_ohlcv_twse(symbol: str) -> dict | None:
                         headers=tw_headers, timeout=10,
                     )
                 if r.status_code == 200:
-                    return r.json().get("data", [])
+                    j = r.json()
+                    # Extract company name from title: "114年05月 6207 雷科 各日成交資訊"
+                    title = j.get("title", "")
+                    if title and not long_name[0]:
+                        parts = title.split()
+                        # Find the index of stock_no in parts, name is next token
+                        for idx, p in enumerate(parts):
+                            if stock_no in p and idx + 1 < len(parts):
+                                candidate = parts[idx + 1]
+                                if candidate not in ("各日成交資訊", "每日收盤行情"):
+                                    long_name[0] = candidate
+                                break
+                    return j.get("data", [])
             except Exception:
                 pass
             return []
@@ -431,7 +445,7 @@ def _fetch_ohlcv_twse(symbol: str) -> dict | None:
                 "result": [{
                     "meta": {
                         "symbol": symbol.upper(),
-                        "longName": symbol.upper(),
+                        "longName": long_name[0] or symbol.upper(),
                         "regularMarketPrice": last_close,
                         "previousClose":      prev_close,
                         "currency": "TWD",

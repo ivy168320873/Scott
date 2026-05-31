@@ -3529,10 +3529,32 @@ const TW_NAMES = {
   '00878.TW':'國泰永續高股息','00881.TW':'國泰台灣5G+',
   '2881.TW':'富邦金','2882.TW':'國泰金','2884.TW':'玉山金',
   '2886.TW':'兆豐金','2891.TW':'中信金','2892.TW':'第一金',
+  '2883.TW':'開發金','2885.TW':'元大金','2887.TW':'台新金',
+  '2888.TW':'新光金','2890.TW':'永豐金','5880.TW':'合庫金',
+  // 半導體/IC設計
+  '2358.TW':'廷鑫','2388.TW':'威盛','3045.TW':'台灣大',
+  '3481.TW':'群創','2498.TW':'宏達電','3702.TW':'大聯大',
+  '6415.TW':'矽力-KY','3533.TW':'嘉澤','6176.TW':'瑞儀',
+  '4966.TW':'譜瑞-KY','3017.TW':'奇鋐','6274.TW':'台燿',
+  // 中小型科技
+  '6207.TW':'雷科','3698.TW':'隆達','6548.TW':'長科',
+  '4967.TW':'十銓','3596.TW':'智易','6414.TW':'樺漢',
+  '3665.TW':'貿聯-KY','6446.TW':'藥華藥','6470.TW':'太醫',
+  '4743.TW':'合一','6582.TW':'申豐','3687.TW':'弘塑',
+  '6271.TW':'同欣電','2345.TW':'智邦','3630.TW':'新鉅科',
+  '6409.TW':'旭隼','3037.TW':'欣興','2367.TW':'燿華',
+  // 傳產/其他
+  '1216.TW':'統一','1101.TW':'台泥','1102.TW':'亞泥',
+  '1303.TW':'南亞','2105.TW':'正新','2201.TW':'裕隆',
+  '2202.TW':'裕日車','2204.TW':'中華','9910.TW':'豐泰',
+  '1605.TW':'華新','2542.TW':'興富發','2812.TW':'台中銀',
+  // 上櫃 (.TWO)
+  '6488.TWO':'環球晶','6533.TWO':'晶心科','3686.TWO':'達能',
+  '6789.TWO':'采鈺','4977.TWO':'上品','6672.TWO':'騰輝電',
 };
 
-function twName(sym) {
-  return TW_NAMES[sym] || '';
+function twName(sym, fallback) {
+  return TW_NAMES[sym] || fallback || '';
 }
 
 // ══════════════════════════════════════════════════════
@@ -4396,7 +4418,7 @@ function renderAutoRec(scored, sectorData, nasdaqMeta, rotData) {
     return `<div class="auto-rec-card ${cls}" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div>
-          <div class="arc-sym">${d.symbol}${d.isDemo?'<span style="font-size:.6rem;color:var(--muted);font-weight:400"> [示]</span>':''}${twName(d.symbol)?`<span style="font-size:.62rem;color:var(--muted);font-weight:400;margin-left:3px">${twName(d.symbol)}</span>`:''}</div>
+          <div class="arc-sym">${d.symbol}${d.isDemo?'<span style="font-size:.6rem;color:var(--muted);font-weight:400"> [示]</span>':''}${twName(d.symbol,d.name)?`<span style="font-size:.62rem;color:var(--muted);font-weight:400;margin-left:3px">${twName(d.symbol,d.name)}</span>`:''}</div>
           <div class="arc-price">${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
         </div>
         <div style="text-align:right;flex-shrink:0">
@@ -5205,7 +5227,7 @@ function render10xSection(scored) {
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
           <div>
             <div style="font-size:.62rem;color:rgba(255,107,53,.7);margin-bottom:1px;display:flex;align-items:center;gap:5px">${rankLabel} ${t.priceLabel}${mcapLabel ? `<span style="font-size:.58rem;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,.06);color:${mcapColor};border:1px solid ${mcapColor};opacity:.85">${mcapLabel}</span>` : ''}</div>
-            <div class="arc-sym" style="color:#ff6b35">${d.symbol}${twName(d.symbol)?`<span style="font-size:.6rem;color:var(--muted);font-weight:400;margin-left:3px">${twName(d.symbol)}</span>`:''}</div>
+            <div class="arc-sym" style="color:#ff6b35">${d.symbol}${twName(d.symbol,d.name)?`<span style="font-size:.6rem;color:var(--muted);font-weight:400;margin-left:3px">${twName(d.symbol,d.name)}</span>`:''}</div>
             <div class="arc-price">$${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
           </div>
           <div style="text-align:right;flex-shrink:0">
@@ -5644,7 +5666,7 @@ function render4DSection(scored) {
     return `<div class="auto-rec-card arc-buy" onclick="qs('${d.symbol}');switchTab('analysis')" style="border:1px solid rgba(63,185,80,.35)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
         <div>
-          <div class="arc-sym" style="color:var(--bull)">${d.symbol}${twName(d.symbol)?`<span style="font-size:.62rem;color:var(--muted);font-weight:400;margin-left:3px">${twName(d.symbol)}</span>`:''}</div>
+          <div class="arc-sym" style="color:var(--bull)">${d.symbol}${twName(d.symbol,d.name)?`<span style="font-size:.62rem;color:var(--muted);font-weight:400;margin-left:3px">${twName(d.symbol,d.name)}</span>`:''}</div>
           <div class="arc-price">${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
         </div>
         <div style="text-align:right;flex-shrink:0">
@@ -5771,7 +5793,7 @@ function renderPreBreakout(scored, usedSet) {
     return `<div class="pb-card" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div class="pb-top">
         <div>
-          <div class="pb-sym">${d.symbol}${d.isDemo?'<span style="font-size:.6rem;color:var(--muted)"> [示]</span>':''}${twName(d.symbol)?`<span style="font-size:.62rem;font-weight:400;color:var(--muted);margin-left:3px">${twName(d.symbol)}</span>`:''}</div>
+          <div class="pb-sym">${d.symbol}${d.isDemo?'<span style="font-size:.6rem;color:var(--muted)"> [示]</span>':''}${twName(d.symbol,d.name)?`<span style="font-size:.62rem;font-weight:400;color:var(--muted);margin-left:3px">${twName(d.symbol,d.name)}</span>`:''}</div>
           <div style="font-size:.78rem;color:var(--muted)">現價 ${fmt(d.price)} <span class="${pC(d.changePct)}">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
         </div>
         <div style="text-align:right">
@@ -5913,7 +5935,7 @@ function renderInvestmentPicks(scored, usedSet) {
       return `<div class="invest-card" style="border-color:var(--accent);background:rgba(88,166,255,.07)" onclick="qs('${d.symbol}');switchTab('analysis')">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
           <div>
-            <span class="ic-sym">${d.symbol}${twName(d.symbol)?`<span style="font-size:.62rem;font-weight:400;color:var(--muted);margin-left:3px">${twName(d.symbol)}</span>`:''}</span>
+            <span class="ic-sym">${d.symbol}${twName(d.symbol,d.name)?`<span style="font-size:.62rem;font-weight:400;color:var(--muted);margin-left:3px">${twName(d.symbol,d.name)}</span>`:''}</span>
             <span class="${pC(d.changePct)}" style="font-size:.82rem;margin-left:6px">${sgn(d.changePct)}${fmt(d.changePct)}%</span>
           </div>
           <span style="font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:12px;background:rgba(88,166,255,.18);color:var(--accent)">📦 已持有</span>
@@ -5968,7 +5990,7 @@ function renderInvestmentPicks(scored, usedSet) {
     return `<div class="invest-card" style="border-color:${verdict.border};background:${verdict.bg}" onclick="qs('${d.symbol}');switchTab('analysis')">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <div>
-          <span class="ic-sym">${d.symbol}${twName(d.symbol)?`<span style="font-size:.62rem;font-weight:400;color:var(--muted);margin-left:3px">${twName(d.symbol)}</span>`:''}</span>
+          <span class="ic-sym">${d.symbol}${twName(d.symbol,d.name)?`<span style="font-size:.62rem;font-weight:400;color:var(--muted);margin-left:3px">${twName(d.symbol,d.name)}</span>`:''}</span>
           <span class="${pC(d.changePct)}" style="font-size:.82rem;margin-left:6px">${sgn(d.changePct)}${fmt(d.changePct)}%</span>
           <span style="font-size:.75rem;color:var(--muted);margin-left:4px">$${fmt(d.price)}</span>
         </div>
