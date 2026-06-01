@@ -2604,6 +2604,77 @@ _price_alert_thread = _threading.Thread(target=_run_price_alert_checker, daemon=
 _price_alert_thread.start()
 
 
+# ── Decision-alert background scanner ─────────────────────────────────────────
+
+def _send_decision_alert(alert):
+    """Dispatch a single decision Alert via LINE / email using stored settings."""
+    try:
+        data  = _load_user_data()
+        s     = data.get("alertSettings_v1") or {}
+        if isinstance(s, str):
+            try: s = json.loads(s)
+            except Exception: s = {}
+        email_to   = s.get("email", "")
+        line_token = s.get("lineToken", "") or os.environ.get("LINE_NOTIFY_TOKEN", "")
+
+        if line_token:
+            try:
+                msg = _af.format_line(alert)
+                _req.post("https://notify-api.line.me/api/notify",
+                          headers={"Authorization": f"Bearer {line_token}"},
+                          data={"message": msg}, timeout=10)
+            except Exception as _le:
+                print(f"[DECISION ALERT] LINE send failed: {_le}", flush=True)
+
+        if email_to:
+            try:
+                smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+                smtp_port = int(os.environ.get("SMTP_PORT", 587))
+                smtp_user = os.environ.get("SMTP_USER", "")
+                smtp_pass = os.environ.get("SMTP_PASS", "")
+                if smtp_user and smtp_pass:
+                    import smtplib as _smtp, email.mime.text as _emt
+                    m = _emt.MIMEText(_af.format_email_body(alert), "plain", "utf-8")
+                    m["Subject"] = _af.format_email_subject(alert)
+                    m["From"]    = smtp_user
+                    m["To"]      = email_to
+                    with _smtp.SMTP(smtp_host, smtp_port) as srv:
+                        srv.starttls()
+                        srv.login(smtp_user, smtp_pass)
+                        srv.sendmail(smtp_user, [email_to], m.as_string())
+            except Exception as _ee:
+                print(f"[DECISION ALERT] email send failed: {_ee}", flush=True)
+    except Exception as _de2:
+        print(f"[DECISION ALERT] outer error: {_de2}", flush=True)
+
+
+def _run_decision_alert_scanner():
+    """Scan portfolio + watchlist every 10 min and fire decision alerts."""
+    _time.sleep(60)   # let app finish booting
+    while True:
+        try:
+            data      = _load_user_data()
+            positions = data.get("holdings", [])
+            watchlist = data.get("watchlist", [])
+            if isinstance(watchlist, str):
+                watchlist = [w.strip().upper() for w in watchlist.split(",") if w.strip()]
+
+            if positions or watchlist:
+                _ascn.run_full_scan(
+                    positions=positions,
+                    watchlist=watchlist,
+                    ohlcv_fn=_get_ohlcv_norm,
+                    send_fn=_send_decision_alert,
+                )
+        except Exception as _exc:
+            print(f"[DECISION ALERT SCANNER] {_exc}", flush=True)
+        _time.sleep(600)   # 10 minutes
+
+
+_decision_alert_thread = _threading.Thread(target=_run_decision_alert_scanner, daemon=True)
+_decision_alert_thread.start()
+
+
 # ── Alerts endpoint ────────────────────────────────────────────────────────────
 
 @app.route("/api/alerts/send", methods=["POST"])
@@ -2703,7 +2774,13 @@ def api_alerts_schedule_status():
 
 # ── Decision Engine API routes ────────────────────────────────────────────────
 import decision_engine as _de
-import sector_map as _smap
+import sector_map      as _smap
+import alert_history   as _ah
+import alert_scanner   as _ascn
+import alert_formatter as _af
+
+# Ensure DB table exists
+_ah.init_db()
 
 
 def _get_ohlcv_norm(symbol: str):
@@ -2952,6 +3029,93 @@ def api_sector_leadership():
         result["fetched"]  = len(stocks_ohlcv)
         result["requested"]= len(symbols)
         return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Decision Alerts API ───────────────────────────────────────────────────────
+
+@app.route("/api/decision-alerts")
+def api_decision_alerts():
+    """Return recent decision alerts (last 24 h by default)."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        hours = int(request.args.get("hours", 24))
+        rows  = _ah.get_recent(hours=hours)
+        stats = _ah.get_stats()
+        return jsonify({"ok": True, "alerts": rows, "stats": stats, "count": len(rows)})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/decision-alerts/scan", methods=["POST"])
+def api_decision_alerts_scan():
+    """
+    Manually trigger a decision-alert scan.
+    Body (optional): {symbol?, positions?, watchlist?}
+    If symbol is provided, scan that single symbol.
+    Otherwise fall back to stored portfolio + watchlist.
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body     = request.json or {}
+        symbol   = str(body.get("symbol", "") or "").upper().strip()
+        pos_list = body.get("positions") or []
+        wl_list  = body.get("watchlist") or []
+
+        if symbol:
+            # Single-symbol quick scan
+            ohlcv = _get_ohlcv_norm(symbol)
+            if not ohlcv:
+                return jsonify({"ok": False, "error": f"無法取得 {symbol} 的 K 線資料"}), 404
+            alerts = _ascn.scan_symbol(symbol, _get_ohlcv_norm)
+            fired  = []
+            for a in alerts:
+                _ah.record(a)
+                fired.append(_af.format_app(a))
+            return jsonify({"ok": True, "alerts": fired, "count": len(fired)})
+
+        # Full scan — use provided lists or fall back to stored data
+        if not pos_list and not wl_list:
+            data     = _load_user_data()
+            pos_list = data.get("holdings", [])
+            wl_raw   = data.get("watchlist", [])
+            if isinstance(wl_raw, str):
+                wl_list = [w.strip().upper() for w in wl_raw.split(",") if w.strip()]
+            else:
+                wl_list = wl_raw or []
+
+        fired_alerts = _ascn.run_full_scan(
+            positions=pos_list,
+            watchlist=wl_list,
+            ohlcv_fn=_get_ohlcv_norm,
+            send_fn=_send_decision_alert,
+        )
+        return jsonify({
+            "ok":     True,
+            "alerts": [_af.format_app(a) for a in fired_alerts],
+            "count":  len(fired_alerts),
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/decision-alerts/resolve/<alert_id>", methods=["POST"])
+def api_decision_alerts_resolve(alert_id: str):
+    """Mark a decision alert as resolved."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        _ah.resolve(alert_id)
+        return jsonify({"ok": True, "resolved": alert_id})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
