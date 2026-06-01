@@ -2848,7 +2848,19 @@ function renderChaseRisk(cr) {
 function renderSectorLeadership(sl) {
   const panel = document.getElementById('sl-panel');
   const body  = document.getElementById('sl-body');
-  if (!sl || !sl.ok) { panel.style.display='none'; return; }
+
+  // null = backend explicitly said sector is unknown
+  // undefined / missing = don't show panel (pre-Phase-2.5)
+  if (sl === undefined) { panel.style.display='none'; return; }
+
+  if (!sl || !sl.ok) {
+    // Show panel with "資料不足" message
+    body.innerHTML = `<div style="font-size:.83rem;color:var(--muted);padding:4px 0">
+      板塊強度資料不足，無法判斷所屬板塊。
+    </div>`;
+    panel.style.display = 'block';
+    return;
+  }
 
   const color  = sl.level_color || '#8b949e';
   const score  = sl.score ?? 0;
