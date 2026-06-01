@@ -229,6 +229,7 @@ def admin_dashboard():
         "SECRET_KEY":     bool(os.environ.get("SECRET_KEY")),
         "ANTHROPIC_API_KEY": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "ALPHA_VANTAGE_KEY": bool(os.environ.get("ALPHA_VANTAGE_KEY")),
+        "FINNHUB_KEY":    bool(os.environ.get("FINNHUB_KEY")),
         "LINE_NOTIFY_TOKEN": bool(os.environ.get("LINE_NOTIFY_TOKEN")),
         "SMTP_HOST":      bool(os.environ.get("SMTP_HOST")),
         "SCHEDULER_ENABLE": os.environ.get("SCHEDULER_ENABLE", "false"),
@@ -313,6 +314,18 @@ def api_admin_test_connections():
             results["alpha_vantage"] = {"ok": False, "detail": str(e)[:120]}
     else:
         results["alpha_vantage"] = {"ok": False, "detail": "未設定 ALPHA_VANTAGE_KEY"}
+    # Finnhub
+    fh_key = os.environ.get("FINNHUB_KEY", "")
+    if fh_key:
+        try:
+            r = _req.get("https://finnhub.io/api/v1/quote",
+                         params={"symbol": "AAPL", "token": fh_key}, timeout=8)
+            ok = r.status_code == 200 and bool(r.json().get("c"))
+            results["finnhub"] = {"ok": ok, "detail": "連線正常" if ok else "API key 無效或達到限額"}
+        except Exception as e:
+            results["finnhub"] = {"ok": False, "detail": str(e)[:120]}
+    else:
+        results["finnhub"] = {"ok": False, "detail": "未設定 FINNHUB_KEY"}
     # Yahoo Finance
     try:
         r = _req.get("https://query1.finance.yahoo.com/v8/finance/chart/AAPL",
@@ -1186,6 +1199,91 @@ def _fetch_ohlcv_alpha_vantage(symbol: str, av_key: str) -> dict | None:
         return None
 
 
+# ── Finnhub OHLCV helper ──────────────────────────────────────────────────────
+
+def _fetch_ohlcv_finnhub(symbol: str, fh_key: str) -> dict | None:
+    """
+    Fetch daily OHLCV from Finnhub /stock/candle (resolution=D, 2 years).
+    Returns Yahoo-format dict or None on failure.
+    Free tier: 60 req/min.  No TW stocks.
+    """
+    import time as _t
+    now_ts  = int(_t.time())
+    from_ts = now_ts - 2 * 365 * 24 * 3600   # 2 years back
+    try:
+        r = _req.get(
+            "https://finnhub.io/api/v1/stock/candle",
+            params={
+                "symbol":     symbol.upper(),
+                "resolution": "D",
+                "from":       from_ts,
+                "to":         now_ts,
+                "token":      fh_key,
+            },
+            timeout=12,
+        )
+        if r.status_code != 200:
+            return None
+        d = r.json()
+        if d.get("s") != "ok":
+            return None
+
+        timestamps = d["t"]
+        opens      = [round(v, 4) for v in d["o"]]
+        highs      = [round(v, 4) for v in d["h"]]
+        lows       = [round(v, 4) for v in d["l"]]
+        closes     = [round(v, 4) for v in d["c"]]
+        volumes    = [int(v) for v in d["v"]]
+
+        if not timestamps:
+            return None
+
+        last_close = closes[-1]
+        prev_close = closes[-2] if len(closes) >= 2 else last_close
+
+        # Fetch company name via Finnhub profile2
+        long_name = symbol.upper()
+        try:
+            pr = _req.get(
+                "https://finnhub.io/api/v1/stock/profile2",
+                params={"symbol": symbol.upper(), "token": fh_key},
+                timeout=6,
+            )
+            if pr.status_code == 200:
+                long_name = pr.json().get("name") or long_name
+        except Exception:
+            pass
+
+        return {
+            "chart": {
+                "result": [{
+                    "meta": {
+                        "symbol":              symbol.upper(),
+                        "longName":            long_name,
+                        "regularMarketPrice":  last_close,
+                        "previousClose":       prev_close,
+                        "currency":            "USD",
+                        "_source":             "finnhub",
+                    },
+                    "timestamp": timestamps,
+                    "indicators": {
+                        "quote": [{
+                            "open":   opens,
+                            "high":   highs,
+                            "low":    lows,
+                            "close":  closes,
+                            "volume": volumes,
+                        }]
+                    }
+                }],
+                "error": None,
+            }
+        }
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
 # ── Yahoo Finance proxy (CORS bypass) ─────────────────────────────────────────
 
 @app.route("/api/chart/<symbol>")
@@ -1216,7 +1314,18 @@ def chart_proxy(symbol):
             resp.headers["Access-Control-Allow-Origin"] = "*"
             return resp
 
-    # Intermediate fallback: Alpha Vantage
+    # Non-TW stocks: try Finnhub before Alpha Vantage
+    sym_upper = symbol.upper()
+    if not (sym_upper.endswith(".TW") or sym_upper.endswith(".TWO")):
+        fh_key = os.environ.get("FINNHUB_KEY", "")
+        if fh_key:
+            fh_result = _fetch_ohlcv_finnhub(symbol, fh_key)
+            if fh_result:
+                resp = Response(json.dumps(fh_result), status=200, mimetype="application/json")
+                resp.headers["Access-Control-Allow-Origin"] = "*"
+                return resp
+
+    # Final structured fallback: Alpha Vantage
     av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
     if av_key:
         av_result = _fetch_ohlcv_alpha_vantage(symbol, av_key)
@@ -1988,6 +2097,33 @@ def _fetch_ohlcv_server(symbol: str) -> list | None:
                 return [row for row in rows if row["close"] > 0] or None
         except Exception:
             pass
+
+    # Finnhub fallback (non-TW only)
+    sym_up = symbol.upper()
+    if not (sym_up.endswith(".TW") or sym_up.endswith(".TWO")):
+        fh_key = os.environ.get("FINNHUB_KEY", "")
+        if fh_key:
+            try:
+                fh_result = _fetch_ohlcv_finnhub(symbol, fh_key)
+                if fh_result:
+                    res  = fh_result["chart"]["result"][0]
+                    q    = res["indicators"]["quote"][0]
+                    rows = []
+                    for i, t in enumerate(res["timestamp"]):
+                        try:
+                            rows.append({
+                                "date":   datetime.utcfromtimestamp(t).strftime("%Y-%m-%d"),
+                                "open":   float(q["open"][i] or 0),
+                                "high":   float(q["high"][i] or 0),
+                                "low":    float(q["low"][i] or 0),
+                                "close":  float(q["close"][i] or 0),
+                                "volume": int(q["volume"][i] or 0),
+                            })
+                        except (TypeError, ValueError):
+                            continue
+                    return [row for row in rows if row["close"] > 0] or None
+            except Exception:
+                pass
 
     return None
 

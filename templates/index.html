@@ -2406,6 +2406,7 @@ function parseYahoo(json, isDemo) {
     prevClose: meta.previousClose || valid[valid.length - 2]?.close,
     currency: meta.currency || 'USD',
     isDemo,
+    dataSource: meta._source || null,   // 'finnhub' | 'alpha_vantage' | 'twse' | 'tpex' | null
     ohlcv: valid,
   };
 }
@@ -2488,6 +2489,7 @@ function computeAll(data) {
     score,
     ...signalLabel(score),
     isDemo: data.isDemo,
+    dataSource: data.dataSource || null,
     volumeRatio: last(volRatio),
     maItems, bullMa,
     indicators: {
@@ -2640,9 +2642,13 @@ function sgn(v){return v>0?'+':''}
 function renderPanel(d) {
   const color = scoreColor(d.score);
   const demoTag = d.isDemo ? ' <span class="demo-tag">模擬數據</span>' : '';
+  const srcMap = { finnhub:'Finnhub', alpha_vantage:'Alpha Vantage', twse:'TWSE', tpex:'TPEX 上櫃' };
+  const srcTag = d.dataSource && srcMap[d.dataSource]
+    ? ` <span style="font-size:.6rem;padding:1px 6px;border-radius:4px;background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3)">${srcMap[d.dataSource]}</span>`
+    : '';
   document.getElementById('ph').innerHTML = `
     <div class="price-blk">
-      <div style="color:var(--muted);font-size:.88rem;margin-bottom:4px">${d.symbol} &nbsp;${d.name}${demoTag}</div>
+      <div style="color:var(--muted);font-size:.88rem;margin-bottom:4px">${d.symbol} &nbsp;${d.name}${demoTag}${srcTag}</div>
       <h2>${fmt(d.price)}</h2>
       <div class="chg ${pC(d.changeAbs)}">${sgn(d.changeAbs)}${fmt(d.changeAbs)} (${sgn(d.changePct)}${fmt(d.changePct)}%)</div>
       <div class="meta">更新：${new Date().toLocaleString('zh-TW')}</div>
