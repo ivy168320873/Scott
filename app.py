@@ -2651,6 +2651,197 @@ def api_alerts_schedule_status():
     return jsonify({"ok": True, "settings": _alert_schedule_settings})
 
 
+# ── Decision Engine API routes ────────────────────────────────────────────────
+import decision_engine as _de
+
+
+def _get_ohlcv_norm(symbol: str):
+    """Fetch OHLCV for any symbol and return normalised dict, or None."""
+    sym_up = symbol.upper()
+    if sym_up.endswith(".TW") or sym_up.endswith(".TWO"):
+        raw = _fetch_ohlcv_twse(sym_up)
+        return _de.normalize_yahoo(raw) if raw else None
+    else:
+        rows = _fetch_ohlcv_server(sym_up)
+        return _de.normalize_list(rows) if rows else None
+
+
+@app.route("/api/chase-risk/<symbol>")
+def api_chase_risk(symbol):
+    """Chase Risk Score for a single symbol."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        sym   = symbol.upper().strip()
+        ohlcv = _get_ohlcv_norm(sym)
+        if not ohlcv:
+            return jsonify({"ok": False, "error": f"無法取得 {sym} 的 K 線資料"}), 404
+        result = _de.run_chase_risk(ohlcv)
+        result["symbol"] = sym
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/sell-decision", methods=["POST"])
+def api_sell_decision():
+    """
+    Sell Decision Engine.
+    Body: {symbol, cost, holding_days?, stop_pct?, trail_pct?, profit_target_pct?}
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        data  = request.json or {}
+        sym   = str(data.get("symbol", "")).upper().strip()
+        cost  = float(data.get("cost", 0) or 0)
+        if not sym:
+            return jsonify({"ok": False, "error": "symbol 必填"}), 400
+        if cost <= 0:
+            return jsonify({"ok": False, "error": "cost 必填且需 > 0"}), 400
+
+        ohlcv = _get_ohlcv_norm(sym)
+        if not ohlcv:
+            return jsonify({"ok": False, "error": f"無法取得 {sym} 的 K 線資料"}), 404
+
+        # Parse optional holding info
+        buy_date_str  = data.get("buy_date", "")
+        holding_days  = int(data.get("holding_days", 0) or 0)
+        if not holding_days and buy_date_str:
+            from datetime import date as _d, datetime as _dtm
+            try:
+                bd = _dtm.strptime(buy_date_str, "%Y-%m-%d").date()
+                holding_days = (_d.today() - bd).days
+            except Exception:
+                pass
+
+        result = _de.run_sell_decision(
+            ohlcv,
+            cost=cost,
+            holding_days=max(holding_days, 0),
+            stop_pct=float(data.get("stop_pct", 8) or 8),
+            trail_pct=float(data.get("trail_pct", 15) or 15),
+            profit_target_pct=float(data.get("profit_target_pct", 20) or 20),
+        )
+        result["symbol"] = sym
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/capital-efficiency", methods=["POST"])
+def api_capital_efficiency():
+    """
+    Capital Efficiency Score for one or more holdings.
+    Body: {holdings: [{symbol, cost, qty, buy_date?, current_price?}, ...],
+           benchmark?: "QQQ"|"SPY"|"0050.TW"}
+    Returns per-holding score + portfolio summary.
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        data      = request.json or {}
+        holdings  = data.get("holdings", [])
+        bench_sym = str(data.get("benchmark", "SPY") or "SPY").upper()
+
+        if not holdings:
+            return jsonify({"ok": False, "error": "holdings 必填"}), 400
+
+        # Fetch benchmark return (best effort)
+        bench_return: float | None = None
+        try:
+            bench_ohlcv = _get_ohlcv_norm(bench_sym)
+            if bench_ohlcv and len(bench_ohlcv["closes"]) >= 21:
+                bc = bench_ohlcv["closes"]
+                bench_return = (bc[-1] - bc[-21]) / bc[-21] * 100
+        except Exception:
+            pass
+
+        results = []
+        for h in holdings[:20]:   # cap at 20 holdings
+            sym  = str(h.get("symbol", "")).upper().strip()
+            cost = float(h.get("cost", 0) or 0)
+            if not sym or cost <= 0:
+                continue
+            ohlcv = _get_ohlcv_norm(sym)
+            if not ohlcv:
+                results.append({"symbol": sym, "ok": False, "error": "K 線資料不可用"})
+                continue
+
+            # Update current_price from OHLCV if not provided
+            if not h.get("current_price") and ohlcv["closes"]:
+                h = dict(h)
+                h["current_price"] = ohlcv["closes"][-1]
+
+            res = _de.run_capital_efficiency(h, ohlcv,
+                                             benchmark_return=bench_return)
+            results.append(res)
+
+        if not results:
+            return jsonify({"ok": False, "error": "無有效持倉資料"}), 400
+
+        # Portfolio-level summary
+        valid = [r for r in results if r.get("ok")]
+        avg_score = round(sum(r["score"] for r in valid) / len(valid)) if valid else None
+
+        return jsonify({
+            "ok":             True,
+            "benchmark":      bench_sym,
+            "benchmark_return_pct": round(bench_return, 2) if bench_return is not None else None,
+            "holdings":       results,
+            "portfolio_avg_score": avg_score,
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/sector-leadership", methods=["POST"])
+def api_sector_leadership():
+    """
+    Sector Leadership Score.
+    Body: {sector: "台股半導體IC", symbols: ["2330.TW", ...], max_stocks?: 20}
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        data        = request.json or {}
+        sector_name = str(data.get("sector", "未知板塊")).strip()
+        symbols     = [s.upper().strip() for s in (data.get("symbols") or [])
+                       if isinstance(s, str) and s.strip()]
+        max_stocks  = min(int(data.get("max_stocks", 20) or 20), 30)
+
+        if not symbols:
+            return jsonify({"ok": False, "error": "symbols 必填"}), 400
+
+        symbols = symbols[:max_stocks]
+
+        # Parallel OHLCV fetch
+        stocks_ohlcv: dict = {}
+        def _fetch_one(sym: str):
+            ohlcv = _get_ohlcv_norm(sym)
+            return sym, ohlcv
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for sym, ohlcv in ex.map(_fetch_one, symbols):
+                if ohlcv:
+                    stocks_ohlcv[sym] = ohlcv
+
+        result = _de.run_sector_leadership(sector_name, stocks_ohlcv)
+        result["fetched"]  = len(stocks_ohlcv)
+        result["requested"]= len(symbols)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
