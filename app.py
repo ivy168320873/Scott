@@ -1372,20 +1372,19 @@ def chart_proxy(symbol):
 def api_analyze():
     try:
         payload = request.json or {}
+        sym = str(payload.get("symbol", "")).upper().strip()
 
-        # ── Phase 2: enrich payload with Phase 1 decision-engine results ──────
-        # The frontend may pass pre-fetched decision_results, or we fetch them
-        # here for the symbol so both Claude prompt and rule-based fallback can
-        # reference chase_risk / sell_decision / sector_leadership.
-        if "decision_results" not in payload:
-            sym = str(payload.get("symbol", "")).upper().strip()
-            if sym:
-                dr: dict = {}
+        if sym:
+            # Merge any pre-supplied decision_results from the frontend.
+            # We then fill in any missing keys automatically.
+            dr: dict = dict(payload.get("decision_results") or {})
+
+            # ── chase_risk + sell_decision: skip if frontend already sent them ─
+            if "chase_risk" not in dr:
                 try:
                     ohlcv_norm = _get_ohlcv_norm(sym)
                     if ohlcv_norm:
                         dr["chase_risk"] = _de.run_chase_risk(ohlcv_norm)
-                        # sell_decision only when cost info is present
                         cost = float(payload.get("cost", 0) or 0)
                         if cost > 0:
                             holding_days = int(payload.get("holding_days", 0) or 0)
@@ -1393,9 +1392,32 @@ def api_analyze():
                                 ohlcv_norm, cost=cost, holding_days=holding_days
                             )
                 except Exception as _de_err:
-                    print(f"[api_analyze] Phase 1 enrich failed: {_de_err}")
-                if dr:
-                    payload = {**payload, "decision_results": dr}
+                    print(f"[api_analyze] chase_risk enrich failed: {_de_err}")
+
+            # ── sector_leadership: auto-detect and fetch (Phase 2.5) ──────────
+            if "sector_leadership" not in dr:
+                try:
+                    sector_name = _smap.get_sector(sym)
+                    if sector_name:
+                        sector_syms = _smap.get_sector_symbols(sector_name)
+                        sector_ohlcv: dict = {}
+                        def _fetch_s(s: str):
+                            return s, _get_ohlcv_norm(s)
+                        with ThreadPoolExecutor(max_workers=6) as ex:
+                            for s, ov in ex.map(_fetch_s, sector_syms[:8]):
+                                if ov:
+                                    sector_ohlcv[s] = ov
+                        dr["sector_leadership"] = _de.run_sector_leadership(
+                            sector_name, sector_ohlcv
+                        )
+                    else:
+                        # Unknown sector — None signals analyzer to show 板塊強度資料不足
+                        dr["sector_leadership"] = None
+                except Exception as _sl_err:
+                    print(f"[api_analyze] sector_leadership fetch failed: {_sl_err}")
+
+            if dr:
+                payload = {**payload, "decision_results": dr}
 
         result = analyzer.analyze(payload)
         return jsonify({"ok": True, **result})
@@ -2678,6 +2700,7 @@ def api_alerts_schedule_status():
 
 # ── Decision Engine API routes ────────────────────────────────────────────────
 import decision_engine as _de
+import sector_map as _smap
 
 
 def _get_ohlcv_norm(symbol: str):

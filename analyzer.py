@@ -144,9 +144,9 @@ def _build_bear_case(ind: dict, ma: list, payload: dict,
     total_ma  = len(ma)
 
     dr = payload.get("decision_results", {})
-    cr = dr.get("chase_risk",        {})
-    sd = dr.get("sell_decision",     {})
-    sl = dr.get("sector_leadership", {})
+    cr = dr.get("chase_risk",    {}) or {}
+    sd = dr.get("sell_decision", {}) or {}
+    sl = dr.get("sector_leadership", {}) or {}  # None = unknown sector → treat as {}
 
     reasons: list[str] = []
 
@@ -490,10 +490,12 @@ def claude_analysis(payload: dict, api_key: str) -> dict:
     )
 
     # Phase 1 context for Claude
-    dr = payload.get("decision_results", {})
-    cr = dr.get("chase_risk",        {})
-    sd = dr.get("sell_decision",     {})
-    sl = dr.get("sector_leadership", {})
+    dr   = payload.get("decision_results", {})
+    cr   = dr.get("chase_risk",    {}) or {}
+    sd   = dr.get("sell_decision", {}) or {}
+    # sector_leadership may be None (unknown sector) or a result dict or missing
+    _sl_raw = dr.get("sector_leadership", "NOT_SET")
+    sl   = _sl_raw if isinstance(_sl_raw, dict) else {}
 
     phase1_ctx = ""
     if cr.get("score") is not None:
@@ -507,7 +509,10 @@ def claude_analysis(payload: dict, api_key: str) -> dict:
             phase1_ctx += f"  停損位：{sd_d['stop_price']:.2f}"
         if sd_d.get("trail_price"):
             phase1_ctx += f"  移動停利：{sd_d['trail_price']:.2f}"
-    if sl.get("level") in ("WEAKENING", "LAGGING", "LEADING", "IMPROVING"):
+    if _sl_raw is None:
+        # api_analyze explicitly set None → sector could not be identified
+        phase1_ctx += "\n板塊強度：無法判斷所屬板塊（板塊強度資料不足）"
+    elif sl.get("level") in ("WEAKENING", "LAGGING", "LEADING", "IMPROVING"):
         phase1_ctx += f"\n板塊強度：{sl.get('sector', '')} 【{sl.get('level_label', '')}】（評分 {sl.get('score', 'N/A')}）"
 
     prompt = f"""你是頂尖量化分析師，根據以下 {symbol} 的技術指標與決策引擎數據，給出**客觀雙向判斷**。
