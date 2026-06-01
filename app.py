@@ -1372,6 +1372,31 @@ def chart_proxy(symbol):
 def api_analyze():
     try:
         payload = request.json or {}
+
+        # ── Phase 2: enrich payload with Phase 1 decision-engine results ──────
+        # The frontend may pass pre-fetched decision_results, or we fetch them
+        # here for the symbol so both Claude prompt and rule-based fallback can
+        # reference chase_risk / sell_decision / sector_leadership.
+        if "decision_results" not in payload:
+            sym = str(payload.get("symbol", "")).upper().strip()
+            if sym:
+                dr: dict = {}
+                try:
+                    ohlcv_norm = _get_ohlcv_norm(sym)
+                    if ohlcv_norm:
+                        dr["chase_risk"] = _de.run_chase_risk(ohlcv_norm)
+                        # sell_decision only when cost info is present
+                        cost = float(payload.get("cost", 0) or 0)
+                        if cost > 0:
+                            holding_days = int(payload.get("holding_days", 0) or 0)
+                            dr["sell_decision"] = _de.run_sell_decision(
+                                ohlcv_norm, cost=cost, holding_days=holding_days
+                            )
+                except Exception as _de_err:
+                    print(f"[api_analyze] Phase 1 enrich failed: {_de_err}")
+                if dr:
+                    payload = {**payload, "decision_results": dr}
+
         result = analyzer.analyze(payload)
         return jsonify({"ok": True, **result})
     except Exception as e:
