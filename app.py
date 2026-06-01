@@ -1420,7 +1420,10 @@ def api_analyze():
                 payload = {**payload, "decision_results": dr}
 
         result = analyzer.analyze(payload)
-        return jsonify({"ok": True, **result})
+        # Include Phase 1 decision_results in response so frontend can render
+        # Chase Risk badge, Sell Decision block, and Sector Strength panel.
+        dr_out = payload.get("decision_results") or {}
+        return jsonify({"ok": True, **result, "decision_results": dr_out})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500

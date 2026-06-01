@@ -152,6 +152,59 @@ tbody td{padding:9px 10px}
 .ai-spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);
   border-top-color:var(--purple);border-radius:50%;animation:spin .7s linear infinite;margin-right:6px;vertical-align:middle}
 
+/* ── Phase 3: Chase Risk badge ── */
+.cr-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.cr-panel h3{font-size:.85rem;color:var(--accent);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.cr-badge-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.cr-score-num{font-size:2rem;font-weight:900;line-height:1}
+.cr-level-label{font-size:.72rem;font-weight:700;letter-spacing:.06em;padding:2px 8px;border-radius:4px;margin-top:3px;display:inline-block}
+.cr-meta{flex:1;min-width:160px}
+.cr-action{font-size:.82rem;color:var(--text);margin-top:5px;line-height:1.5}
+.cr-flags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.cr-flag{font-size:.68rem;background:rgba(248,81,73,.12);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:4px;padding:2px 7px}
+.cr-bar-wrap{width:72px;flex-shrink:0}
+.cr-bar-track{height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:4px}
+.cr-bar-fill{height:100%;border-radius:4px;transition:width .5s}
+.cr-bar-lbl{font-size:.65rem;color:var(--muted);text-align:center}
+
+/* ── Phase 3: Sell Decision panel ── */
+.sd-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.sd-panel h3{font-size:.85rem;color:var(--neutral);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.sd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:10px}
+.sd-box{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px}
+.sd-lbl{font-size:.67rem;color:var(--muted);margin-bottom:3px}
+.sd-val{font-size:.9rem;font-weight:700;line-height:1.3}
+.sd-reasons{font-size:.8rem;color:var(--muted);line-height:1.6;border-top:1px solid var(--border);padding-top:8px;margin-top:2px}
+
+/* ── Phase 3: Sector Strength panel ── */
+.sl-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.sl-panel h3{font-size:.85rem;color:#bc8cff;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.sl-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.sl-score-num{font-size:1.8rem;font-weight:900;line-height:1}
+.sl-level-chip{font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:4px;margin-top:3px;display:inline-block}
+.sl-bar-wrap{flex:1;min-width:120px}
+.sl-bar-track{height:8px;background:var(--border);border-radius:4px;overflow:hidden}
+.sl-bar-fill{height:100%;border-radius:4px;transition:width .5s}
+.sl-action{font-size:.82rem;color:var(--text);margin-top:8px;line-height:1.5}
+
+/* ── Phase 3: 7-card AI layout ── */
+.ai-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+@media(max-width:520px){.ai-cards{grid-template-columns:1fr}}
+.ai-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.ai-card.ai-full{grid-column:1/-1}
+.ai-card.ai-kill{border-color:rgba(248,81,73,.5);background:rgba(248,81,73,.06)}
+.ai-card.ai-bull{border-color:rgba(63,185,80,.35);background:rgba(63,185,80,.04)}
+.ai-card.ai-bear{border-color:rgba(248,81,73,.25);background:rgba(248,81,73,.03)}
+.ai-card-title{font-size:.67rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
+.ai-card-body{font-size:.83rem;line-height:1.65}
+.ai-card-body strong{color:var(--accent)}
+.ai-kill-sentence{border-left:3px solid #f85149;padding:9px 13px;background:rgba(248,81,73,.09);border-radius:0 8px 8px 0;font-size:.84rem;font-style:italic;margin-top:10px;line-height:1.65;grid-column:1/-1;color:#f85149}
+
+/* ── Phase 3: Capital Efficiency chip on position cards ── */
+.ce-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px}
+.ce-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700;border:1px solid transparent}
+.ce-reason{font-size:.72rem;color:var(--muted);margin-top:3px;line-height:1.5}
+
 /* ── Loading / Error ── */
 #loading{text-align:center;padding:40px;color:var(--muted);display:none}
 .spinner{display:inline-block;width:26px;height:26px;border:3px solid var(--border);
@@ -1164,6 +1217,33 @@ tbody td{padding:9px 10px}
         <div class="bb-factors" id="bb-factors"></div>
       </div>
       <div class="mf-signal-box" id="mf-signal-box"></div>
+    </div>
+
+    <!-- Phase 3: Chase Risk Badge panel -->
+    <div class="cr-panel" id="cr-panel" style="display:none">
+      <h3>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        追高風險評估
+      </h3>
+      <div id="cr-body"></div>
+    </div>
+
+    <!-- Phase 3: Sector Strength panel -->
+    <div class="sl-panel" id="sl-panel" style="display:none">
+      <h3>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#bc8cff" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        板塊強度分析
+      </h3>
+      <div id="sl-body"></div>
+    </div>
+
+    <!-- Phase 3: Sell Decision panel -->
+    <div class="sd-panel" id="sd-panel" style="display:none">
+      <h3>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--neutral)" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        賣出決策分析
+      </h3>
+      <div id="sd-body"></div>
     </div>
 
     <!-- AI Analysis -->
@@ -2709,8 +2789,219 @@ function renderMA(d) {
 }
 
 // ══════════════════════════════════════════════════════
-// 6. AI Analysis
+// 6. AI Analysis — Phase 3 UI
 // ══════════════════════════════════════════════════════
+
+/* ── helpers ── */
+function _esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function _fmt(t) {
+  // markdown bold + newlines → HTML
+  return String(t||'')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\n/g,'<br>');
+}
+function _listHtml(arr) {
+  if (!arr || !arr.length) return '<span style="color:var(--muted)">—</span>';
+  return '<ul>' + arr.map(s=>`<li>${_esc(s)}</li>`).join('') + '</ul>';
+}
+
+/* ── Chase Risk color map ── */
+function crColor(level) {
+  return {LOW:'#3fb950',MEDIUM:'#e3b341',HIGH:'#f0883e',EXTREME:'#f85149'}[level] || '#8b949e';
+}
+
+/* ── Render Chase Risk badge panel ── */
+function renderChaseRisk(cr) {
+  const panel = document.getElementById('cr-panel');
+  const body  = document.getElementById('cr-body');
+  if (!cr || cr.score == null) { panel.style.display='none'; return; }
+
+  const color   = crColor(cr.level);
+  const score   = cr.score ?? 0;
+  const label   = cr.level_label || cr.level || '—';
+  const action  = cr.suggested_action || '';
+  const flags   = (cr.warning_flags || []);
+  const reasons = (cr.reasons || []).slice(0,3);
+
+  body.innerHTML = `
+    <div class="cr-badge-row">
+      <div>
+        <div class="cr-score-num" style="color:${color}">${score}</div>
+        <div class="cr-level-label" style="background:${color}22;color:${color};border:1px solid ${color}44">${_esc(label)}</div>
+      </div>
+      <div class="cr-bar-wrap">
+        <div class="cr-bar-track"><div class="cr-bar-fill" style="width:${score}%;background:${color}"></div></div>
+        <div class="cr-bar-lbl">${score}/100</div>
+      </div>
+      <div class="cr-meta">
+        ${reasons.map(r=>`<div style="font-size:.79rem;color:var(--muted);line-height:1.5">• ${_esc(r)}</div>`).join('')}
+        ${action ? `<div class="cr-action">${_esc(action)}</div>` : ''}
+        ${flags.length ? `<div class="cr-flags">${flags.map(f=>`<span class="cr-flag">${_esc(f)}</span>`).join('')}</div>` : ''}
+      </div>
+    </div>`;
+  panel.style.display = 'block';
+}
+
+/* ── Render Sector Strength panel ── */
+function renderSectorLeadership(sl) {
+  const panel = document.getElementById('sl-panel');
+  const body  = document.getElementById('sl-body');
+  if (!sl || !sl.ok) { panel.style.display='none'; return; }
+
+  const color  = sl.level_color || '#8b949e';
+  const score  = sl.score ?? 0;
+  const label  = sl.level_label || sl.level || '—';
+  const sector = sl.sector || '';
+  const action = sl.suggested_action || '';
+  const d      = sl.detail || {};
+  const flags  = sl.warning_flags || [];
+
+  const detailItems = [
+    d.avg_20d_gain_pct   != null ? `20日均漲：${d.avg_20d_gain_pct > 0 ? '+' : ''}${d.avg_20d_gain_pct}%` : null,
+    d.new_high_ratio_pct != null ? `新高比例：${d.new_high_ratio_pct}%` : null,
+    d.above_ma20_ratio_pct!=null ? `站上MA20：${d.above_ma20_ratio_pct}%` : null,
+    d.vol_expand_ratio_pct!=null ? `量能放大：${d.vol_expand_ratio_pct}%` : null,
+  ].filter(Boolean);
+
+  body.innerHTML = `
+    <div class="sl-top">
+      <div>
+        <div class="sl-score-num" style="color:${color}">${score}</div>
+        <div class="sl-level-chip" style="background:${color}22;color:${color};border:1px solid ${color}44">${_esc(label)}</div>
+      </div>
+      <div class="sl-bar-wrap">
+        <div style="font-size:.75rem;font-weight:700;margin-bottom:4px">${_esc(sector)} <span style="font-size:.67rem;color:var(--muted)">(${sl.stock_count||0} 檔)</span></div>
+        <div class="sl-bar-track"><div class="sl-bar-fill" style="width:${score}%;background:${color}"></div></div>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px 16px;font-size:.78rem;color:var(--muted);margin-bottom:8px">
+      ${detailItems.map(i=>`<span>${i}</span>`).join('')}
+    </div>
+    ${flags.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px">${flags.map(f=>`<span class="cr-flag">${_esc(f)}</span>`).join('')}</div>` : ''}
+    ${action ? `<div class="sl-action">${_esc(action)}</div>` : ''}`;
+  panel.style.display = 'block';
+}
+
+/* ── Render Sell Decision panel ── */
+function renderSellDecision(sd) {
+  const panel = document.getElementById('sd-panel');
+  const body  = document.getElementById('sd-body');
+  if (!sd || !sd.decision || sd.decision === 'NONE') { panel.style.display='none'; return; }
+
+  const color  = sd.level_color || '#e3b341';
+  const label  = sd.decision_label || sd.decision || '—';
+  const action = sd.suggested_action || '';
+  const det    = sd.detail || {};
+  const reasons= (sd.reasons || []).slice(0,4);
+
+  const boxes = [
+    det.pnl_pct   != null ? {l:'損益%',v:`${det.pnl_pct>0?'+':''}${det.pnl_pct.toFixed(2)}%`,c:det.pnl_pct>=0?'pos':'neg'} : null,
+    det.stop_price? {l:'停損位',v:det.stop_price.toFixed(2),c:'neg'} : null,
+    det.trail_price?{l:'移動停利',v:det.trail_price.toFixed(2),c:'neutral'} : null,
+    det.profit_price?{l:'目標獲利',v:det.profit_price.toFixed(2),c:'pos'} : null,
+    det.holding_days?{l:'持有天數',v:det.holding_days+'天',c:''} : null,
+    det.annual_return!=null?{l:'年化報酬',v:`${det.annual_return>0?'+':''}${det.annual_return}%`,c:det.annual_return>=0?'pos':'neg'}:null,
+  ].filter(Boolean);
+
+  body.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <span style="font-size:1.1rem;font-weight:900;color:${color}">${_esc(label)}</span>
+      ${action ? `<span style="font-size:.8rem;color:var(--muted)">${_esc(action)}</span>` : ''}
+    </div>
+    <div class="sd-grid">
+      ${boxes.map(b=>`<div class="sd-box"><div class="sd-lbl">${b.l}</div><div class="sd-val ${b.c}">${_esc(b.v)}</div></div>`).join('')}
+    </div>
+    ${reasons.length ? `<div class="sd-reasons">• ${reasons.map(_esc).join('<br>• ')}</div>` : ''}`;
+  panel.style.display = 'block';
+}
+
+/* ── Render 7-card AI body ── */
+function renderAICards(j) {
+  const src = j.source === 'claude-ai'
+    ? '<span class="ai-badge">Claude AI</span>'
+    : '<span style="font-size:.7rem;color:var(--muted)">(規則引擎)</span>';
+
+  const st = j.structured || {};
+
+  // Try structured first, fall back to flat fields, then legacy summary
+  const summaryText  = st.summary_short || st.summary || '';
+  const bullCase     = Array.isArray(j.bull_case) && j.bull_case.length
+                       ? j.bull_case
+                       : (Array.isArray(st.bull_case) ? st.bull_case : [st.bull_case||''].filter(Boolean));
+  const bearCase     = Array.isArray(j.bear_case) && j.bear_case.length
+                       ? j.bear_case
+                       : (Array.isArray(st.bear_case) ? st.bear_case : [st.bear_case||''].filter(Boolean));
+  const chaseRiskTxt = j.chase_risk_text || st.chase_risk || '';
+  const sellPlanTxt  = j.sell_plan      || st.sell_plan  || '';
+  const killTxt      = (() => {
+    const ks = j.kill_signal || {};
+    if (Array.isArray(ks.triggers) && ks.triggers.length) return ks.triggers.map(t=>`• ${t}`).join('\n');
+    if (typeof st.kill_signal === 'string') return st.kill_signal;
+    return '';
+  })();
+  const finalAdvice  = st.final_advice  || '';
+  const killSentence = j.kill_sentence  || st.kill_sentence || '';
+
+  const hasStructured = summaryText || bullCase.length || bearCase.length || chaseRiskTxt || sellPlanTxt || killTxt || finalAdvice;
+
+  if (hasStructured) {
+    // 7-card layout
+    return `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        ${badge(j.signal_class, j.signal)}
+        <span style="font-size:.8rem;color:var(--muted)">動能: ${j.score}</span>
+        ${src}
+      </div>
+      ${summaryText ? `<div style="font-size:.88rem;font-weight:600;color:var(--text);margin-bottom:12px;line-height:1.6">${_fmt(summaryText)}</div>` : ''}
+      <div class="ai-cards">
+        <div class="ai-card ai-bull">
+          <div class="ai-card-title">🟢 Bull Case 看多理由</div>
+          <div class="ai-card-body">${bullCase.length ? _listHtml(bullCase) : _fmt(j.analysis||'—')}</div>
+        </div>
+        <div class="ai-card ai-bear">
+          <div class="ai-card-title">🔴 Bear Case 看空理由</div>
+          <div class="ai-card-body">${_listHtml(bearCase)}</div>
+        </div>
+        ${chaseRiskTxt ? `<div class="ai-card">
+          <div class="ai-card-title">⚡ Chase Risk 追高風險</div>
+          <div class="ai-card-body">${_fmt(chaseRiskTxt)}</div>
+        </div>` : ''}
+        ${sellPlanTxt ? `<div class="ai-card">
+          <div class="ai-card-title">📋 Sell Plan 賣出計畫</div>
+          <div class="ai-card-body">${_fmt(sellPlanTxt)}</div>
+        </div>` : ''}
+        ${killTxt ? `<div class="ai-card ai-kill ai-full">
+          <div class="ai-card-title">⚠️ Kill Signal 判斷失效條件</div>
+          <div class="ai-card-body" style="white-space:pre-line">${_fmt(killTxt)}</div>
+          ${killSentence ? `<div class="ai-kill-sentence">若出現「${_esc(killSentence.replace(/^若出現[「『]?|[」』].*$/g,'').trim() || killSentence)}」，原本看多判斷失效。</div>` : ''}
+        </div>` : (killSentence ? `<div class="ai-kill-sentence ai-full">${_fmt(killSentence)}</div>` : '')}
+        ${finalAdvice ? `<div class="ai-card ai-full">
+          <div class="ai-card-title">🎯 最終操作建議</div>
+          <div class="ai-card-body">${_fmt(finalAdvice)}</div>
+        </div>` : ''}
+      </div>
+      ${j.source !== 'claude-ai' && (j.confluence||j.risk) ? `
+      <div class="ai-row" style="margin-top:10px">
+        ${j.confluence ? `<div class="ai-box"><div class="albl">指標共振</div><div class="aval">${_esc(j.confluence)}</div></div>` : ''}
+        ${j.risk ? `<div class="ai-box"><div class="albl">風險提示</div><div class="aval ${j.risk!=='無明顯風險訊號'?'neg':''}">${_esc(j.risk)}</div></div>` : ''}
+        ${j.support_resistance?.nearest_support?.length ? `<div class="ai-box"><div class="albl">近期支撐</div><div class="aval">${j.support_resistance.nearest_support.join(' / ')}</div></div>` : ''}
+        ${j.support_resistance?.nearest_resistance?.length ? `<div class="ai-box"><div class="albl">近期壓力</div><div class="aval">${j.support_resistance.nearest_resistance.join(' / ')}</div></div>` : ''}
+      </div>` : ''}`;
+  }
+
+  // Legacy fallback: no structured data
+  const formatText = t => String(t||'').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
+  return `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      ${badge(j.signal_class, j.signal)}
+      <span style="font-size:.8rem;color:var(--muted)">動能: ${j.score}</span>
+      ${src}
+    </div>
+    <div class="ai-content">${formatText(j.summary)}</div>
+    ${j.analysis ? `<div class="ai-content" style="margin-top:10px">${formatText(j.analysis)}</div>` : ''}`;
+}
 
 async function requestAI(d) {
   const panel = document.getElementById('ai-panel');
@@ -2754,32 +3045,14 @@ async function requestAI(d) {
     const j = await r.json();
     if (!j.ok) throw new Error(j.error);
 
-    const src = j.source === 'claude-ai'
-      ? '<span class="ai-badge">Claude AI</span>'
-      : '<span style="font-size:.7rem;color:var(--muted)">(規則引擎)</span>';
+    body.innerHTML = renderAICards(j);
 
-    // Render summary as markdown-like text
-    const formatText = t => t
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\n/g, '<br>');
+    // ── Phase 3: populate the 3 side panels from decision_results ──
+    const dr = j.decision_results || {};
+    renderChaseRisk(dr.chase_risk);
+    renderSectorLeadership(dr.sector_leadership);
+    renderSellDecision(dr.sell_decision);
 
-    const rows = j.source !== 'claude-ai' ? `
-      <div class="ai-row">
-        <div class="ai-box"><div class="albl">指標共振</div><div class="aval">${j.confluence||'—'}</div></div>
-        <div class="ai-box"><div class="albl">風險提示</div><div class="aval ${j.risk&&j.risk!=='無明顯風險訊號'?'neg':''}">${j.risk||'—'}</div></div>
-        ${j.support_resistance?.nearest_support?.length ? `<div class="ai-box"><div class="albl">近期支撐</div><div class="aval">${j.support_resistance.nearest_support.join(' / ')}</div></div>` : ''}
-        ${j.support_resistance?.nearest_resistance?.length ? `<div class="ai-box"><div class="albl">近期壓力</div><div class="aval">${j.support_resistance.nearest_resistance.join(' / ')}</div></div>` : ''}
-      </div>` : '';
-
-    body.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        ${badge(j.signal_class, j.signal)}
-        <span style="font-size:.8rem;color:var(--muted)">動能: ${j.score}</span>
-        ${src}
-      </div>
-      <div class="ai-content">${formatText(j.summary)}</div>
-      ${j.analysis ? `<div class="ai-content" style="margin-top:10px">${formatText(j.analysis)}</div>` : ''}
-      ${rows}`;
   } catch (e) {
     body.innerHTML = `<div class="neg" style="font-size:.85rem">AI 分析失敗：${e.message}</div>`;
   }
@@ -3139,6 +3412,9 @@ async function search(sym) {
   document.getElementById('tabs').style.display = 'none';
   document.getElementById('errmsg').style.display = 'none';
   document.getElementById('ai-panel').style.display = 'none';
+  document.getElementById('cr-panel').style.display = 'none';
+  document.getElementById('sl-panel').style.display = 'none';
+  document.getElementById('sd-panel').style.display = 'none';
   document.getElementById('bt-results').style.display = 'none';
   destroyAll();
 
@@ -6824,10 +7100,13 @@ function renderPositions() {
     const pnl  = val - cost;
     const pct  = cost > 0 ? (pnl/cost*100).toFixed(2) : '0.00';
     totalCost  += cost; totalValue += val;
-    return `<div class="pos-item">
+    return `<div class="pos-item" id="pos-item-${p.id}">
       <div class="pos-info">
         <div class="pos-sym">${p.sym} <span style="font-size:.78rem;color:var(--muted);font-weight:400">${p.shares}股</span></div>
         <div class="pos-detail">成本：${p.entry.toFixed(2)} · 現價：${(p.currentPrice||p.entry).toFixed(2)}${p.stopLoss?' · 停損：'+p.stopLoss.toFixed(2):''}${p.note?' · '+p.note:''}</div>
+        <div class="ce-row" id="ce-row-${p.id}">
+          <span style="font-size:.68rem;color:var(--muted)">資金效率分析中…</span>
+        </div>
       </div>
       <div class="pos-pnl">
         <div class="pnl-pct ${pnl>=0?'pos':'neg'}">${pnl>=0?'+':''}${pct}%</div>
@@ -6847,6 +7126,49 @@ function renderPositions() {
   document.getElementById('ps-pct').textContent   = `${totalPnl>=0?'+':''}${totalPct}%`;
   document.getElementById('ps-pct').className     = 'psb-val '+(totalPnl>=0?'pos':'neg');
   renderPortfolioRisk();
+  // Async: enrich each position with Capital Efficiency from the server
+  _enrichCapitalEfficiency();
+}
+
+// Capital Efficiency color map
+function _ceColor(level) {
+  return {ADD:'#3fb950',HOLD:'#58a6ff',WATCH:'#e3b341',TRIM:'#f0883e',ROTATE:'#bc8cff',STOP_LOSS:'#f85149'}[level]||'#8b949e';
+}
+
+async function _enrichCapitalEfficiency() {
+  for (const p of _positions) {
+    const ceRowEl = document.getElementById(`ce-row-${p.id}`);
+    if (!ceRowEl) continue;
+    try {
+      const today = new Date().toISOString().slice(0,10);
+      const buyDate = p.buyDate || today;
+      const r = await fetch('/api/capital-efficiency', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({holdings:[{
+          symbol: p.sym, cost: p.entry, qty: p.shares, buy_date: buyDate,
+          current_price: p.currentPrice || p.entry,
+        }]}),
+      });
+      if (!r.ok) throw new Error(r.statusText);
+      const j = await r.json();
+      const ce = (j.holdings||[])[0];
+      if (!ce || ce.score == null) {
+        ceRowEl.innerHTML = '<span style="font-size:.68rem;color:var(--muted)">效率資料不足</span>';
+        continue;
+      }
+      const color = _ceColor(ce.level);
+      const topReason = (ce.reasons||[])[0] || '';
+      ceRowEl.innerHTML = `
+        <span class="ce-chip" style="background:${color}1a;color:${color};border-color:${color}44">
+          ${ce.score} · ${_esc(ce.level_label||ce.level)}
+        </span>
+        ${topReason ? `<span style="font-size:.7rem;color:var(--muted)">${_esc(topReason)}</span>` : ''}
+      `;
+    } catch(_) {
+      if (ceRowEl) ceRowEl.innerHTML = '';
+    }
+  }
 }
 
 function renderRegime(d) {
