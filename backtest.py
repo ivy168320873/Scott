@@ -91,7 +91,8 @@ COMMISSION = 0.001   # 0.1% per leg
 
 
 def _simulate(closes: list, dates: list, buy_sig: list, sell_sig: list,
-              initial: float = 100_000.0) -> dict:
+              initial: float = 100_000.0,
+              cost_params: dict | None = None) -> dict:
     """Long-only. Signals at day i; execution at close i."""
     equity = [initial] * len(closes)
     cash = initial
@@ -121,6 +122,8 @@ def _simulate(closes: list, dates: list, buy_sig: list, sell_sig: list,
                 "pnl_pct":      round(pnl_pct, 2),
                 "holding_days": i - entry_idx,
                 "win":          pnl_pct > 0,
+                "entry_idx":    entry_idx,
+                "exit_idx":     i,
             })
             cash = proceeds
             position = 0.0
@@ -134,6 +137,7 @@ def _simulate_partial(
     entries: list,   # list of (idx, entry_price, stop, r1_target, r2_target)
     initial: float = 100_000.0,
     protect_r: float = 0.7,   # move stop to +0.15R when price reaches this R
+    cost_params: dict | None = None,
 ) -> dict:
     """
     Advanced simulation with partial exits + profit protection:
@@ -204,6 +208,8 @@ def _simulate_partial(
                     "holding_days": days_held,
                     "win":          True,
                     "leg":          "L1",
+                    "entry_idx":    entry_idx,
+                    "exit_idx":     i,
                 })
                 pos1 = 0.0
                 leg1_closed = True
@@ -239,6 +245,8 @@ def _simulate_partial(
                             "holding_days": days_held,
                             "win":          pnl > 0,
                             "leg":          label,
+                            "entry_idx":    entry_idx,
+                            "exit_idx":     i,
                         })
                 pos1 = pos2 = 0.0
                 equity[i] = cash
@@ -361,15 +369,15 @@ def _stats(trades: list, equity: list, initial: float, closes: list, dates: list
 
 # ── Strategy entry points ─────────────────────────────────────────────────────
 
-def _run(ohlcv, buy_sig, sell_sig, initial=100_000.0):
+def _run(ohlcv, buy_sig, sell_sig, initial=100_000.0, cost_params: dict | None = None):
     closes = [d["close"] for d in ohlcv]
     dates  = [d["date"]  for d in ohlcv]
-    sim = _simulate(closes, dates, buy_sig, sell_sig, initial)
+    sim = _simulate(closes, dates, buy_sig, sell_sig, initial, cost_params=cost_params)
     stats = _stats(sim["trades"], sim["equity"], initial, closes, dates)
     return {**sim, **stats}
 
 
-def strategy_rsi(ohlcv: list, period=14, buy_thr=30, sell_thr=70) -> dict:
+def strategy_rsi(ohlcv: list, period=14, buy_thr=30, sell_thr=70, cost_params: dict | None = None) -> dict:
     """Buy when RSI exits oversold (crosses UP through buy_thr). Sell when RSI exits overbought."""
     closes = [d["close"] for d in ohlcv]
     rsi = _rsi(closes, period)
@@ -386,10 +394,10 @@ def strategy_rsi(ohlcv: list, period=14, buy_thr=30, sell_thr=70) -> dict:
         # Sell: RSI crosses DOWN through sell_thr (exits overbought zone)
         elif in_pos and prev > sell_thr and curr <= sell_thr:
             sell_sig[i] = True; in_pos = False
-    return _run(ohlcv, buy_sig, sell_sig)
+    return _run(ohlcv, buy_sig, sell_sig, cost_params=cost_params)
 
 
-def strategy_macd(ohlcv: list, fast=12, slow=26, signal=9) -> dict:
+def strategy_macd(ohlcv: list, fast=12, slow=26, signal=9, cost_params: dict | None = None) -> dict:
     closes = [d["close"] for d in ohlcv]
     _, _, hist = _macd(closes, fast, slow, signal)
     in_pos = False
@@ -403,10 +411,10 @@ def strategy_macd(ohlcv: list, fast=12, slow=26, signal=9) -> dict:
             buy_sig[i] = True; in_pos = True
         elif in_pos and prev >= 0 and curr < 0:
             sell_sig[i] = True; in_pos = False
-    return _run(ohlcv, buy_sig, sell_sig)
+    return _run(ohlcv, buy_sig, sell_sig, cost_params=cost_params)
 
 
-def strategy_ma_cross(ohlcv: list, fast=20, slow=60) -> dict:
+def strategy_ma_cross(ohlcv: list, fast=20, slow=60, cost_params: dict | None = None) -> dict:
     """Golden/death cross on SMA fast vs SMA slow."""
     closes = [d["close"] for d in ohlcv]
     fast_ma = _sma(closes, fast)
@@ -425,10 +433,10 @@ def strategy_ma_cross(ohlcv: list, fast=20, slow=60) -> dict:
         # Death cross: fast crosses BELOW slow
         elif in_pos and pf > ps and cf <= cs:
             sell_sig[i] = True; in_pos = False
-    return _run(ohlcv, buy_sig, sell_sig)
+    return _run(ohlcv, buy_sig, sell_sig, cost_params=cost_params)
 
 
-def strategy_bollinger(ohlcv: list, period=20, std_dev=2) -> dict:
+def strategy_bollinger(ohlcv: list, period=20, std_dev=2, cost_params: dict | None = None) -> dict:
     """Buy when price touches lower band (%B < 0.1); sell when it touches upper band (%B > 0.9)."""
     closes = [d["close"] for d in ohlcv]
     upper, mid, lower, pct_b = _bb(closes, period, std_dev)
@@ -445,10 +453,10 @@ def strategy_bollinger(ohlcv: list, period=20, std_dev=2) -> dict:
         # Exit when price crosses back below upper band (reversal from overbought)
         elif in_pos and pp > 0.9 and cp <= 0.9:
             sell_sig[i] = True; in_pos = False
-    return _run(ohlcv, buy_sig, sell_sig)
+    return _run(ohlcv, buy_sig, sell_sig, cost_params=cost_params)
 
 
-def strategy_combined(ohlcv: list, rsi_period=14, fast_ma=20, slow_ma=60) -> dict:
+def strategy_combined(ohlcv: list, rsi_period=14, fast_ma=20, slow_ma=60, cost_params: dict | None = None) -> dict:
     """Multi-indicator: MACD turns positive AND RSI < 60 AND price > fast MA. Sell on reversal."""
     closes = [d["close"] for d in ohlcv]
     rsi    = _rsi(closes, rsi_period)
@@ -468,7 +476,7 @@ def strategy_combined(ohlcv: list, rsi_period=14, fast_ma=20, slow_ma=60) -> dic
         # Sell: MACD histogram turns negative OR RSI very overbought
         elif in_pos and (h < 0 or r > 75):
             sell_sig[i] = True; in_pos = False
-    return _run(ohlcv, buy_sig, sell_sig)
+    return _run(ohlcv, buy_sig, sell_sig, cost_params=cost_params)
 
 
 def strategy_decision_core(
@@ -477,6 +485,7 @@ def strategy_decision_core(
     bp_threshold:  int = 30,    # 空方壓力 max
     cr_threshold:  int = 55,    # 追高風險 max
     rs_threshold:  int = 60,    # 多週期共振 min (%)
+    cost_params: dict | None = None,
 ) -> dict:
     """
     Decision Core 四模組策略 (mirrors TradingView Pine Script).
@@ -573,7 +582,7 @@ def strategy_decision_core(
                 sell_sig[i] = True
                 in_pos = False
 
-    return _run(ohlcv, buy_sig, sell_sig)
+    return _run(ohlcv, buy_sig, sell_sig, cost_params=cost_params)
 
 
 def strategy_decision_core_v2(
@@ -587,6 +596,7 @@ def strategy_decision_core_v2(
     atr_stop_mult: float = 1.5, # ATR multiplier for initial stop
     r1_mult:       float = 1.5, # R1 = entry + r1_mult * ATR
     r2_mult:       float = 4.0, # R2 = entry + r2_mult * ATR
+    cost_params: dict | None = None,
 ) -> dict:
     """
     Decision Core v2 — maximised win rate via strict entry filters + partial exits.
@@ -738,9 +748,9 @@ def strategy_decision_core_v2(
         # Fall back to standard simulation with no trades
         closes_list = closes
         empty_sig = [False] * n
-        return _run(ohlcv, empty_sig, empty_sig)
+        return _run(ohlcv, empty_sig, empty_sig, cost_params=cost_params)
 
-    sim   = _simulate_partial(closes, highs, lows, dates, entries)
+    sim   = _simulate_partial(closes, highs, lows, dates, entries, cost_params=cost_params)
     stats = _stats(sim["trades"], sim["equity"], 100_000.0, closes, dates)
     return {**sim, **stats}
 
@@ -764,6 +774,7 @@ def strategy_decision_core_v3(
     require_bull_candle: bool = True,  # entry bar must close above open
     net_vol_days:   int  = 3,     # up-vol days > dn-vol days in last N bars
     bb_squeeze_days: int = 2,     # BB squeeze must persist for N consecutive days
+    cost_params: dict | None = None,
 ) -> dict:
     """
     Decision Core V3 — highest win rate.
@@ -957,10 +968,10 @@ def strategy_decision_core_v3(
 
     if not entries:
         empty = [False] * n
-        return _run(ohlcv, empty, empty)
+        return _run(ohlcv, empty, empty, cost_params=cost_params)
 
     # Use profit protection (protect_r=0.7) for V3
-    sim   = _simulate_partial(closes, highs, lows, dates, entries, protect_r=0.7)
+    sim   = _simulate_partial(closes, highs, lows, dates, entries, protect_r=0.7, cost_params=cost_params)
     stats = _stats(sim["trades"], sim["equity"], 100_000.0, closes, dates)
     return {**sim, **stats}
 
@@ -1103,10 +1114,28 @@ STRATEGY_NAMES = {
 }
 
 
-def run(ohlcv: list[dict], strategy: str, params: dict) -> dict:
+def run(ohlcv: list[dict], strategy: str, params: dict, cost_params: dict | None = None) -> dict:
     fn = STRATEGIES.get(strategy, strategy_rsi)
-    params = {k: v for k, v in params.items() if isinstance(v, (int, float))}
-    result = fn(ohlcv, **params)
+    clean_params = {k: v for k, v in params.items() if isinstance(v, (int, float))}
+    result = fn(ohlcv, **clean_params)
+
+    # Apply trade costs if enabled
+    if cost_params and cost_params.get("enabled"):
+        import trade_cost as _tc
+        symbol = cost_params.get("symbol", "")
+        cp = {**_tc.default_params(symbol), **cost_params}
+        cost_result = _tc.apply_costs(result["trades"], ohlcv, cp)
+        gross_fields = {k: v for k, v in result.items() if k not in ("trades", "equity", "bh_equity", "equity_pct", "bh_pct")}
+        enhanced = _tc.net_stats(
+            gross_fields,
+            cost_result["trades"],
+            cost_result["net_equity"],
+            100_000.0,
+            cost_result["cost_summary"],
+            params=cp,
+        )
+        result["trades"] = cost_result["trades"]
+        result.update(enhanced)
 
     # Format equity curve as relative % for chart
     initial = 100_000.0
@@ -1117,9 +1146,9 @@ def run(ohlcv: list[dict], strategy: str, params: dict) -> dict:
 
     # Format trades for JSON
     for t in result["trades"]:
-        if hasattr(t["entry_date"], "strftime"):
+        if hasattr(t.get("entry_date"), "strftime"):
             t["entry_date"] = t["entry_date"].strftime("%Y-%m-%d")
-        if hasattr(t["exit_date"], "strftime"):
+        if hasattr(t.get("exit_date"), "strftime"):
             t["exit_date"] = t["exit_date"].strftime("%Y-%m-%d")
 
     result["strategy_name"] = STRATEGY_NAMES.get(strategy, strategy)

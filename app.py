@@ -1468,7 +1468,11 @@ def api_backtest():
                 for row in hist.itertuples()
             ]
 
-        result = _bt.run(ohlcv, strategy, params)
+        cost_params = payload.get("cost_params") or {}
+        if cost_params and not cost_params.get("symbol"):
+            cost_params["symbol"] = symbol
+
+        result = _bt.run(ohlcv, strategy, params, cost_params=cost_params if cost_params.get("enabled") else None)
         return jsonify({"ok": True, **result})
     except Exception as e:
         traceback.print_exc()

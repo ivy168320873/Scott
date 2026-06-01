@@ -302,6 +302,42 @@ tbody td{padding:9px 10px}
 
 #bt-loading{text-align:center;padding:30px;color:var(--muted);display:none}
 
+/* ── Phase 6: Trade Cost Settings ── */
+.tc-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:14px 16px;margin-bottom:14px}
+.tc-panel-hdr{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;
+  font-size:.82rem;font-weight:600;color:var(--muted)}
+.tc-panel-hdr span.tc-toggle-arrow{font-size:.7rem;margin-left:4px;transition:transform .2s}
+.tc-panel-hdr.open span.tc-toggle-arrow{transform:rotate(180deg)}
+.tc-body{margin-top:12px}
+.tc-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px;align-items:flex-end}
+.tc-field{display:flex;flex-direction:column;gap:3px;min-width:110px}
+.tc-field label{font-size:.68rem;color:var(--muted)}
+.tc-field input[type=number],.tc-field select{
+  padding:5px 8px;background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);border-radius:6px;font-size:.82rem;outline:none;width:100%}
+.tc-field input:focus,.tc-field select:focus{border-color:var(--accent)}
+.tc-chk{display:flex;align-items:center;gap:6px;font-size:.8rem;cursor:pointer;padding:4px 0}
+.tc-chk input{accent-color:var(--accent)}
+.tc-sub{font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.05em;margin:8px 0 4px}
+/* Phase 6: Realistic comparison table */
+.bt-compare-table{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:8px}
+.bt-compare-table th{font-size:.72rem;color:var(--muted);font-weight:500;padding:6px 8px;
+  border-bottom:1px solid var(--border);text-align:left}
+.bt-compare-table td{padding:7px 8px;border-bottom:1px solid var(--border2)}
+.bt-compare-table tr:last-child td{border-bottom:none}
+.bt-compare-table .col-metric{color:var(--muted);font-size:.74rem}
+.bt-compare-table .col-gross{color:var(--text)}
+.bt-compare-table .col-net{color:var(--accent);font-weight:600}
+.bt-compare-table .col-drag{color:var(--bear);font-size:.74rem}
+/* execution status badges */
+.exec-filled{color:var(--bull);font-size:.7rem}
+.exec-partial{color:var(--neutral);font-size:.7rem}
+.exec-limit-up{color:#f85149;font-size:.7rem}
+.exec-limit-down{color:#f85149;font-size:.7rem}
+.exec-liquidity{color:#e3b341;font-size:.7rem}
+
 @media(max-width:700px){
   .bt-charts{grid-template-columns:1fr}
   .bt-chart-card.wide{grid-column:auto}
@@ -1469,11 +1505,114 @@ tbody td{padding:9px 10px}
       </div>
     </div>
 
+    <!-- ── Phase 6: Trade Cost Settings Panel ── -->
+    <div class="tc-panel" id="tc-panel">
+      <div class="tc-panel-hdr" onclick="toggleTcPanel()">
+        ⚙️ 真實化交易成本設定
+        <span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+          <label class="tc-chk" onclick="event.stopPropagation()">
+            <input type="checkbox" id="tc-enabled" checked> 啟用成本模型
+          </label>
+          <span class="tc-toggle-arrow">▼</span>
+        </span>
+      </div>
+      <div class="tc-body" id="tc-body" style="display:none">
+        <div class="tc-sub">進出場價格模式</div>
+        <div class="tc-row">
+          <div class="tc-field">
+            <label>買入價格模式</label>
+            <select id="tc-entry-mode">
+              <option value="next_open" selected>次日開盤（預設，無偷看）</option>
+              <option value="signal_close">訊號當日收盤</option>
+              <option value="next_close">次日收盤</option>
+              <option value="vwap_estimate">VWAP 估算</option>
+            </select>
+          </div>
+          <div class="tc-field">
+            <label>賣出價格模式</label>
+            <select id="tc-exit-mode">
+              <option value="next_open" selected>次日開盤（預設，無偷看）</option>
+              <option value="signal_close">訊號當日收盤</option>
+              <option value="next_close">次日收盤</option>
+              <option value="vwap_estimate">VWAP 估算</option>
+            </select>
+          </div>
+        </div>
+        <div class="tc-sub">交易費用</div>
+        <div class="tc-row">
+          <div class="tc-field" style="min-width:80px">
+            <label>買入手續費 %</label>
+            <input type="number" id="tc-comm-buy" value="0" min="0" max="1" step="0.01" placeholder="0">
+          </div>
+          <div class="tc-field" style="min-width:80px">
+            <label>賣出手續費 %</label>
+            <input type="number" id="tc-comm-sell" value="0" min="0" max="1" step="0.01" placeholder="0">
+          </div>
+          <div class="tc-field" style="min-width:80px">
+            <label>賣出交易稅 %</label>
+            <input type="number" id="tc-tax" value="0" min="0" max="1" step="0.01" placeholder="台股0.3">
+          </div>
+          <div style="align-self:flex-end;padding-bottom:4px">
+            <button onclick="applyTwPreset()" style="padding:5px 10px;font-size:.74rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--neutral);cursor:pointer">套用台股預設</button>
+            <button onclick="applyUsPreset()" style="padding:5px 10px;font-size:.74rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--accent);cursor:pointer;margin-left:4px">套用美股預設</button>
+          </div>
+        </div>
+        <div class="tc-sub">滑價設定</div>
+        <div class="tc-row">
+          <div class="tc-field">
+            <label>滑價模式</label>
+            <select id="tc-slip-mode">
+              <option value="fixed_pct" selected>固定百分比</option>
+              <option value="volume_based">依成交量估算</option>
+              <option value="volatility_based">依波動度估算</option>
+            </select>
+          </div>
+          <div class="tc-field" style="min-width:80px">
+            <label>滑價 % (固定模式)</label>
+            <input type="number" id="tc-slip-pct" value="0.1" min="0" max="2" step="0.05" placeholder="0.1">
+          </div>
+        </div>
+        <div class="tc-sub">流動性限制</div>
+        <div class="tc-row">
+          <label class="tc-chk"><input type="checkbox" id="tc-liq-filter" checked> 啟用流動性過濾</label>
+          <div class="tc-field" style="min-width:120px">
+            <label>最低日成交金額（萬）</label>
+            <input type="number" id="tc-min-dollar-vol" value="100" min="0" step="10">
+          </div>
+          <div class="tc-field" style="min-width:120px">
+            <label>最大倉位佔日成交 %</label>
+            <input type="number" id="tc-max-pos-pct" value="2" min="0.1" max="20" step="0.1">
+          </div>
+        </div>
+        <div class="tc-sub">台股漲跌停限制</div>
+        <div class="tc-row">
+          <label class="tc-chk"><input type="checkbox" id="tc-tw-limit" checked> 偵測台股漲停 / 跌停</label>
+          <label class="tc-chk"><input type="checkbox" id="tc-strict-limit"> 嚴格模式（漲停視為無法買入）</label>
+        </div>
+      </div>
+    </div>
+
     <div id="bt-loading"><div class="spinner"></div><div>回測執行中…</div></div>
 
     <div id="bt-results" style="display:none">
       <!-- Stats grid -->
       <div class="bt-stats" id="bt-stats"></div>
+
+      <!-- Phase 6: Realistic comparison table (shown only when cost model active) -->
+      <div id="bt-cost-compare" style="display:none">
+        <div class="trade-sec" style="margin-bottom:14px">
+          <h3>📊 真實化績效比較 <span id="bt-cost-badge" style="font-size:.72rem;margin-left:6px;padding:2px 8px;border-radius:10px;background:rgba(63,185,80,.15);color:var(--bull)"></span></h3>
+          <table class="bt-compare-table" id="bt-compare-tbody-wrap">
+            <thead><tr>
+              <th class="col-metric">指標</th>
+              <th class="col-gross">原始（Gross）</th>
+              <th class="col-net">扣成本後（Net）</th>
+              <th class="col-drag">差異</th>
+            </tr></thead>
+            <tbody id="bt-compare-tbody"></tbody>
+          </table>
+        </div>
+      </div>
 
       <!-- Charts -->
       <div class="bt-charts">
@@ -1496,7 +1635,7 @@ tbody td{padding:9px 10px}
         <h3>交易紀錄 <span id="bt-trade-count" style="color:var(--muted)"></span></h3>
         <div class="trade-scroll">
           <table id="bt-trade-table">
-            <thead><tr>
+            <thead><tr id="bt-trade-thead-row">
               <th>#</th><th>買入日</th><th>賣出日</th>
               <th>買入價</th><th>賣出價</th><th>損益%</th><th>持有天數</th><th>結果</th>
             </tr></thead>
@@ -3597,6 +3736,57 @@ async function search(sym) {
   }
 }
 
+function toggleTcPanel() {
+  const body = document.getElementById('tc-body');
+  const hdr  = document.querySelector('.tc-panel-hdr');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  hdr.classList.toggle('open', !open);
+}
+
+function applyTwPreset() {
+  document.getElementById('tc-comm-buy').value  = '0.1425';
+  document.getElementById('tc-comm-sell').value = '0.1425';
+  document.getElementById('tc-tax').value       = '0.3';
+  document.getElementById('tc-slip-pct').value  = '0.1';
+  document.getElementById('tc-tw-limit').checked = true;
+  showToast('✅ 已套用台股預設（手續費0.1425% + 稅0.3%）');
+}
+
+function applyUsPreset() {
+  document.getElementById('tc-comm-buy').value  = '0';
+  document.getElementById('tc-comm-sell').value = '0';
+  document.getElementById('tc-tax').value       = '0';
+  document.getElementById('tc-slip-pct').value  = '0.1';
+  document.getElementById('tc-tw-limit').checked = false;
+  showToast('✅ 已套用美股預設（手續費0% + 滑價0.1%）');
+}
+
+function _getTcParams() {
+  const enabled = document.getElementById('tc-enabled')?.checked ?? true;
+  if (!enabled) return null;
+  const sym = (_lastSymbol || '').toUpperCase();
+  const isTw = sym.endsWith('.TW') || sym.endsWith('.TWO');
+  return {
+    enabled: true,
+    symbol: sym,
+    is_tw: isTw,
+    entry_price_mode: document.getElementById('tc-entry-mode')?.value || 'next_open',
+    exit_price_mode:  document.getElementById('tc-exit-mode')?.value  || 'next_open',
+    commission_buy:   parseFloat(document.getElementById('tc-comm-buy')?.value || '0') / 100,
+    commission_sell:  parseFloat(document.getElementById('tc-comm-sell')?.value || '0') / 100,
+    transaction_tax:  parseFloat(document.getElementById('tc-tax')?.value || '0') / 100,
+    min_commission:   0,
+    slippage_mode:    document.getElementById('tc-slip-mode')?.value || 'fixed_pct',
+    slippage_pct:     parseFloat(document.getElementById('tc-slip-pct')?.value || '0.1') / 100,
+    use_liquidity_filter: document.getElementById('tc-liq-filter')?.checked ?? true,
+    min_dollar_volume: parseFloat(document.getElementById('tc-min-dollar-vol')?.value || '100') * 10000,
+    max_position_pct_of_volume: parseFloat(document.getElementById('tc-max-pos-pct')?.value || '2') / 100,
+    use_tw_limits: document.getElementById('tc-tw-limit')?.checked ?? true,
+    strict_limit_mode: document.getElementById('tc-strict-limit')?.checked ?? false,
+  };
+}
+
 async function runBacktest() {
   if (!_lastOHLCV) { alert('請先查詢一支股票'); return; }
 
@@ -3608,6 +3798,8 @@ async function runBacktest() {
     params[p.id] = v;
   });
 
+  const cost_params = _getTcParams();
+
   document.getElementById('bt-loading').style.display = 'block';
   document.getElementById('bt-results').style.display = 'none';
 
@@ -3615,7 +3807,7 @@ async function runBacktest() {
     const res = await fetch('/api/backtest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol: _lastSymbol, strategy, params, ohlcv: _lastOHLCV }),
+      body: JSON.stringify({ symbol: _lastSymbol, strategy, params, ohlcv: _lastOHLCV, cost_params }),
     });
     const j = await res.json();
     document.getElementById('bt-loading').style.display = 'none';
@@ -3711,18 +3903,80 @@ function renderBacktest(d, strategy) {
     options: { ...CDef, maintainAspectRatio: false }
   });
 
+  // ── Phase 6: Realistic comparison table ──
+  const hasCost = d.net_return !== undefined && d.gross_return !== undefined;
+  document.getElementById('bt-cost-compare').style.display = hasCost ? 'block' : 'none';
+  if (hasCost) {
+    const gr = d.gross_return ?? d.total_return;
+    const nr = d.net_return ?? d.total_return;
+    const drag = (nr - gr).toFixed(2);
+    const execRatio = d.executable_trade_ratio !== undefined
+      ? (d.executable_trade_ratio * 100).toFixed(1) + '%' : '—';
+
+    document.getElementById('bt-cost-badge').textContent =
+      `成本拖累 ${drag}% | 手續費 ${(d.total_fees||0).toFixed(0)} | 稅 ${(d.total_taxes||0).toFixed(0)} | 滑價 ${(d.total_slippage||0).toFixed(0)}`;
+
+    const rows = [
+      ['總報酬', fmtPct(gr), fmtPct(nr), drag + '%'],
+      ['最大回撤', fmtPct(d.gross_max_drawdown ?? d.max_drawdown), fmtPct(d.net_max_drawdown ?? d.max_drawdown), ''],
+      ['夏普比率', (d.gross_sharpe ?? d.sharpe ?? 0).toFixed(2), (d.net_sharpe ?? d.sharpe ?? 0).toFixed(2), ''],
+      ['手續費總計', '—', (d.total_fees||0).toFixed(2), ''],
+      ['交易稅總計', '—', (d.total_taxes||0).toFixed(2), ''],
+      ['滑價總計',   '—', (d.total_slippage||0).toFixed(2), ''],
+      ['成本拖累 %',  '—', fmtPct(-(d.cost_drag_pct||0)), ''],
+      ['流動性警告', '—', `${d.liquidity_warnings||0} 筆`, ''],
+      ['可執行率',   '—', execRatio, ''],
+    ];
+    document.getElementById('bt-compare-tbody').innerHTML = rows.map(([m,g,n,diff]) =>
+      `<tr><td class="col-metric">${m}</td><td class="col-gross">${g}</td><td class="col-net">${n}</td><td class="col-drag" style="color:${diff&&diff.startsWith('-')?'var(--bear)':'var(--muted)'}">${diff||'—'}</td></tr>`
+    ).join('');
+  }
+
   // ── Trade table ──
+  const hasCostTrades = trades.length > 0 && trades[0].execution_status !== undefined;
+  const theadRow = document.getElementById('bt-trade-thead-row');
+  if (theadRow) theadRow.innerHTML = hasCostTrades
+    ? '<th>#</th><th>買入日</th><th>賣出日</th><th>買入價</th><th>賣出價</th><th>原始損益%</th><th>淨損益%</th><th>持有天數</th><th>結果</th><th>成交狀態</th>'
+    : '<th>#</th><th>買入日</th><th>賣出日</th><th>買入價</th><th>賣出價</th><th>損益%</th><th>持有天數</th><th>結果</th>';
+
+  const _execBadge = (status) => {
+    if (!status || status === 'FILLED') return '<span class="exec-filled">✓ 成交</span>';
+    if (status === 'PARTIAL') return '<span class="exec-partial">⚡ 部分</span>';
+    if (status === 'CANNOT_ENTER_LIMIT_UP') return '<span class="exec-limit-up">🔴 漲停</span>';
+    if (status === 'CANNOT_EXIT_LIMIT_DOWN') return '<span class="exec-limit-down">🔴 跌停</span>';
+    if (status === 'LOW_LIQUIDITY') return '<span class="exec-liquidity">⚠ 低流動</span>';
+    return `<span style="font-size:.7rem;color:var(--muted)">${status}</span>`;
+  };
+
   document.getElementById('bt-trade-count').textContent = `共 ${trades.length} 筆`;
-  document.getElementById('bt-trade-tbody').innerHTML = trades.map((t, i) => `<tr>
-    <td style="color:var(--muted)">${i + 1}</td>
-    <td>${t.entry_date}</td>
-    <td>${t.exit_date}</td>
-    <td>${t.entry_price.toFixed(2)}</td>
-    <td>${t.exit_price.toFixed(2)}</td>
-    <td class="${t.pnl_pct >= 0 ? 'pos' : 'neg'}">${sign(t.pnl_pct)}${t.pnl_pct.toFixed(2)}%</td>
-    <td>${t.holding_days} 天</td>
-    <td>${t.win ? '<span class="badge bullish">獲利</span>' : '<span class="badge bearish">虧損</span>'}</td>
-  </tr>`).join('');
+  document.getElementById('bt-trade-tbody').innerHTML = trades.map((t, i) => {
+    const pnlKey = hasCostTrades ? (t.pnl_pct_net ?? t.pnl_pct) : t.pnl_pct;
+    const grossKey = t.pnl_pct_gross ?? t.pnl_pct;
+    if (hasCostTrades) {
+      return `<tr>
+        <td style="color:var(--muted)">${i + 1}</td>
+        <td>${t.entry_date}</td>
+        <td>${t.exit_date}</td>
+        <td>${(t.entry_price_actual ?? t.entry_price).toFixed(2)}</td>
+        <td>${(t.exit_price_actual  ?? t.exit_price).toFixed(2)}</td>
+        <td class="${grossKey >= 0 ? 'pos' : 'neg'}">${sign(grossKey)}${grossKey.toFixed(2)}%</td>
+        <td class="${pnlKey >= 0 ? 'pos' : 'neg'}" style="font-weight:700">${sign(pnlKey)}${pnlKey.toFixed(2)}%</td>
+        <td>${t.holding_days} 天</td>
+        <td>${t.win ? '<span class="badge bullish">獲利</span>' : '<span class="badge bearish">虧損</span>'}</td>
+        <td>${_execBadge(t.execution_status)}</td>
+      </tr>`;
+    }
+    return `<tr>
+      <td style="color:var(--muted)">${i + 1}</td>
+      <td>${t.entry_date}</td>
+      <td>${t.exit_date}</td>
+      <td>${t.entry_price.toFixed(2)}</td>
+      <td>${t.exit_price.toFixed(2)}</td>
+      <td class="${t.pnl_pct >= 0 ? 'pos' : 'neg'}">${sign(t.pnl_pct)}${t.pnl_pct.toFixed(2)}%</td>
+      <td>${t.holding_days} 天</td>
+      <td>${t.win ? '<span class="badge bullish">獲利</span>' : '<span class="badge bearish">虧損</span>'}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ══════════════════════════════════════════════════════
