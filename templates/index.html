@@ -344,6 +344,56 @@ tbody td{padding:9px 10px}
 .twse-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px}
 .twse-wrap h3{font-size:.8rem;color:var(--muted);margin-bottom:10px}
 
+/* ── Decision Alerts Dashboard (Phase 5) ── */
+#decision-alerts-section{display:none}
+.da-stats-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-bottom:16px}
+.da-stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center}
+.da-stat-num{font-size:1.6rem;font-weight:900;line-height:1.1}
+.da-stat-lbl{font-size:.68rem;color:var(--muted);margin-top:3px}
+.da-scan-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.da-scan-row button{padding:7px 14px;font-size:.82rem;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface2);color:var(--text);cursor:pointer}
+.da-scan-row button:hover{border-color:var(--accent);color:var(--accent)}
+.da-scan-row button:disabled{opacity:.5;cursor:not-allowed}
+.da-section-title{font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;
+  margin:18px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border2)}
+.da-alert-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:12px 14px;margin-bottom:8px;border-left:3px solid var(--border)}
+.da-alert-item.lvl-S{border-left-color:#f85149}
+.da-alert-item.lvl-A{border-left-color:#f0883e}
+.da-alert-item.lvl-B{border-left-color:#e3b341}
+.da-alert-item.lvl-C{border-left-color:#8b949e}
+.da-alert-item.da-resolved{opacity:.45}
+.da-alert-hdr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.da-lvl-badge{font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:10px}
+.da-lvl-badge.lvl-S{background:rgba(248,81,73,.18);color:#f85149}
+.da-lvl-badge.lvl-A{background:rgba(240,136,62,.18);color:#f0883e}
+.da-lvl-badge.lvl-B{background:rgba(227,179,65,.18);color:#e3b341}
+.da-lvl-badge.lvl-C{background:rgba(139,148,158,.18);color:#8b949e}
+.da-type-badge{font-size:.68rem;padding:2px 7px;border-radius:10px;background:var(--surface2);color:var(--muted)}
+.da-sym{font-size:.88rem;font-weight:700;color:var(--accent)}
+.da-ts{font-size:.67rem;color:var(--muted);margin-left:auto}
+.da-title{font-size:.82rem;font-weight:600;color:var(--text);margin-bottom:3px}
+.da-msg{font-size:.76rem;color:var(--muted);line-height:1.6;white-space:pre-wrap}
+.da-action-row{display:flex;align-items:center;justify-content:space-between;margin-top:8px;flex-wrap:wrap;gap:6px}
+.da-suggested{font-size:.74rem;color:var(--neutral);font-style:italic}
+.da-resolve-btn{font-size:.72rem;padding:3px 10px;background:none;border:1px solid var(--border);
+  border-radius:6px;color:var(--muted);cursor:pointer}
+.da-resolve-btn:hover{border-color:var(--accent);color:var(--accent)}
+.da-settings-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.da-settings-panel h3{font-size:.85rem;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.da-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px}
+.da-chk-row{display:flex;align-items:center;gap:6px;font-size:.8rem;cursor:pointer;padding:4px 0}
+.da-chk-row input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px}
+.da-sub-title{font-size:.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;
+  margin:10px 0 6px}
+@media(max-width:520px){
+  .da-stats-row{grid-template-columns:repeat(2,1fr)}
+  .da-alert-hdr{gap:5px}
+  .da-ts{width:100%;margin-left:0;order:10}
+  .da-scan-row button{font-size:.76rem;padding:6px 10px}
+}
+
 /* ── Alerts Tab ── */
 #alerts-section{display:none}
 .alert-form{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:14px}
@@ -1046,6 +1096,7 @@ tbody td{padding:9px 10px}
     <button class="tab" onclick="switchTab('kline')">即時K線</button>
     <button class="tab" onclick="switchTab('chips')">籌碼面</button>
     <button class="tab" onclick="switchTab('alerts')">警報</button>
+    <button class="tab" onclick="switchTab('decision-alerts')" style="color:#f0883e">🚨 決策警報</button>
     <button class="tab" onclick="switchTab('position')">部位管理</button>
     <button class="tab" onclick="switchTab('radar')">市場雷達</button>
     <button class="tab" onclick="switchTab('quant')" style="color:#e3b341">⚡ 量化交易</button>
@@ -1544,6 +1595,70 @@ tbody td{padding:9px 10px}
     <div id="alert-list" class="alert-list">
       <div style="color:var(--muted);font-size:.84rem;padding:8px 0">尚未設定任何警報</div>
     </div>
+  </div>
+
+  <!-- ── Decision Alerts Section (Phase 5) ── -->
+  <div id="decision-alerts-section">
+
+    <!-- Stats row -->
+    <div class="da-stats-row" id="da-stats-row">
+      <div class="da-stat-card"><div class="da-stat-num" id="da-s-cnt" style="color:#f85149">—</div><div class="da-stat-lbl">S級警報</div></div>
+      <div class="da-stat-card"><div class="da-stat-num" id="da-a-cnt" style="color:#f0883e">—</div><div class="da-stat-lbl">A級警報</div></div>
+      <div class="da-stat-card"><div class="da-stat-num" id="da-b-cnt" style="color:#e3b341">—</div><div class="da-stat-lbl">B級警報</div></div>
+      <div class="da-stat-card"><div class="da-stat-num" id="da-unresolved" style="color:var(--text)">—</div><div class="da-stat-lbl">未解決</div></div>
+      <div class="da-stat-card"><div class="da-stat-num" id="da-total" style="color:var(--muted)">—</div><div class="da-stat-lbl">近24h 總計</div></div>
+    </div>
+
+    <!-- Scan buttons -->
+    <div class="da-scan-row">
+      <button onclick="scanDecisionAlerts('portfolio')" id="da-scan-port">📊 掃描持倉</button>
+      <button onclick="scanDecisionAlerts('watchlist')" id="da-scan-wl">👁 掃描自選股</button>
+      <div style="display:flex;gap:6px;flex:1;min-width:200px">
+        <input id="da-scan-sym-input" type="text" placeholder="輸入代號如 NVDA"
+          style="flex:1;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.82rem;outline:none;text-transform:uppercase"
+          onkeydown="if(event.key==='Enter')scanDecisionAlerts('symbol')">
+        <button onclick="scanDecisionAlerts('symbol')" id="da-scan-sym">🔍 掃描</button>
+      </div>
+      <button onclick="loadDecisionAlerts()" id="da-refresh-btn" style="border-color:var(--accent);color:var(--accent)">🔄 刷新</button>
+    </div>
+
+    <!-- Alert list -->
+    <div class="da-section-title">未解決警報</div>
+    <div id="da-active-list"><div style="color:var(--muted);font-size:.84rem;padding:8px 0">載入中…</div></div>
+
+    <div class="da-section-title" id="da-resolved-title" style="display:none">已解決警報</div>
+    <div id="da-resolved-list"></div>
+
+    <!-- Notification settings -->
+    <div class="da-section-title">通知設定</div>
+    <div class="da-settings-panel">
+      <h3>🔔 通知渠道</h3>
+      <div class="da-row">
+        <label class="da-chk-row"><input type="checkbox" id="da-notify-line" onchange="saveDaSettings()"> LINE Notify</label>
+        <label class="da-chk-row"><input type="checkbox" id="da-notify-email" onchange="saveDaSettings()"> Email 通知</label>
+        <label class="da-chk-row"><input type="checkbox" id="da-notify-app" checked onchange="saveDaSettings()"> App 內顯示</label>
+      </div>
+      <div class="da-sub-title">等級過濾</div>
+      <div class="da-row">
+        <label class="da-chk-row"><input type="checkbox" id="da-lvl-S" checked onchange="saveDaSettings()"> <span style="color:#f85149;font-weight:700">S級</span> — 強制立即通知</label>
+        <label class="da-chk-row"><input type="checkbox" id="da-lvl-A" checked onchange="saveDaSettings()"> <span style="color:#f0883e;font-weight:700">A級</span> — 高度注意通知</label>
+        <label class="da-chk-row"><input type="checkbox" id="da-lvl-B" onchange="saveDaSettings()"> <span style="color:#e3b341;font-weight:700">B級</span> — 僅每日報告</label>
+        <label class="da-chk-row"><input type="checkbox" id="da-lvl-C" onchange="saveDaSettings()"> <span style="color:#8b949e">C級</span> — 僅歷史紀錄</label>
+      </div>
+      <div class="da-sub-title">警報類型</div>
+      <div class="da-row">
+        <label class="da-chk-row"><input type="checkbox" id="da-type-chase" checked onchange="saveDaSettings()"> Chase Risk（追高風險）</label>
+        <label class="da-chk-row"><input type="checkbox" id="da-type-sell" checked onchange="saveDaSettings()"> Sell Signal（賣出訊號）</label>
+        <label class="da-chk-row"><input type="checkbox" id="da-type-kill" checked onchange="saveDaSettings()"> Kill Signal（判斷失效）</label>
+        <label class="da-chk-row"><input type="checkbox" id="da-type-ce" checked onchange="saveDaSettings()"> Capital Efficiency（資金效率）</label>
+        <label class="da-chk-row"><input type="checkbox" id="da-type-sector" checked onchange="saveDaSettings()"> Sector Leadership（板塊強度）</label>
+      </div>
+      <button onclick="saveDaSettings(true)"
+        style="margin-top:12px;padding:7px 18px;background:var(--accent);border:none;border-radius:7px;color:#000;font-weight:600;font-size:.82rem;cursor:pointer">
+        儲存設定
+      </button>
+    </div>
+
   </div>
 
   <!-- ── Position Section ── -->
@@ -3125,32 +3240,34 @@ document.getElementById('sym').addEventListener('keydown', e => { if (e.key === 
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','position','radar','quant','debate'];
+  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','decision-alerts','position','radar','quant','debate'];
   const idx = tabOrder.indexOf(tab);
   if (idx >= 0) document.querySelectorAll('.tab')[idx].classList.add('active');
 
-  document.getElementById('detail').style.display           = tab === 'analysis' ? 'block' : 'none';
-  document.getElementById('sig-section').style.display      = tab === 'signal'   ? 'block' : 'none';
-  document.getElementById('bt-section').style.display       = tab === 'backtest' ? 'block' : 'none';
-  document.getElementById('kline-section').style.display    = tab === 'kline'    ? 'block' : 'none';
-  document.getElementById('chips-section').style.display    = tab === 'chips'    ? 'block' : 'none';
-  document.getElementById('alerts-section').style.display   = tab === 'alerts'   ? 'block' : 'none';
-  document.getElementById('position-section').style.display = tab === 'position' ? 'block' : 'none';
-  document.getElementById('radar-section').style.display    = tab === 'radar'    ? 'block' : 'none';
-  document.getElementById('quant-section').style.display    = tab === 'quant'    ? 'block' : 'none';
-  document.getElementById('debate-section').style.display   = tab === 'debate'   ? 'block' : 'none';
+  document.getElementById('detail').style.display                    = tab === 'analysis'         ? 'block' : 'none';
+  document.getElementById('sig-section').style.display               = tab === 'signal'           ? 'block' : 'none';
+  document.getElementById('bt-section').style.display                = tab === 'backtest'         ? 'block' : 'none';
+  document.getElementById('kline-section').style.display             = tab === 'kline'            ? 'block' : 'none';
+  document.getElementById('chips-section').style.display             = tab === 'chips'            ? 'block' : 'none';
+  document.getElementById('alerts-section').style.display            = tab === 'alerts'           ? 'block' : 'none';
+  document.getElementById('decision-alerts-section').style.display   = tab === 'decision-alerts'  ? 'block' : 'none';
+  document.getElementById('position-section').style.display          = tab === 'position'         ? 'block' : 'none';
+  document.getElementById('radar-section').style.display             = tab === 'radar'            ? 'block' : 'none';
+  document.getElementById('quant-section').style.display             = tab === 'quant'            ? 'block' : 'none';
+  document.getElementById('debate-section').style.display            = tab === 'debate'           ? 'block' : 'none';
 
   if (tab === 'signal' && _lastComputedData) startSignalRadar();
   else if (tab !== 'signal') { clearInterval(_sigTimer); _sigTimer = null; }
 
-  if (tab === 'kline'    && _lastSymbol)        loadKline();
-  if (tab === 'chips'    && _lastComputedData)  loadChips();
-  if (tab === 'position')                       { renderRegime(_lastComputedData); renderPositions(); }
-  if (tab === 'alerts')                         renderAlerts();
-  if (tab === 'kline'    && _lastSymbol)        loadNews(_lastSymbol);
-  if (tab === 'radar')                          loadVIX();
-  if (tab === 'quant')                          qtRefresh();
-  if (tab === 'debate')                         _dbCheckApiKey();
+  if (tab === 'kline'            && _lastSymbol)        loadKline();
+  if (tab === 'chips'            && _lastComputedData)  loadChips();
+  if (tab === 'position')                               { renderRegime(_lastComputedData); renderPositions(); }
+  if (tab === 'alerts')                                 renderAlerts();
+  if (tab === 'decision-alerts')                        { loadDaSettings(); loadDecisionAlerts(); }
+  if (tab === 'kline'            && _lastSymbol)        loadNews(_lastSymbol);
+  if (tab === 'radar')                                  loadVIX();
+  if (tab === 'quant')                                  qtRefresh();
+  if (tab === 'debate')                                 _dbCheckApiKey();
 }
 
 // ══════════════════════════════════════════════════════
@@ -9838,6 +9955,191 @@ function renderEarnings(data, el) {
   el.style.color = color;
   el.textContent = label;
   el.title = `下次財報：${data.next_earnings}${data.forward_pe ? ' · 預期PE: '+data.forward_pe : ''}`;
+}
+
+// ══════════════════════════════════════════════════════
+// Phase 5 — Decision Alert Dashboard
+// ══════════════════════════════════════════════════════
+
+const _DA_SETTINGS_KEY = 'daSettings_v1';
+
+function loadDaSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(_DA_SETTINGS_KEY) || '{}');
+    const get = (id, def) => { const el = document.getElementById(id); if (el) el.checked = s[id] ?? def; };
+    get('da-notify-line',  false);
+    get('da-notify-email', false);
+    get('da-notify-app',   true);
+    get('da-lvl-S',  true);
+    get('da-lvl-A',  true);
+    get('da-lvl-B',  false);
+    get('da-lvl-C',  false);
+    get('da-type-chase',  true);
+    get('da-type-sell',   true);
+    get('da-type-kill',   true);
+    get('da-type-ce',     true);
+    get('da-type-sector', true);
+  } catch(e) {}
+}
+
+function saveDaSettings(showToastMsg) {
+  try {
+    const s = {};
+    ['da-notify-line','da-notify-email','da-notify-app',
+     'da-lvl-S','da-lvl-A','da-lvl-B','da-lvl-C',
+     'da-type-chase','da-type-sell','da-type-kill','da-type-ce','da-type-sector'
+    ].forEach(id => { const el = document.getElementById(id); if (el) s[id] = el.checked; });
+    localStorage.setItem(_DA_SETTINGS_KEY, JSON.stringify(s));
+    if (showToastMsg === true) showToast('✅ 決策警報設定已儲存');
+  } catch(e) {}
+}
+
+function _daLvlColor(lvl) {
+  return {S:'#f85149', A:'#f0883e', B:'#e3b341', C:'#8b949e'}[lvl] || '#8b949e';
+}
+
+function _daTypeLabel(t) {
+  return {CHASE_RISK:'追高風險', SELL_SIGNAL:'賣出訊號', KILL_SIGNAL:'判斷失效',
+          CAPITAL_EFF:'資金效率', SECTOR:'板塊強度'}[t] || t;
+}
+
+function _daTsLabel(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'}) + ' ' +
+           d.toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
+  } catch { return iso ? iso.slice(0,16).replace('T',' ') : ''; }
+}
+
+function _buildDaItem(a) {
+  const lvl = a.level || 'C';
+  const res = a.resolved;
+  const ts  = _daTsLabel(a.created_at);
+  return `
+  <div class="da-alert-item lvl-${lvl}${res ? ' da-resolved' : ''}" id="da-item-${a.id}">
+    <div class="da-alert-hdr">
+      <span class="da-lvl-badge lvl-${lvl}">${lvl}級</span>
+      <span class="da-type-badge">${_daTypeLabel(a.alert_type)}</span>
+      <span class="da-sym">${_esc(a.symbol)}</span>
+      <span class="da-ts">${ts}</span>
+    </div>
+    <div class="da-title">${_esc(a.title || '')}</div>
+    <div class="da-msg">${_esc(a.message || '').slice(0,300)}</div>
+    <div class="da-action-row">
+      <span class="da-suggested">${a.suggested_action ? '💡 ' + _esc(a.suggested_action) : ''}</span>
+      ${!res ? `<button class="da-resolve-btn" onclick="resolveDecisionAlert('${a.id}',this)">✓ 標記已解決</button>` : '<span style="font-size:.7rem;color:var(--muted)">✓ 已解決</span>'}
+    </div>
+  </div>`;
+}
+
+async function loadDecisionAlerts() {
+  const activeEl   = document.getElementById('da-active-list');
+  const resolvedEl = document.getElementById('da-resolved-list');
+  const resolvedTitle = document.getElementById('da-resolved-title');
+  if (!activeEl) return;
+  activeEl.innerHTML = '<div style="color:var(--muted);font-size:.83rem;padding:8px 0">載入中…</div>';
+
+  try {
+    const r = await fetch('/api/decision-alerts');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '無法載入警報');
+
+    const alerts = j.alerts || [];
+    const stats  = j.stats  || {};
+
+    // Update stat cards
+    const setCnt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val ?? 0; };
+    setCnt('da-s-cnt', stats.S || 0);
+    setCnt('da-a-cnt', stats.A || 0);
+    setCnt('da-b-cnt', stats.B || 0);
+    setCnt('da-total', alerts.length);
+    setCnt('da-unresolved', alerts.filter(a => !a.resolved).length);
+
+    // Read type-filter settings
+    const s = JSON.parse(localStorage.getItem(_DA_SETTINGS_KEY) || '{}');
+    const typeAllowed = {
+      CHASE_RISK:   s['da-type-chase']  !== false,
+      SELL_SIGNAL:  s['da-type-sell']   !== false,
+      KILL_SIGNAL:  s['da-type-kill']   !== false,
+      CAPITAL_EFF:  s['da-type-ce']     !== false,
+      SECTOR:       s['da-type-sector'] !== false,
+    };
+
+    const filtered  = alerts.filter(a => typeAllowed[a.alert_type] !== false);
+    const active    = filtered.filter(a => !a.resolved);
+    const resolved  = filtered.filter(a =>  a.resolved);
+
+    activeEl.innerHTML = active.length
+      ? active.map(_buildDaItem).join('')
+      : '<div style="color:var(--muted);font-size:.84rem;padding:8px 0">✅ 目前沒有未解決警報</div>';
+
+    if (resolved.length) {
+      resolvedTitle.style.display = 'block';
+      resolvedEl.innerHTML = resolved.slice(0,10).map(_buildDaItem).join('');
+    } else {
+      resolvedTitle.style.display = 'none';
+      resolvedEl.innerHTML = '';
+    }
+  } catch(e) {
+    activeEl.innerHTML = `<div style="color:var(--bear);font-size:.84rem;padding:8px 0">❌ 載入失敗：${_esc(e.message)}</div>`;
+  }
+}
+
+async function resolveDecisionAlert(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await fetch(`/api/decision-alerts/resolve/${id}`, { method:'POST' });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    // Fade the item
+    const item = document.getElementById(`da-item-${id}`);
+    if (item) item.classList.add('da-resolved');
+    if (btn)  btn.replaceWith(Object.assign(document.createElement('span'),
+      { style:'font-size:.7rem;color:var(--muted)', textContent:'✓ 已解決' }));
+    // Re-count unresolved
+    const unEl = document.getElementById('da-unresolved');
+    if (unEl) unEl.textContent = Math.max(0, parseInt(unEl.textContent || '0') - 1);
+    showToast('✅ 已標記為解決');
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = '✓ 標記已解決'; }
+    showToast('❌ ' + e.message, true);
+  }
+}
+
+async function scanDecisionAlerts(mode) {
+  const btnId = { portfolio:'da-scan-port', watchlist:'da-scan-wl', symbol:'da-scan-sym' }[mode];
+  const btn   = btnId && document.getElementById(btnId);
+  const origText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 掃描中…'; }
+
+  const body = {};
+  if (mode === 'symbol') {
+    const sym = (document.getElementById('da-scan-sym-input')?.value || '').trim().toUpperCase();
+    if (!sym) { showToast('請輸入股票代號', true); if (btn) { btn.disabled=false; btn.textContent=origText; } return; }
+    body.symbol = sym;
+  } else if (mode === 'portfolio') {
+    body.positions = [];   // empty → server reads stored holdings
+  } else if (mode === 'watchlist') {
+    body.watchlist = [];   // empty → server reads stored watchlist
+  }
+
+  try {
+    const r = await fetch('/api/decision-alerts/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '掃描失敗');
+    const cnt = j.count || 0;
+    showToast(cnt > 0 ? `🚨 掃描完成：觸發 ${cnt} 條警報` : '✅ 掃描完成：無新警報');
+    await loadDecisionAlerts();
+  } catch(e) {
+    showToast('❌ ' + e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
+  }
 }
 
 // ══════════════════════════════════════════════════════
