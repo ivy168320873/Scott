@@ -123,7 +123,7 @@ def calc_sell_decision(
 
     return {
         "ok":             True,
-        "decision":       decision,
+        "engine":         "sell_decision",
         "score":          _URGENCY.get(decision, 0),
         "level":          decision,
         "level_label":    _LABELS.get(decision, decision),
@@ -131,6 +131,10 @@ def calc_sell_decision(
         "reasons":        reasons,
         "suggested_action": _ACTIONS.get(decision, ""),
         "warning_flags":  warning_flags,
+        # sell_decision-specific ──────────────────────────────────────────────
+        "decision":         decision,
+        "decision_label":   _LABELS.get(decision, decision),
+        "decision_color":   _COLORS.get(decision, "#8b949e"),
         "detail": {
             "current_price":  current,
             "cost_basis":     cost,
@@ -148,11 +152,14 @@ def calc_sell_decision(
 def _empty_result(msg: str) -> dict:
     return {
         "ok":             False,
-        "decision":       "NONE",
+        "engine":         "sell_decision",
         "score":          0,
         "level":          "NONE",
         "level_label":    "資料不足",
         "level_color":    "#8b949e",
+        "decision":       "NONE",
+        "decision_label": "資料不足",
+        "decision_color": "#8b949e",
         "reasons":        [msg],
         "suggested_action": "請確認持倉資料與成本",
         "warning_flags":  [],

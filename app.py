@@ -2842,6 +2842,7 @@ def api_capital_efficiency():
 
         return jsonify({
             "ok":             True,
+            "engine":         "capital_efficiency",
             "score":          avg_score,
             "level":          p_level,
             "level_label":    p_label,

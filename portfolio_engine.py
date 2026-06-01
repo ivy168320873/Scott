@@ -111,6 +111,7 @@ def calc_capital_efficiency(
 
     return {
         "ok":             True,
+        "engine":         "capital_efficiency",
         "symbol":         symbol,
         "score":          score,
         "level":          level,
@@ -119,6 +120,8 @@ def calc_capital_efficiency(
         "reasons":        reasons,
         "suggested_action": _ACTIONS.get(level, ""),
         "warning_flags":  warning_flags,
+        # capital_efficiency-specific ─────────────────────────────────────────
+        "efficiency_level": level,   # alias for frontend clarity
         "detail": {
             "current_price":    current,
             "cost_basis":       cost,
@@ -134,11 +137,13 @@ def calc_capital_efficiency(
 def _empty_result(symbol: str, msg: str) -> dict:
     return {
         "ok":             False,
+        "engine":         "capital_efficiency",
         "symbol":         symbol,
         "score":          None,
         "level":          "HOLD",
         "level_label":    "資料不足",
         "level_color":    "#8b949e",
+        "efficiency_level": "HOLD",
         "reasons":        [msg],
         "suggested_action": "請確認持倉資料",
         "warning_flags":  [],

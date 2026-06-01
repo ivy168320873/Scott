@@ -131,6 +131,7 @@ def calc_chase_risk(ohlcv: dict) -> dict:
 
     return {
         "ok":             True,
+        "engine":         "chase_risk",
         "score":          score,
         "level":          level,
         "level_label":    level_label,
@@ -138,6 +139,8 @@ def calc_chase_risk(ohlcv: dict) -> dict:
         "reasons":        reasons,
         "suggested_action": action_map[level],
         "warning_flags":  warning_flags,
+        # chase_risk-specific ─────────────────────────────────────────────────
+        "risk_level":     level,   # alias for frontend clarity
         "detail": {
             "close":        closes[-1],
             "ma20":         round(ma20, 2),
@@ -152,10 +155,12 @@ def calc_chase_risk(ohlcv: dict) -> dict:
 def _empty_result(msg: str) -> dict:
     return {
         "ok":             False,
+        "engine":         "chase_risk",
         "score":          None,
         "level":          "UNKNOWN",
         "level_label":    "資料不足",
         "level_color":    "#8b949e",
+        "risk_level":     "UNKNOWN",
         "reasons":        [msg],
         "suggested_action": "無法評估，請確認股票代碼",
         "warning_flags":  [],

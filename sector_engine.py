@@ -113,15 +113,18 @@ def calc_sector_leadership(
 
     return {
         "ok":             True,
-        "sector":         sector_name,
+        "engine":         "sector_leadership",
         "score":          score,
         "level":          level,
         "level_label":    level_label,
         "level_color":    color,
-        "stock_count":    total,
         "reasons":        reasons,
         "suggested_action": _ACTIONS.get(level, ""),
         "warning_flags":  warning_flags,
+        # sector_leadership-specific ──────────────────────────────────────────
+        "sector":         sector_name,
+        "stock_count":    total,
+        "leadership_level": level,   # alias for frontend clarity
         "detail": {
             "avg_20d_gain_pct":      round(avg_gain, 1),
             "new_high_ratio_pct":    round(new_high_ratio, 1),
@@ -134,11 +137,13 @@ def calc_sector_leadership(
 def _empty_result(sector: str, msg: str) -> dict:
     return {
         "ok":             False,
+        "engine":         "sector_leadership",
         "sector":         sector,
         "score":          None,
         "level":          "NEUTRAL",
         "level_label":    "資料不足",
         "level_color":    "#8b949e",
+        "leadership_level": "NEUTRAL",
         "stock_count":    0,
         "reasons":        [msg],
         "suggested_action": "請確認板塊名稱或稍後再試",
