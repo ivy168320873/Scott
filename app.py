@@ -3305,6 +3305,12 @@ def _run_daily_report(report_type: str) -> dict:
         ai_fn=_make_ai_fn(),
     )
 
+    # Persist to DB
+    try:
+        _dre.save_report(report)
+    except Exception:
+        pass
+
     # Dispatch if settings allow
     s = _daily_report_settings
     if not s.get("only_sa_alerts") or report.get("alerts_summary", {}).get("sa_count", 0) > 0:
