@@ -555,6 +555,7 @@ tbody td{padding:9px 10px}
 /* ── Market Radar ── */
 #radar-section{display:none}
 #debate-section{display:none}
+#daily-report-section{display:none}
 .db-card{background:var(--surface);border-radius:12px;padding:14px 16px;border-left:3px solid var(--border)}
 .db-card-hdr{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .db-card-name{font-size:.82rem;font-weight:700}
@@ -1165,6 +1166,7 @@ tbody td{padding:9px 10px}
     <button class="tab" onclick="switchTab('radar')">市場雷達</button>
     <button class="tab" onclick="switchTab('quant')" style="color:#e3b341">⚡ 量化交易</button>
     <button class="tab" onclick="switchTab('debate')" style="color:#d2a8ff">🧠 分析師辯論室</button>
+    <button class="tab" onclick="switchTab('daily-report')" style="color:#79c0ff">📋 每日報告</button>
   </div>
 
   <div id="detail">
@@ -2376,6 +2378,128 @@ tbody td{padding:9px 10px}
 
   </div>
 
+  <!-- ── Phase 8: 每日報告 ── -->
+  <div id="daily-report-section" style="display:none">
+
+    <!-- Generate buttons -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px">
+      <div style="font-size:.85rem;color:var(--muted);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <span>手動產生報告</span>
+        <span id="dr-last-gen" style="font-size:.72rem;color:var(--muted)"></span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <button class="btn btn-primary" onclick="generateDailyReport('pre_market')" id="dr-btn-pre" style="font-size:.8rem">盤前報告</button>
+        <button class="btn btn-secondary" onclick="generateDailyReport('intraday')" id="dr-btn-intra" style="font-size:.8rem">盤中快報</button>
+        <button class="btn btn-secondary" onclick="generateDailyReport('post_market')" id="dr-btn-post" style="font-size:.8rem">盤後報告</button>
+        <button class="btn btn-secondary" onclick="sendDailyReport()" style="font-size:.8rem;margin-left:8px">發送 LINE / Email</button>
+      </div>
+      <!-- Settings toggle -->
+      <div>
+        <button class="btn btn-secondary" onclick="toggleDrSettings()" style="font-size:.75rem;padding:3px 10px">報告設定 ▾</button>
+        <div id="dr-settings-panel" style="display:none;margin-top:12px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
+            <label style="display:flex;align-items:center;gap:8px;font-size:.8rem">
+              <input type="checkbox" id="dr-enabled" onchange="saveDrSettings()">
+              啟用自動排程報告
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:.8rem">
+              <input type="checkbox" id="dr-send-email" checked onchange="saveDrSettings()">
+              發送 Email
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:.8rem">
+              <input type="checkbox" id="dr-send-line" checked onchange="saveDrSettings()">
+              發送 LINE
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:.8rem">
+              <input type="checkbox" id="dr-only-sa" onchange="saveDrSettings()">
+              僅有 S/A 級警報時發送
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:12px">
+            <div>
+              <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px">時區</div>
+              <select id="dr-timezone" onchange="saveDrSettings()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 8px;font-size:.8rem;width:100%">
+                <option value="America/New_York">美東 (ET)</option>
+                <option value="Asia/Taipei">台北 (TW)</option>
+                <option value="UTC">UTC</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px">盤前報告時間</div>
+              <input type="time" id="dr-pre-time" value="08:30" onchange="saveDrSettings()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 8px;font-size:.8rem;width:100%">
+            </div>
+            <div>
+              <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px">盤中快報時間</div>
+              <input type="time" id="dr-intra-time" value="11:30" onchange="saveDrSettings()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 8px;font-size:.8rem;width:100%">
+            </div>
+            <div>
+              <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px">盤後報告時間</div>
+              <input type="time" id="dr-post-time" value="16:30" onchange="saveDrSettings()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 8px;font-size:.8rem;width:100%">
+            </div>
+          </div>
+          <div style="font-size:.7rem;color:var(--muted);margin-top:8px">排程將在下次整點分鐘吻合時觸發（精度 ±30 秒）</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Latest report card -->
+    <div id="dr-latest-card" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div id="dr-type-badge" style="font-size:.75rem;font-weight:700;padding:3px 10px;border-radius:6px;background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44"></div>
+        <div id="dr-gen-time" style="font-size:.72rem;color:var(--muted)"></div>
+        <div id="dr-market-badge" style="font-size:.75rem;font-weight:700;padding:3px 10px;border-radius:6px"></div>
+      </div>
+
+      <!-- Summary stats row -->
+      <div id="dr-stat-row" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px"></div>
+
+      <!-- AI Summary -->
+      <div id="dr-ai-summary-wrap" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px 16px;margin-bottom:12px">
+        <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px;font-weight:600">AI 分析摘要</div>
+        <div id="dr-ai-summary" style="font-size:.82rem;line-height:1.75;white-space:pre-wrap;color:var(--text)"></div>
+      </div>
+
+      <!-- Action plan -->
+      <div id="dr-action-plan" style="margin-bottom:12px"></div>
+
+      <!-- Do not chase + Kill watch -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div>
+          <div style="font-size:.72rem;color:#f0883e;font-weight:600;margin-bottom:6px">不宜追高</div>
+          <div id="dr-no-chase" style="font-size:.78rem"></div>
+        </div>
+        <div>
+          <div style="font-size:.72rem;color:#f85149;font-weight:600;margin-bottom:6px">Kill Signal 監控</div>
+          <div id="dr-kill-watch" style="font-size:.78rem"></div>
+        </div>
+      </div>
+
+      <!-- Sector + candidates -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div>
+          <div style="font-size:.72rem;color:var(--muted);font-weight:600;margin-bottom:6px">板塊主線</div>
+          <div id="dr-sectors" style="font-size:.78rem"></div>
+        </div>
+        <div>
+          <div style="font-size:.72rem;color:var(--muted);font-weight:600;margin-bottom:6px">今日候選股</div>
+          <div id="dr-candidates" style="font-size:.78rem"></div>
+        </div>
+      </div>
+
+      <div style="font-size:.67rem;color:var(--muted);font-style:italic;text-align:center;padding-top:8px;border-top:1px solid var(--border)">此為決策輔助，不代表自動下單。</div>
+    </div>
+
+    <!-- Report history -->
+    <div style="font-size:.85rem;color:var(--muted);font-weight:600;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+      <span>報告歷史（最近 30 份）</span>
+      <button class="btn btn-secondary" onclick="loadDailyReportHistory()" style="font-size:.72rem;padding:3px 9px">重新整理</button>
+    </div>
+    <div id="dr-history" style="display:flex;flex-direction:column;gap:8px">
+      <div style="color:var(--muted);font-size:.82rem">尚無報告記錄</div>
+    </div>
+
+  </div>
+
 </div>
 
 <!-- ── Chat FAB ── -->
@@ -3440,7 +3564,7 @@ document.getElementById('sym').addEventListener('keydown', e => { if (e.key === 
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','decision-alerts','position','radar','quant','debate'];
+  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','decision-alerts','position','radar','quant','debate','daily-report'];
   const idx = tabOrder.indexOf(tab);
   if (idx >= 0) document.querySelectorAll('.tab')[idx].classList.add('active');
 
@@ -3455,6 +3579,7 @@ function switchTab(tab) {
   document.getElementById('radar-section').style.display             = tab === 'radar'            ? 'block' : 'none';
   document.getElementById('quant-section').style.display             = tab === 'quant'            ? 'block' : 'none';
   document.getElementById('debate-section').style.display            = tab === 'debate'           ? 'block' : 'none';
+  document.getElementById('daily-report-section').style.display      = tab === 'daily-report'     ? 'block' : 'none';
 
   if (tab === 'signal' && _lastComputedData) startSignalRadar();
   else if (tab !== 'signal') { clearInterval(_sigTimer); _sigTimer = null; }
@@ -10630,6 +10755,220 @@ async function scanDecisionAlerts(mode) {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = origText; }
   }
+}
+
+// ══════════════════════════════════════════════════════
+// Phase 8: Daily Report
+// ══════════════════════════════════════════════════════
+
+const _DR_TYPE_LABEL = { pre_market:'盤前報告', intraday:'盤中快報', post_market:'盤後報告' };
+const _DR_TYPE_COLOR = { pre_market:'#58a6ff', intraday:'#e3b341', post_market:'#3fb950' };
+const _DR_REGIME_EMOJI = { bull:'📈', sideways:'↔️', bear:'📉', 偏多:'📈', 中性:'↔️', 偏弱:'📉' };
+
+async function generateDailyReport(type) {
+  const btnId = { pre_market:'dr-btn-pre', intraday:'dr-btn-intra', post_market:'dr-btn-post' }[type];
+  const btn = document.getElementById(btnId);
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '產生中…'; }
+  try {
+    const r = await fetch('/api/daily-report/generate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ type }),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '產生失敗');
+    _renderDailyReport(j.report);
+    loadDailyReportHistory();
+    showToast('✅ 報告已產生');
+  } catch(e) {
+    showToast('❌ ' + e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig || '重試'; }
+  }
+}
+
+async function sendDailyReport() {
+  try {
+    const r = await fetch('/api/daily-report/send', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ channels: ['line', 'email'] }),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '發送失敗');
+    showToast('✅ 已發送：' + (j.sent || []).join(' / '));
+  } catch(e) {
+    showToast('❌ ' + e.message, true);
+  }
+}
+
+async function loadDailyReport() {
+  try {
+    const r = await fetch('/api/daily-report/latest');
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j.ok && j.report) _renderDailyReport(j.report);
+  } catch(_) {}
+  loadDailyReportHistory();
+}
+
+function _renderDailyReport(rpt) {
+  const card = document.getElementById('dr-latest-card');
+  if (!card) return;
+  card.style.display = 'block';
+
+  const typeColor = _DR_TYPE_COLOR[rpt.report_type] || '#58a6ff';
+  document.getElementById('dr-type-badge').textContent = _DR_TYPE_LABEL[rpt.report_type] || rpt.report_type;
+  document.getElementById('dr-type-badge').style.cssText = `font-size:.75rem;font-weight:700;padding:3px 10px;border-radius:6px;background:${typeColor}22;color:${typeColor};border:1px solid ${typeColor}44`;
+
+  const genAt = rpt.generated_at ? new Date(rpt.generated_at).toLocaleString('zh-TW') : '';
+  document.getElementById('dr-gen-time').textContent = genAt;
+  document.getElementById('dr-last-gen').textContent = genAt ? `最後產生：${genAt}` : '';
+
+  // Market badge
+  const ms = rpt.market_status || {};
+  const overall = ms.overall || '—';
+  const regimeColor = overall === '偏多' ? '#3fb950' : overall === '偏弱' ? '#f85149' : '#e3b341';
+  const mb = document.getElementById('dr-market-badge');
+  mb.textContent = `${_DR_REGIME_EMOJI[overall]||''} 大盤 ${overall}`;
+  mb.style.cssText = `font-size:.75rem;font-weight:700;padding:3px 10px;border-radius:6px;background:${regimeColor}22;color:${regimeColor};border:1px solid ${regimeColor}44`;
+
+  // Stat row
+  const alerts = rpt.alerts_summary || {};
+  document.getElementById('dr-stat-row').innerHTML = [
+    { label:'S級警報', val: alerts.s_count ?? 0, color:'#f85149' },
+    { label:'A級警報', val: alerts.a_count ?? 0, color:'#f0883e' },
+    { label:'不宜追高', val: (rpt.do_not_chase||rpt.do_not_chase_list||[]).length, color:'#e3b341' },
+    { label:'轉倉建議', val: (rpt.rotation_suggestions||[]).length, color:'#bc8cff' },
+    { label:'Kill Watch', val: (rpt.kill_signal_watch||[]).length, color:'#f85149' },
+  ].map(x => `<div style="background:${x.color}11;border:1px solid ${x.color}33;border-radius:8px;padding:8px 14px;text-align:center;flex:1;min-width:80px">
+    <div style="font-size:1.4rem;font-weight:700;color:${x.color}">${x.val}</div>
+    <div style="font-size:.67rem;color:var(--muted)">${x.label}</div>
+  </div>`).join('');
+
+  // AI summary
+  if (rpt.ai_summary) {
+    document.getElementById('dr-ai-summary-wrap').style.display = 'block';
+    document.getElementById('dr-ai-summary').textContent = rpt.ai_summary;
+  }
+
+  // Action plan
+  const plan = rpt.action_plan || [];
+  const urgColor = { HIGH:'#f85149', MEDIUM:'#e3b341', LOW:'#8b949e' };
+  document.getElementById('dr-action-plan').innerHTML = plan.length ? `
+    <div style="font-size:.72rem;color:var(--muted);font-weight:600;margin-bottom:6px">今日操作計畫</div>
+    ${plan.map((a,i) => `<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="min-width:22px;text-align:center;font-weight:700;color:${urgColor[a.urgency]||'var(--muted)'};font-size:.85rem">${i+1}</span>
+      <div>
+        <div style="font-size:.82rem;font-weight:600">${_esc(a.action)}</div>
+        <div style="font-size:.72rem;color:var(--muted)">${_esc(a.reason||'')}</div>
+      </div>
+    </div>`).join('')}
+  ` : '<div style="font-size:.78rem;color:var(--muted)">暫無操作建議</div>';
+
+  // Do not chase (engine key: do_not_chase, API spec key: do_not_chase_list — accept both)
+  const dnc = rpt.do_not_chase || rpt.do_not_chase_list || [];
+  document.getElementById('dr-no-chase').innerHTML = dnc.length
+    ? dnc.map(d => `<div style="padding:3px 0;display:flex;align-items:center;gap:6px">
+        <span style="font-weight:700;color:#f0883e">${_esc(d.symbol||d)}</span>
+        <span style="font-size:.68rem;color:var(--muted)">${_esc(d.reason||'')}</span>
+      </div>`).join('')
+    : '<span style="color:var(--muted)">無</span>';
+
+  // Kill signal watch
+  const ks = rpt.kill_signal_watch || [];
+  document.getElementById('dr-kill-watch').innerHTML = ks.length
+    ? ks.map(k => `<div style="padding:3px 0;display:flex;align-items:center;gap:6px">
+        <span style="font-weight:700;color:#f85149">${_esc(k.symbol||k)}</span>
+        <span style="font-size:.68rem;color:var(--muted)">${_esc(k.trigger||'')}</span>
+      </div>`).join('')
+    : '<span style="color:var(--muted)">無</span>';
+
+  // Sectors
+  const sec = rpt.sector_summary || {};
+  const leaders = (sec.leaders || []).slice(0,3);
+  const laggards = (sec.laggards || []).slice(0,2);
+  document.getElementById('dr-sectors').innerHTML = [
+    ...leaders.map(s=>`<span style="color:#3fb950;font-size:.76rem">${_esc(s)}</span>`),
+    ...laggards.map(s=>`<span style="color:#f85149;font-size:.76rem">${_esc(s)}</span>`),
+  ].join('<span style="color:var(--border)"> · </span>') || '<span style="color:var(--muted)">資料不足</span>';
+
+  // Candidates
+  const cands = (rpt.watchlist_candidates || []).slice(0,5);
+  document.getElementById('dr-candidates').innerHTML = cands.length
+    ? cands.map(c => `<div style="padding:2px 0;font-size:.76rem">
+        <span style="font-weight:700">${_esc(c.symbol)}</span>
+        <span style="color:var(--muted)"> 動能${c.momentum_score||0}</span>
+      </div>`).join('')
+    : '<span style="color:var(--muted)">無</span>';
+}
+
+async function loadDailyReportHistory() {
+  try {
+    const r = await fetch('/api/daily-report/history?limit=30');
+    const j = await r.json();
+    const el = document.getElementById('dr-history');
+    if (!j.ok || !j.reports?.length) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:.82rem">尚無報告記錄</div>';
+      return;
+    }
+    const regimeBg = { 偏多:'#3fb9501a', 中性:'#e3b3411a', 偏弱:'#f851491a' };
+    const regimeC  = { 偏多:'#3fb950',   中性:'#e3b341',   偏弱:'#f85149' };
+    el.innerHTML = j.reports.map(rpt => {
+      const tc = _DR_TYPE_COLOR[rpt.report_type || rpt._db_report_type] || '#8b949e';
+      const ms = rpt._db_market_state || rpt.market_state || '中性';
+      const sa = rpt._db_sa_alert_count ?? rpt.sa_alert_count ?? 0;
+      const rid = rpt._db_id ?? rpt.id ?? 0;
+      const saC = parseInt(sa) > 0 ? '#f85149' : 'var(--muted)';
+      const rtype = rpt.report_type || rpt._db_report_type || '';
+      const genAt = rpt._db_generated_at || rpt.generated_at || '';
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:10px 14px;display:flex;align-items:center;flex-wrap:wrap;gap:10px;cursor:pointer"
+               onclick='_viewHistoryReport(${rid})'>
+        <span style="background:${tc}22;color:${tc};border:1px solid ${tc}44;border-radius:5px;padding:2px 8px;font-size:.7rem;font-weight:700">${_DR_TYPE_LABEL[rtype]||rtype}</span>
+        <span style="font-size:.76rem;color:var(--muted);flex:1;min-width:100px">${genAt ? new Date(genAt).toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</span>
+        <span style="background:${regimeBg[ms]||'#8b949e1a'};color:${regimeC[ms]||'#8b949e'};border-radius:5px;padding:2px 7px;font-size:.7rem">${ms}</span>
+        <span style="color:${saC};font-size:.72rem">S/A警報 ${sa}</span>
+        <span style="font-size:.7rem;color:var(--accent)">查看 ›</span>
+      </div>`;
+    }).join('');
+  } catch(_) {}
+}
+
+async function _viewHistoryReport(id) {
+  try {
+    const r = await fetch(`/api/daily-report/history?limit=30`);
+    const j = await r.json();
+    const rpt = (j.reports||[]).find(x => (x._db_id ?? x.id) === id);
+    if (rpt) {
+      _renderDailyReport(rpt);
+      window.scrollTo(0, document.getElementById('dr-latest-card').offsetTop - 60);
+    }
+  } catch(_) {}
+}
+
+function toggleDrSettings() {
+  const p = document.getElementById('dr-settings-panel');
+  p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}
+
+async function saveDrSettings() {
+  const settings = {
+    enabled:        document.getElementById('dr-enabled')?.checked || false,
+    send_email:     document.getElementById('dr-send-email')?.checked || false,
+    send_line:      document.getElementById('dr-send-line')?.checked || false,
+    only_sa_alerts: document.getElementById('dr-only-sa')?.checked || false,
+    timezone:       document.getElementById('dr-timezone')?.value || 'America/New_York',
+    schedules: {
+      pre_market:  document.getElementById('dr-pre-time')?.value  || '08:30',
+      intraday:    document.getElementById('dr-intra-time')?.value || '11:30',
+      post_market: document.getElementById('dr-post-time')?.value || '16:30',
+    },
+  };
+  try {
+    await fetch('/api/daily-report/schedule', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(settings),
+    });
+  } catch(_) {}
 }
 
 // ══════════════════════════════════════════════════════

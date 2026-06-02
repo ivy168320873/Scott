@@ -3238,6 +3238,273 @@ def _rotation_fire_alerts(pos_results: list[dict]):
             pass
 
 
+# ── Daily Report API — Phase 8 ────────────────────────────────────────────────
+import daily_report_engine as _dre
+
+_dre.init_db()
+
+# In-memory settings (persisted via stored user data key "daily_report_settings")
+_daily_report_settings: dict = {
+    "enabled":        False,
+    "timezone":       "America/New_York",
+    "send_email":     True,
+    "send_line":      True,
+    "only_sa_alerts": False,
+    "schedules": {
+        "pre_market":  "08:30",
+        "intraday":    "11:30",
+        "pre_close":   "15:50",
+        "post_market": "16:30",
+    },
+    "tw_schedules": {
+        "pre_market":  "08:30",
+        "intraday":    "10:30",
+        "pre_close":   "13:20",
+        "post_market": "14:30",
+    },
+}
+
+
+def _make_ai_fn():
+    """Return a callable that calls Claude API, or None if API key not set."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        import anthropic as _ant
+        client = _ant.Anthropic(api_key=key)
+        def _call(prompt: str) -> str | None:
+            try:
+                msg = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=800,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return msg.content[0].text if msg.content else None
+            except Exception:
+                return None
+        return _call
+    except Exception:
+        return None
+
+
+def _run_daily_report(report_type: str) -> dict:
+    """Generate a report and optionally dispatch it."""
+    data     = _load_user_data()
+    pos_list = data.get("holdings", [])
+    wl_raw   = data.get("watchlist", [])
+    if isinstance(wl_raw, str):
+        wl_raw = [w.strip().upper() for w in wl_raw.split(",") if w.strip()]
+
+    report = _dre.generate_report(
+        report_type=report_type,
+        ohlcv_fn=_get_ohlcv_norm,
+        positions=pos_list,
+        watchlist=wl_raw,
+        bench_sym="QQQ",
+        ai_fn=_make_ai_fn(),
+    )
+
+    # Dispatch if settings allow
+    s = _daily_report_settings
+    if not s.get("only_sa_alerts") or report.get("alerts_summary", {}).get("sa_count", 0) > 0:
+        if s.get("send_line"):
+            _dispatch_report_line(report)
+        if s.get("send_email"):
+            _dispatch_report_email(report)
+
+    return report
+
+
+def _dispatch_report_line(report: dict):
+    try:
+        settings = _load_user_data().get("settings", {})
+        token = settings.get("lineToken", "") or os.environ.get("LINE_NOTIFY_TOKEN", "")
+        if not token:
+            return
+        msg = _dre.format_line(report)
+        _req.post(
+            "https://notify-api.line.me/api/notify",
+            headers={"Authorization": f"Bearer {token}"},
+            data={"message": msg},
+            timeout=8,
+        )
+    except Exception as e:
+        print(f"[REPORT] LINE send failed: {e}", flush=True)
+
+
+def _dispatch_report_email(report: dict):
+    try:
+        settings  = _load_user_data().get("settings", {})
+        email_to  = settings.get("email", "") or os.environ.get("SMTP_USER", "")
+        smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.environ.get("SMTP_PORT", 587))
+        smtp_user = os.environ.get("SMTP_USER", "")
+        smtp_pass = os.environ.get("SMTP_PASS", "")
+        if not (smtp_user and smtp_pass and email_to):
+            return
+        import email.mime.multipart as _mmp
+        subject = _dre.format_email_subject(report)
+        body    = _dre.format_email_body(report)
+        m = _mmp.MIMEMultipart("alternative")
+        m["Subject"] = subject
+        m["From"]    = smtp_user
+        m["To"]      = email_to
+        import email.mime.text as _emt
+        m.attach(_emt.MIMEText(body, "plain", "utf-8"))
+        with smtplib.SMTP(smtp_host, smtp_port) as srv:
+            srv.starttls()
+            srv.login(smtp_user, smtp_pass)
+            srv.sendmail(smtp_user, [email_to], m.as_string())
+    except Exception as e:
+        print(f"[REPORT] Email send failed: {e}", flush=True)
+
+
+def _start_daily_report_scheduler():
+    """Background thread: fires scheduled reports based on wall-clock time."""
+    import threading
+    from datetime import datetime, timezone
+    _fired_today: dict[str, str] = {}   # report_type -> date string
+
+    def _loop():
+        while True:
+            try:
+                if not _daily_report_settings.get("enabled"):
+                    _time.sleep(60)
+                    continue
+                tz_name = _daily_report_settings.get("timezone", "America/New_York")
+                try:
+                    import zoneinfo
+                    tz = zoneinfo.ZoneInfo(tz_name)
+                except Exception:
+                    tz = timezone.utc
+                now      = datetime.now(tz)
+                hm       = now.strftime("%H:%M")
+                date_str = now.strftime("%Y-%m-%d")
+                # pick schedule set
+                is_tw = "Taipei" in tz_name or "Asia" in tz_name
+                sched = _daily_report_settings.get("tw_schedules" if is_tw else "schedules", {})
+                for rtype, fire_time in sched.items():
+                    actual_type = rtype if rtype != "pre_close" else "intraday"
+                    key = f"{actual_type}:{date_str}:{fire_time}"
+                    if hm == fire_time and key not in _fired_today:
+                        _fired_today[key] = hm
+                        try:
+                            _run_daily_report(actual_type)
+                            print(f"[REPORT SCHEDULER] fired {actual_type} at {hm}", flush=True)
+                        except Exception as exc:
+                            print(f"[REPORT SCHEDULER] {actual_type} failed: {exc}", flush=True)
+                # cleanup old keys (keep last 100)
+                if len(_fired_today) > 100:
+                    old_keys = list(_fired_today.keys())[:-50]
+                    for k in old_keys:
+                        _fired_today.pop(k, None)
+            except Exception:
+                pass
+            _time.sleep(30)
+
+    t = threading.Thread(target=_loop, daemon=True, name="daily-report-scheduler")
+    t.start()
+
+
+_start_daily_report_scheduler()
+
+
+@app.route("/api/daily-report/latest")
+def api_daily_report_latest():
+    """Return the latest report (optionally filtered by type)."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        rtype = request.args.get("type") or None
+        report = _dre.get_latest(report_type=rtype)
+        if not report:
+            return jsonify({"ok": False, "error": "尚無報告，請先產生"}), 404
+        return jsonify({"ok": True, "report": report})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/daily-report/generate", methods=["POST"])
+def api_daily_report_generate():
+    """Manually generate a report. Body: {type: 'pre_market'|'intraday'|'post_market'}"""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body        = request.json or {}
+        report_type = str(body.get("type", "pre_market"))
+        if report_type not in ("pre_market", "intraday", "post_market"):
+            return jsonify({"ok": False, "error": "type 必須為 pre_market / intraday / post_market"}), 400
+        report = _run_daily_report(report_type)
+        return jsonify({"ok": True, "report": report})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/daily-report/send", methods=["POST"])
+def api_daily_report_send():
+    """Send latest (or specified) report via LINE + Email. Body: {type?, channels?:[line,email]}"""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body        = request.json or {}
+        report_type = str(body.get("type", "pre_market"))
+        channels    = body.get("channels") or ["line", "email"]
+        report = _dre.get_latest(report_type=report_type)
+        if not report:
+            return jsonify({"ok": False, "error": "找不到報告，請先產生"}), 404
+        sent = []
+        if "line" in channels:
+            _dispatch_report_line(report)
+            sent.append("LINE")
+        if "email" in channels:
+            _dispatch_report_email(report)
+            sent.append("Email")
+        return jsonify({"ok": True, "sent": sent})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/daily-report/history")
+def api_daily_report_history():
+    """Return last N reports. ?limit=30"""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        limit = int(request.args.get("limit", 30))
+        rows  = _dre.get_history(limit=limit)
+        return jsonify({"ok": True, "reports": rows, "count": len(rows)})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/daily-report/schedule", methods=["POST"])
+def api_daily_report_schedule():
+    """Update daily report schedule settings."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body = request.json or {}
+        allowed = {"enabled", "timezone", "send_email", "send_line",
+                   "only_sa_alerts", "schedules", "tw_schedules"}
+        for k, v in body.items():
+            if k in allowed:
+                _daily_report_settings[k] = v
+        return jsonify({"ok": True, "settings": _daily_report_settings})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
