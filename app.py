@@ -2782,6 +2782,7 @@ import sector_map      as _smap
 import alert_history   as _ah
 import alert_scanner   as _ascn
 import alert_formatter as _af
+import rotation_engine as _re
 
 # Ensure DB table exists
 _ah.init_db()
@@ -3123,6 +3124,96 @@ def api_decision_alerts_resolve(alert_id: str):
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Portfolio Rotation API ────────────────────────────────────────────────────
+
+@app.route("/api/portfolio-rotation", methods=["POST"])
+def api_portfolio_rotation():
+    """
+    Full portfolio rotation analysis.
+    Body (optional): {positions?, watchlist?, bench_return?}
+    Falls back to stored data when body fields are absent.
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body      = request.json or {}
+        pos_list  = body.get("positions") or []
+        wl_raw    = body.get("watchlist") or []
+        bench_ret = body.get("bench_return")   # float | None
+
+        # Fall back to stored data
+        if not pos_list:
+            data     = _load_user_data()
+            pos_list = data.get("holdings", [])
+            if not wl_raw:
+                wl_stored = data.get("watchlist", [])
+                if isinstance(wl_stored, str):
+                    wl_raw = [w.strip().upper() for w in wl_stored.split(",") if w.strip()]
+                else:
+                    wl_raw = wl_stored or []
+
+        if not pos_list:
+            return jsonify({"ok": False, "error": "尚未建立持倉資料"}), 400
+
+        # Convert bench_return to float if provided as string
+        if bench_ret is not None:
+            try:
+                bench_ret = float(bench_ret)
+            except (ValueError, TypeError):
+                bench_ret = None
+
+        result = _re.analyze_portfolio(
+            positions=pos_list,
+            ohlcv_fn=_get_ohlcv_norm,
+            bench_return=bench_ret,
+            watchlist=wl_raw,
+        )
+
+        # Phase 4 alert integration: fire alert for extreme drag / rotation signals
+        _rotation_fire_alerts(result.get("positions", []))
+
+        return jsonify(result)
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _rotation_fire_alerts(pos_results: list[dict]):
+    """Fire Phase-4 alerts for high-drag / rotate / stop-loss rotation results."""
+    import alert_engine as _ae
+    for pos in pos_results:
+        if not pos.get("ok"):
+            continue
+        symbol        = pos.get("symbol", "")
+        drag_score    = pos.get("drag_score", 0)
+        action        = pos.get("rotation_action", "")
+        ce_score      = pos.get("capital_efficiency_score", 50)
+        reason        = pos.get("reason_summary", "")
+        ce_result     = pos.get("ce_detail", {})
+
+        # Build a synthetic capital-efficiency alert for rotation signals
+        should_alert = (
+            drag_score >= 75
+            or action == "ROTATE_FULL"
+            or action == "STOP_LOSS"
+        )
+        if not should_alert:
+            continue
+
+        try:
+            a = _ae.evaluate_capital_efficiency(symbol, ce_result)
+            if a and _ah.should_send(symbol, "CAPITAL_EFF", a.level):
+                _ah.record(a)
+                try:
+                    _send_decision_alert(a)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 
 # ── Main page ──────────────────────────────────────────────────────────────────
