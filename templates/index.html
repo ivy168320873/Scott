@@ -1923,6 +1923,24 @@ tbody td{padding:9px 10px}
       <div class="rot-sym-groups" id="rot-sym-groups" style="display:none"></div>
       <div id="rot-suggestions" style="display:none"></div>
       <div id="rot-ov-placeholder" style="font-size:.8rem;color:var(--muted)">點選「分析轉倉建議」以評估各持倉資金效率與轉倉機會。</div>
+      <!-- 持倉資金效率表 -->
+      <div id="rot-eff-table-wrap" style="display:none;margin-top:12px;overflow-x:auto">
+        <div style="font-size:.78rem;color:var(--muted);font-weight:600;margin-bottom:6px">持倉資金效率表</div>
+        <table style="width:100%;border-collapse:collapse;font-size:.76rem">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:4px 8px;color:var(--muted);font-weight:600">股票</th>
+              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:600">效率分</th>
+              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:600">拖累分</th>
+              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:600">持倉報酬</th>
+              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:600">vs 基準</th>
+              <th style="text-align:right;padding:4px 8px;color:var(--muted);font-weight:600">動能</th>
+              <th style="text-align:center;padding:4px 8px;color:var(--muted);font-weight:600">建議</th>
+            </tr>
+          </thead>
+          <tbody id="rot-eff-tbody"></tbody>
+        </table>
+      </div>
       <div class="rot-disclaimer">此為決策輔助，不代表自動下單。</div>
     </div>
     <!-- Rotation detail cards -->
@@ -7609,7 +7627,7 @@ async function loadPortfolioRotation() {
   try {
     const r = await fetch('/api/portfolio-rotation', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({}),
+      body: JSON.stringify({ benchmark: 'QQQ' }),
     });
     const j = await r.json();
     if (!j.ok) { alert(j.error || '分析失敗'); return; }
@@ -7617,7 +7635,9 @@ async function loadPortfolioRotation() {
     document.getElementById('rot-ov-grid').style.display = 'grid';
     document.getElementById('rot-sym-groups').style.display = 'flex';
     document.getElementById('rot-suggestions').style.display = 'block';
+    document.getElementById('rot-eff-table-wrap').style.display = 'block';
     _renderRotationOverview(j.summary);
+    _renderRotationEffTable(j.positions);
     _renderRotationPerPosition(j.positions);
     _renderRotationCards(j.positions);
   } catch(e) {
@@ -7631,6 +7651,42 @@ async function loadPortfolioRotation() {
 function _reRotColor(action) {
   return {KEEP:'#3fb950',WATCH:'#58a6ff',TRIM:'#e3b341',
     ROTATE_PARTIAL:'#f0883e',ROTATE_FULL:'#bc8cff',STOP_LOSS:'#f85149'}[action] || '#8b949e';
+}
+
+function _renderRotationEffTable(positions) {
+  const tbody = document.getElementById('rot-eff-tbody');
+  if (!tbody) return;
+  const sorted = [...(positions||[])].sort((a,b) =>
+    (a.capital_efficiency_score??50) - (b.capital_efficiency_score??50)
+  );
+  tbody.innerHTML = sorted.map(pos => {
+    if (!pos.ok) return `<tr><td colspan="7" style="padding:4px 8px;color:var(--muted)">${_esc(pos.symbol)} — 資料不足</td></tr>`;
+    const effC = pos.capital_efficiency_score >= 65 ? '#3fb950'
+               : pos.capital_efficiency_score >= 45 ? '#58a6ff'
+               : pos.capital_efficiency_score >= 30 ? '#e3b341' : '#f85149';
+    const dragC = pos.drag_score >= 75 ? '#f85149' : pos.drag_score >= 50 ? '#f0883e'
+                : pos.drag_score >= 25 ? '#e3b341' : '#3fb950';
+    const retC = (pos.holding_return_pct||0) >= 0 ? 'var(--bull)' : 'var(--bear)';
+    const relC = pos.relative_to_benchmark == null ? 'var(--muted)'
+               : pos.relative_to_benchmark >= 0 ? 'var(--bull)' : 'var(--bear)';
+    const rotC = _reRotColor(pos.rotation_action);
+    const rel  = pos.relative_to_benchmark != null
+               ? `${pos.relative_to_benchmark>=0?'+':''}${pos.relative_to_benchmark.toFixed(1)}%`
+               : '—';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:5px 8px;font-weight:700">${_esc(pos.symbol)}</td>
+      <td style="padding:5px 8px;text-align:right;color:${effC};font-weight:700">${pos.capital_efficiency_score??'—'}</td>
+      <td style="padding:5px 8px;text-align:right;color:${dragC};font-weight:700">${pos.drag_score??'—'}</td>
+      <td style="padding:5px 8px;text-align:right;color:${retC}">${(pos.holding_return_pct||0)>=0?'+':''}${(pos.holding_return_pct||0).toFixed(1)}%</td>
+      <td style="padding:5px 8px;text-align:right;color:${relC}">${rel}</td>
+      <td style="padding:5px 8px;text-align:right;color:var(--muted)">${pos.momentum_score??'—'}</td>
+      <td style="padding:5px 8px;text-align:center">
+        <span class="rot-chip" style="background:${rotC}1a;color:${rotC};border-color:${rotC}44">
+          ${_esc(pos.rotation_label||pos.rotation_action)}
+        </span>
+      </td>
+    </tr>`;
+  }).join('');
 }
 
 function _renderRotationOverview(sum) {

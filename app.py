@@ -3132,17 +3132,39 @@ def api_decision_alerts_resolve(alert_id: str):
 def api_portfolio_rotation():
     """
     Full portfolio rotation analysis.
-    Body (optional): {positions?, watchlist?, bench_return?}
+    Body: {
+      holdings?  / positions?  : list of position dicts,
+      benchmark? : "QQQ"|"SPY"|"0050.TW"  (auto-fetches return),
+      bench_return?: float      (pre-computed, overrides benchmark fetch),
+      watchlist?: list[str],
+    }
     Falls back to stored data when body fields are absent.
     """
     auth = _require_auth()
     if auth:
         return auth
     try:
-        body      = request.json or {}
-        pos_list  = body.get("positions") or []
-        wl_raw    = body.get("watchlist") or []
-        bench_ret = body.get("bench_return")   # float | None
+        body     = request.json or {}
+        # Accept both 'holdings' and 'positions' as input key
+        pos_list = body.get("holdings") or body.get("positions") or []
+        wl_raw   = body.get("watchlist") or []
+        bench_sym = str(body.get("benchmark", "") or "").upper().strip()
+
+        # bench_return: prefer explicit float, else fetch from benchmark symbol
+        bench_ret: float | None = None
+        if body.get("bench_return") is not None:
+            try:
+                bench_ret = float(body["bench_return"])
+            except (ValueError, TypeError):
+                pass
+        elif bench_sym:
+            try:
+                bohlcv = _get_ohlcv_norm(bench_sym)
+                if bohlcv and bohlcv.get("closes") and len(bohlcv["closes"]) >= 22:
+                    bc = bohlcv["closes"]
+                    bench_ret = round((bc[-1] - bc[-22]) / bc[-22] * 100, 2)
+            except Exception:
+                pass
 
         # Fall back to stored data
         if not pos_list:
@@ -3158,13 +3180,6 @@ def api_portfolio_rotation():
         if not pos_list:
             return jsonify({"ok": False, "error": "尚未建立持倉資料"}), 400
 
-        # Convert bench_return to float if provided as string
-        if bench_ret is not None:
-            try:
-                bench_ret = float(bench_ret)
-            except (ValueError, TypeError):
-                bench_ret = None
-
         result = _re.analyze_portfolio(
             positions=pos_list,
             ohlcv_fn=_get_ohlcv_norm,
@@ -3172,7 +3187,7 @@ def api_portfolio_rotation():
             watchlist=wl_raw,
         )
 
-        # Phase 4 alert integration: fire alert for extreme drag / rotation signals
+        # Phase 4 alert integration
         _rotation_fire_alerts(result.get("positions", []))
 
         return jsonify(result)
@@ -3183,23 +3198,30 @@ def api_portfolio_rotation():
 
 
 def _rotation_fire_alerts(pos_results: list[dict]):
-    """Fire Phase-4 alerts for high-drag / rotate / stop-loss rotation results."""
+    """
+    Fire Phase-4 alerts for rotation-derived conditions:
+      - drag_score >= 75
+      - rotation_action in (ROTATE_FULL, STOP_LOSS)
+      - capital_efficiency_score < 35
+      - holding_days >= 10 AND relative_to_benchmark <= -5 (持續跑輸基準)
+    """
     import alert_engine as _ae
     for pos in pos_results:
         if not pos.get("ok"):
             continue
-        symbol        = pos.get("symbol", "")
-        drag_score    = pos.get("drag_score", 0)
-        action        = pos.get("rotation_action", "")
-        ce_score      = pos.get("capital_efficiency_score", 50)
-        reason        = pos.get("reason_summary", "")
-        ce_result     = pos.get("ce_detail", {})
+        symbol       = pos.get("symbol", "")
+        drag_score   = pos.get("drag_score", 0)
+        action       = pos.get("rotation_action", "")
+        ce_score     = pos.get("capital_efficiency_score") or 50
+        rel_bench    = pos.get("relative_to_benchmark")    # None if no benchmark
+        holding_days = pos.get("holding_days", 0)
+        ce_result    = pos.get("ce_detail", {})
 
-        # Build a synthetic capital-efficiency alert for rotation signals
         should_alert = (
             drag_score >= 75
-            or action == "ROTATE_FULL"
-            or action == "STOP_LOSS"
+            or action in ("ROTATE_FULL", "STOP_LOSS")
+            or ce_score < 35
+            or (holding_days >= 10 and rel_bench is not None and rel_bench <= -5)
         )
         if not should_alert:
             continue

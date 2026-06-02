@@ -487,6 +487,7 @@ def analyze_portfolio(
                 "current_price":         round(current_price, 4),
                 "unrealized_pnl":        round((current_price - cost) * qty, 2),
                 "unrealized_pnl_pct":    round(pnl_pct, 2),
+                "holding_return_pct":    round(pnl_pct, 2),   # alias, matches API spec
                 "holding_days":          holding_days,
                 "benchmark_return_pct":  bench_return,
                 "relative_to_benchmark": round(pnl_pct - bench_return, 2) if bench_return is not None else None,
@@ -494,6 +495,7 @@ def analyze_portfolio(
                 "chase_risk_score":      chase_score,
                 "capital_efficiency_score": ce_score,
                 "capital_efficiency_level": ce_level,
+                "alternative_candidates": [],          # filled after build_summary
                 "sell_signal":           sell_signal,
                 "sector":                sector,
                 "sector_trend":          sector_trend,
@@ -558,6 +560,33 @@ def _build_summary(results: list[dict]) -> dict:
 
     for r in ok_results:
         r["efficiency_rank"] = ranking_map.get(r["symbol"], "可續抱")
+        # Copy to_candidates → alternative_candidates for API spec alignment
+        r["alternative_candidates"] = r.get("to_candidates", [])
+
+    # Build structured rotation_recommendations list (all positions, sorted by urgency)
+    _ACTION_PRIORITY = {"STOP_LOSS": 0, "ROTATE_FULL": 1, "ROTATE_PARTIAL": 2,
+                        "TRIM": 3, "WATCH": 4, "KEEP": 5}
+    rotation_recommendations = sorted(
+        [
+            {
+                "symbol":             r["symbol"],
+                "action":             r["rotation_action"],
+                "action_label":       r["rotation_label"],
+                "action_color":       r["rotation_color"],
+                "confidence":         r.get("confidence", "LOW"),
+                "reason":             r.get("reason_summary", ""),
+                "allocation_change":  r.get("suggested_allocation_change", ""),
+                "drag_score":         r.get("drag_score", 0),
+                "capital_efficiency_score": r.get("capital_efficiency_score"),
+                "alternatives":       [
+                    c for c in r.get("to_candidates", []) if c.get("symbol") != "—"
+                ],
+                "disclaimer":         "此為決策輔助，不代表自動下單。",
+            }
+            for r in ok_results
+        ],
+        key=lambda x: _ACTION_PRIORITY.get(x["action"], 9),
+    )
 
     summary = {
         "portfolio_efficiency_score": portfolio_score,
@@ -569,6 +598,7 @@ def _build_summary(results: list[dict]) -> dict:
         "positions_to_trim":          by_action.get("TRIM", []),
         "positions_to_rotate":        by_action.get("ROTATE_PARTIAL", []) + by_action.get("ROTATE_FULL", []),
         "positions_to_stop_loss":     by_action.get("STOP_LOSS", []),
+        "rotation_recommendations":   rotation_recommendations,
         "cash_redeployment_suggestions": _cash_suggestions(results),
         "disclaimer":                 "此為決策輔助，不代表自動下單。",
     }
