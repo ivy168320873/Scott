@@ -916,6 +916,17 @@ tbody td{padding:9px 10px}
     onmouseover="this.style.color='var(--bear)'" onmouseout="this.style.color='var(--muted)'">登出</a>
 </header>
 
+<!-- ── Demo data warning banner ── -->
+<div id="demo-banner" style="display:none;background:#7d4e00;border-bottom:2px solid #e3b341;
+  padding:8px 16px;font-size:.8rem;color:#e3b341;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+  <span style="font-weight:700">⚠️ 模擬資料模式</span>
+  <span>目前使用模擬資料，所有訊號僅供系統測試，不能作為交易決策。</span>
+  <span id="demo-source-info" style="font-size:.72rem;opacity:.8"></span>
+  <button onclick="document.getElementById('demo-banner').style.display='none'"
+    style="margin-left:auto;background:none;border:1px solid #e3b341;color:#e3b341;
+           border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.72rem">✕ 關閉</button>
+</div>
+
 <!-- Alert toast container -->
 <div id="toast-container" style="position:fixed;top:60px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none"></div>
 
@@ -9895,8 +9906,9 @@ function _updateHeaderBar(data) {
 
   const regime = data.regime || {};
   if (regime.label) {
-    reg.textContent = `SPY ${regime.label}`;
-    reg.style.color = regime.strong ? 'var(--bull)' : regime.bullish ? '#e3b341' : 'var(--bear)';
+    const demoTag = data.is_demo ? ' [模擬]' : '';
+    reg.textContent = `SPY ${regime.label}${demoTag}`;
+    reg.style.color = data.is_demo ? '#e3b341' : (regime.strong ? 'var(--bull)' : regime.bullish ? '#e3b341' : 'var(--bear)');
   }
 
   const dp = data.daily_pnl || 0;
@@ -10065,6 +10077,48 @@ function _initMonitoring() {
 
 // Start monitoring on page load
 document.addEventListener('DOMContentLoaded', _initMonitoring);
+
+// ── Demo data safety banner ──────────────────────────────────────────────────
+let _demoCheckDone = false;
+async function _checkDemoBanner() {
+  if (_demoCheckDone) return;
+  try {
+    const r = await fetch('/api/market-state');
+    const d = await r.json();
+    if (d && d.is_demo) {
+      const banner = document.getElementById('demo-banner');
+      const info   = document.getElementById('demo-source-info');
+      if (banner) {
+        banner.style.display = 'flex';
+        if (info) {
+          const srcs = (d.indices || []).map(i => `${i.symbol}: ${i.is_demo ? '模擬' : '真實'}`).join(' | ');
+          info.textContent = srcs ? `[${srcs}]` : '[資料來源: demo]';
+        }
+      }
+    }
+    _demoCheckDone = true;
+  } catch(e) {}
+}
+
+// Also patch signal badge rendering to show demo warning
+function _demoPatchSignal(result) {
+  if (!result || !result.is_demo) return result;
+  // Cap bullish signals in the returned result object
+  const capMap = { 'bullish': 'neutral', 'mild-bullish': 'neutral' };
+  if (result.signal_class && capMap[result.signal_class]) {
+    result = {...result,
+      signal_class: capMap[result.signal_class],
+      signal: result.signal ? result.signal + ' ⚠️模擬' : '觀察（模擬資料）',
+    };
+  }
+  return result;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(_checkDemoBanner, 2000);
+  // Re-check every 10 minutes
+  setInterval(_checkDemoBanner, 600000);
+});
 
 // ══════════════════════════════════════════════════════
 // 歷史訊號追蹤

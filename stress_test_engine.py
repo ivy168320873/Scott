@@ -915,7 +915,20 @@ def generate_stress_test(
         'sector_impact':             sector_impact,
         'action_plan':               action_plan,
         'disclaimer':                DISCLAIMER,
+        'is_demo':                   any(
+            p.get('ok') and not p.get('source') or False
+            for p in ok_positions
+        ),
     }
+
+    # Add demo_data_warning when any position uses demo data
+    _any_demo = any(
+        True for p in positions_impacted
+        if p.get('ok') and (ohlcv_fn(p.get('symbol','')) or {}).get('is_demo')
+    )
+    if _any_demo:
+        result['is_demo'] = True
+        result['demo_data_warning'] = "⚠️ 目前使用模擬資料，壓力測試結果僅供參考，不能作為交易決策。"
 
     # Save to DB
     try:

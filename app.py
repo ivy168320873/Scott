@@ -66,6 +66,38 @@ _USER_DATA_FILE = os.environ.get("USER_DATA_FILE", "./user_data.json")  # legacy
 _user_data_lock = _threading.Lock()
 _user_data_mem: dict = {}   # in-memory read cache
 
+# ── Production / demo-guard constants ────────────────────────────────────────
+_IS_PRODUCTION = (
+    os.environ.get("RAILWAY_ENVIRONMENT", "").lower() == "production"
+    or os.environ.get("FLASK_ENV", "").lower() == "production"
+)
+_DEMO_WARNING_MSG = "⚠️ 目前使用模擬資料，不能作為交易決策。"
+_DEMO_SIGNAL_CAP  = {"bullish": "neutral", "mild-bullish": "neutral"}
+_DEMO_SIGNAL_TEXT = "觀察（模擬資料）"
+
+
+def _is_demo_ohlcv(ohlcv: dict | None) -> bool:
+    """Return True when the OHLCV dict came from the demo fallback."""
+    return bool(ohlcv and ohlcv.get("is_demo", False))
+
+
+def _apply_demo_guard(result: dict) -> dict:
+    """
+    Cap strong buy signals to 'neutral' / '觀察' when running on demo data.
+    Also injects demo_data_warning into the result.
+    Only active in production; dev/sandbox still shows full signals for testing.
+    """
+    if not _IS_PRODUCTION:
+        result["demo_data_warning"] = _DEMO_WARNING_MSG
+        return result
+    sc = result.get("signal_class", "")
+    if sc in _DEMO_SIGNAL_CAP:
+        result = dict(result)
+        result["signal_class"] = _DEMO_SIGNAL_CAP[sc]
+        result["signal"]       = _DEMO_SIGNAL_TEXT
+    result["demo_data_warning"] = _DEMO_WARNING_MSG
+    return result
+
 
 def _init_user_db():
     """Create SQLite table; migrate from legacy JSON on first run."""
@@ -1424,7 +1456,19 @@ def api_analyze():
         # Include Phase 1 decision_results in response so frontend can render
         # Chase Risk badge, Sell Decision block, and Sector Strength panel.
         dr_out = payload.get("decision_results") or {}
-        return jsonify({"ok": True, **result, "decision_results": dr_out})
+
+        # Demo guard: cap signals when data is synthetic
+        ohlcv_for_guard = _get_ohlcv_norm(sym) if sym else None
+        is_demo = _is_demo_ohlcv(ohlcv_for_guard)
+        if is_demo:
+            result = _apply_demo_guard(result)
+
+        return jsonify({
+            "ok": True, **result,
+            "decision_results": dr_out,
+            "is_demo": is_demo,
+            "data_source": (ohlcv_for_guard or {}).get("source", "unknown"),
+        })
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -1867,6 +1911,53 @@ def api_health():
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/env-check")
+def api_env_check():
+    """
+    Returns which environment variables are set (bool only, no values).
+    Also checks OHLCV data source and Railway Volume path.
+    No auth required — safe, shows no secret values.
+    """
+    import shutil
+
+    spy_ohlcv   = _get_ohlcv_norm("SPY")
+    spy_source  = (spy_ohlcv or {}).get("source", "none")
+    spy_is_demo = (spy_ohlcv or {}).get("is_demo", True)
+
+    db_path = os.path.abspath(_USER_DATA_DB)
+    db_exists = os.path.isfile(db_path)
+    db_size_kb = round(os.path.getsize(db_path) / 1024, 1) if db_exists else 0
+
+    return jsonify({
+        "ok": True,
+        "environment": os.environ.get("RAILWAY_ENVIRONMENT", "local"),
+        "is_production": _IS_PRODUCTION,
+        "env_vars": {
+            "SECRET_KEY":        bool(os.environ.get("SECRET_KEY")),
+            "ANTHROPIC_API_KEY": bool(os.environ.get("ANTHROPIC_API_KEY")),
+            "ALPHA_VANTAGE_KEY": bool(os.environ.get("ALPHA_VANTAGE_KEY")),
+            "FINNHUB_KEY":       bool(os.environ.get("FINNHUB_KEY")),
+            "LINE_NOTIFY_TOKEN": bool(os.environ.get("LINE_NOTIFY_TOKEN")),
+            "SMTP_HOST":         bool(os.environ.get("SMTP_HOST")),
+            "SMTP_USER":         bool(os.environ.get("SMTP_USER")),
+            "SMTP_PASS":         bool(os.environ.get("SMTP_PASS")),
+            "USER_DATA_DB":      bool(os.environ.get("USER_DATA_DB")),
+            "SCHEDULER_ENABLE":  os.environ.get("SCHEDULER_ENABLE", "false"),
+        },
+        "data": {
+            "spy_source":  spy_source,
+            "spy_is_demo": spy_is_demo,
+            "spy_bars":    len((spy_ohlcv or {}).get("closes", [])),
+        },
+        "db": {
+            "path":      db_path,
+            "exists":    db_exists,
+            "size_kb":   db_size_kb,
+            "persistent": not db_path.startswith("/tmp"),
+        },
+    })
 
 
 @app.route("/api/monitor/alerts")
@@ -2614,6 +2705,12 @@ _price_alert_thread.start()
 def _send_decision_alert(alert):
     """Dispatch a single decision Alert via LINE / email using stored settings."""
     try:
+        # Block in production when underlying data is demo
+        ohlcv_chk = _get_ohlcv_norm(getattr(alert, "symbol", "") or "")
+        if _IS_PRODUCTION and _is_demo_ohlcv(ohlcv_chk):
+            print(f"[DECISION ALERT] Blocked (demo data in production): {getattr(alert,'symbol','?')}", flush=True)
+            return
+
         data  = _load_user_data()
         s     = data.get("alertSettings_v1") or {}
         if isinstance(s, str):
@@ -3340,6 +3437,10 @@ def _run_daily_report(report_type: str) -> dict:
 
 def _dispatch_report_line(report: dict):
     try:
+        # Block in production when using demo data
+        if _IS_PRODUCTION and report.get("is_demo"):
+            print("[REPORT] LINE blocked: demo data in production", flush=True)
+            return
         settings = _load_user_data().get("settings", {})
         token = settings.get("lineToken", "") or os.environ.get("LINE_NOTIFY_TOKEN", "")
         if not token:
@@ -3357,6 +3458,10 @@ def _dispatch_report_line(report: dict):
 
 def _dispatch_report_email(report: dict):
     try:
+        # Block in production when using demo data
+        if _IS_PRODUCTION and report.get("is_demo"):
+            print("[REPORT] Email blocked: demo data in production", flush=True)
+            return
         settings  = _load_user_data().get("settings", {})
         email_to  = settings.get("email", "") or os.environ.get("SMTP_USER", "")
         smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")

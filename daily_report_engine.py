@@ -759,6 +759,16 @@ def generate_report(
     )
 
     is_demo = market.get("is_demo", False)
+    _DEMO_WARNING = "⚠️ 目前使用模擬資料，不能作為交易決策。"
+
+    # In demo mode: cap action_plan urgency to LOW, remove BUY/STRONG_BUY items
+    if is_demo:
+        _BLOCKED_ACTIONS = {"強力買進", "立即買進", "積極加碼", "強力買入"}
+        action_plan = [
+            {**a, "urgency": "LOW"} if a.get("urgency") in ("HIGH", "MEDIUM") else a
+            for a in action_plan
+            if a.get("action", "") not in _BLOCKED_ACTIONS
+        ]
 
     report: dict = {
         "ok":                    True,
@@ -767,6 +777,7 @@ def generate_report(
         "market_status":         market,
         "market_state":          market.get("overall", "中性"),
         "is_demo":               is_demo,
+        "demo_data_warning":     _DEMO_WARNING if is_demo else None,
         "sector_summary":        sector,
         "portfolio_summary":     portfolio,
         "alerts_summary":        alerts,
