@@ -26,6 +26,11 @@ import sector_map as _smap
 import alert_history as _ah
 import portfolio_engine as _pe
 import rotation_engine as _re
+try:
+    import data_provider as _dp
+    _HAS_DP = True
+except ImportError:
+    _HAS_DP = False
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -108,56 +113,70 @@ def _sma(lst: list, n: int) -> float:
 
 def _build_market_status(ohlcv_fn) -> dict:
     """
-    Fetch SPY + QQQ, compute 1-day change, vs_ma20, momentum_score.
-    Returns overall / indices / regime.
+    Fetch SPY + QQQ, compute regime.
+    Uses data_provider.market_state when available (real data, is_demo flag).
+    Falls back to manual compute via ohlcv_fn otherwise.
     """
+    if _HAS_DP:
+        return _dp.market_state(ohlcv_fn)
+
+    # Manual fallback
     indices = []
     for sym in ("SPY", "QQQ"):
         try:
             ohlcv = ohlcv_fn(sym)
-            if not ohlcv or not ohlcv.get("closes") or len(ohlcv["closes"]) < 2:
+            if not ohlcv or not ohlcv.get("closes") or len(ohlcv["closes"]) < 22:
                 indices.append({
                     "symbol": sym, "change_1d_pct": 0.0,
                     "vs_ma20": "unknown", "momentum_score": 50,
+                    "is_demo": True,
                 })
                 continue
             closes = ohlcv["closes"]
-            change_1d = (closes[-1] - closes[-2]) / closes[-2] * 100 if closes[-2] else 0.0
+            change_1d = round((closes[-1] - closes[-2]) / closes[-2] * 100, 2) if closes[-2] else 0.0
+            change_5d = round((closes[-1] - closes[-6]) / closes[-6] * 100, 2) if len(closes) >= 6 and closes[-6] else 0.0
             ma20 = _sma(closes, 20)
             vs_ma20 = "above" if (ma20 > 0 and closes[-1] > ma20) else "below"
             mom = _re._momentum_score(closes)
             indices.append({
                 "symbol":         sym,
-                "change_1d_pct":  round(change_1d, 2),
+                "price":          round(closes[-1], 2),
+                "change_1d_pct":  change_1d,
+                "change_5d_pct":  change_5d,
                 "vs_ma20":        vs_ma20,
+                "ma20":           round(ma20, 2),
                 "momentum_score": mom,
+                "is_demo":        ohlcv.get("is_demo", False),
             })
         except Exception:
             indices.append({
                 "symbol": sym, "change_1d_pct": 0.0,
                 "vs_ma20": "unknown", "momentum_score": 50,
+                "is_demo": True,
             })
 
-    # Overall assessment
     above_count = sum(1 for i in indices if i["vs_ma20"] == "above")
-    avg_mom = sum(i["momentum_score"] for i in indices) / max(len(indices), 1)
+    avg_mom = sum(i.get("momentum_score", 50) for i in indices) / max(len(indices), 1)
     avg_chg = sum(i["change_1d_pct"] for i in indices) / max(len(indices), 1)
+    avg_5d  = sum(i.get("change_5d_pct", 0) for i in indices) / max(len(indices), 1)
+    any_demo = any(i.get("is_demo") for i in indices)
 
-    if above_count == len(indices) and avg_mom > 55:
-        overall = "偏多"
-        regime = "bull"
-    elif above_count == 0 and avg_mom < 45:
-        overall = "偏弱"
-        regime = "bear"
+    if above_count == len(indices) and avg_mom > 55 and avg_chg >= 0:
+        overall, regime = "偏多", "bull"
+    elif above_count == 0 and avg_mom < 45 and avg_chg <= 0:
+        overall, regime = "偏弱", "bear"
+    elif avg_chg <= -1.5 or avg_5d <= -3.0:
+        overall, regime = "風險升高", "risk_on"
     else:
-        overall = "中性"
-        regime = "sideways"
+        overall, regime = "中性", "sideways"
 
     return {
-        "overall":  overall,
-        "indices":  indices,
-        "regime":   regime,
+        "overall":           overall,
+        "indices":           indices,
+        "regime":            regime,
         "avg_change_1d_pct": round(avg_chg, 2),
+        "avg_change_5d_pct": round(avg_5d, 2),
+        "is_demo":           any_demo,
     }
 
 
@@ -739,10 +758,15 @@ def generate_report(
         report_type, market, alerts, portfolio, do_not_chase, rotation, kill_watch
     )
 
+    is_demo = market.get("is_demo", False)
+
     report: dict = {
+        "ok":                    True,
         "report_type":           report_type,
         "generated_at":          generated_at,
         "market_status":         market,
+        "market_state":          market.get("overall", "中性"),
+        "is_demo":               is_demo,
         "sector_summary":        sector,
         "portfolio_summary":     portfolio,
         "alerts_summary":        alerts,

@@ -10,6 +10,7 @@ import email.mime.multipart
 import email.mime.text
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import demo_data as _demo
+import data_provider as _dp
 import analyzer
 import backtest as _bt
 import signals as _sig
@@ -2789,37 +2790,52 @@ _ah.init_db()
 
 
 def _get_ohlcv_norm(symbol: str):
-    """Fetch OHLCV for any symbol and return normalised dict, or None.
-    Falls back to demo data when all live sources fail (dev/offline)."""
-    sym_up = symbol.upper()
-    if sym_up.endswith(".TW") or sym_up.endswith(".TWO"):
-        raw = _fetch_ohlcv_twse(sym_up)
-        if raw:
-            return _de.normalize_yahoo(raw)
-        # TW demo fallback: seeded by stock number for reproducibility
-        stock_no = sym_up.replace(".TWO", "").replace(".TW", "").strip()
-        seed = int(stock_no) if stock_no.isdigit() else 1234
-        hist = _demo.generate(sym_up, n=300)
-        return _de.normalize_list([
-            {"date": r.Index.strftime("%Y-%m-%d"),
-             "open": float(r.Open), "high": float(r.High),
-             "low":  float(r.Low),  "close": float(r.Close),
-             "volume": int(r.Volume)}
-            for r in hist.itertuples()
-        ])
-    else:
-        rows = _fetch_ohlcv_server(sym_up)
-        if rows:
-            return _de.normalize_list(rows)
-        # US demo fallback
-        hist = _demo.generate(sym_up, n=300)
-        return _de.normalize_list([
-            {"date": r.Index.strftime("%Y-%m-%d"),
-             "open": float(r.Open), "high": float(r.High),
-             "low":  float(r.Low),  "close": float(r.Close),
-             "volume": int(r.Volume)}
-            for r in hist.itertuples()
-        ])
+    """
+    Fetch OHLCV for any symbol.
+    Priority: data_provider (yfinance → Yahoo API → AV → Finnhub → TWSE → demo).
+    Returns normalised dict; is_demo=True when using synthetic data.
+    """
+    return _dp.get_ohlcv(symbol.upper())
+
+
+@app.route("/api/market-state")
+def api_market_state():
+    """Real-time market state via SPY + QQQ. Includes is_demo flag."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        state = _dp.market_state(_get_ohlcv_norm)
+        return jsonify({"ok": True, **state})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/ohlcv/<symbol>")
+def api_ohlcv(symbol):
+    """Return normalised OHLCV for a symbol (with is_demo + source fields)."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        sym = symbol.upper().strip()
+        data = _get_ohlcv_norm(sym)
+        if not data:
+            return jsonify({"ok": False, "error": f"無法取得 {sym} 的 K 線資料"}), 404
+        n = len(data.get("closes", []))
+        last = data["closes"][-1] if data.get("closes") else None
+        return jsonify({
+            "ok":      True,
+            "symbol":  sym,
+            "bars":    n,
+            "last_close": last,
+            "is_demo": data.get("is_demo", False),
+            "source":  data.get("source", "unknown"),
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/chase-risk/<symbol>")
