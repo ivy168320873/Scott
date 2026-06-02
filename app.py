@@ -3505,6 +3505,149 @@ def api_daily_report_schedule():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# ── Stress Test API — Phase 9 ─────────────────────────────────────────────────
+import stress_test_engine as _ste
+
+_ste.init_db()
+
+
+@app.route("/api/stress-test/run", methods=["POST"])
+def api_stress_test_run():
+    """
+    Run a portfolio stress test.
+    Body: {portfolio?, scenario, shock_pct?, benchmark?, include_watchlist?}
+    Falls back to stored holdings when portfolio is absent.
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body     = request.json or {}
+        portfolio = body.get("portfolio") or body.get("holdings") or []
+        scenario  = str(body.get("scenario", "market_crash"))
+        shock_pct = body.get("shock_pct")
+        benchmark = str(body.get("benchmark", "QQQ") or "QQQ").upper()
+        include_wl = bool(body.get("include_watchlist", True))
+
+        if shock_pct is not None:
+            try:
+                shock_pct = float(shock_pct)
+            except (ValueError, TypeError):
+                shock_pct = None
+
+        # Fallback to stored data
+        if not portfolio:
+            data     = _load_user_data()
+            portfolio = data.get("holdings", [])
+
+        if not portfolio:
+            return jsonify({"ok": False, "error": "尚未建立持倉資料"}), 400
+
+        watchlist = []
+        if include_wl:
+            data     = _load_user_data()
+            wl_raw   = data.get("watchlist", [])
+            if isinstance(wl_raw, str):
+                watchlist = [w.strip().upper() for w in wl_raw.split(",") if w.strip()]
+            else:
+                watchlist = wl_raw or []
+
+        result = _ste.generate_stress_test(
+            portfolio=portfolio,
+            scenario=scenario,
+            shock_pct=shock_pct,
+            benchmark=benchmark,
+            ohlcv_fn=_get_ohlcv_norm,
+            watchlist=watchlist,
+        )
+
+        # Integrate with Phase 8: flag daily report if extreme stress
+        _stress_flag_daily_report(result)
+
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/stress-test/latest")
+def api_stress_test_latest():
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        result = _ste.get_latest()
+        if not result:
+            return jsonify({"ok": False, "error": "尚無壓力測試結果"}), 404
+        return jsonify({"ok": True, "result": result})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/stress-test/history")
+def api_stress_test_history():
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        limit = int(request.args.get("limit", 20))
+        rows  = _ste.get_history(limit=limit)
+        return jsonify({"ok": True, "results": rows, "count": len(rows)})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/stress-test/scenario", methods=["POST"])
+def api_stress_test_scenario():
+    """Preview scenario parameters without running full test."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body     = request.json or {}
+        scenario = str(body.get("scenario", "market_crash"))
+        return jsonify({
+            "ok":      True,
+            "scenario": scenario,
+            "label":   _ste.SCENARIO_LABELS.get(scenario, scenario),
+            "scenarios": [
+                {"id": s, "label": _ste.SCENARIO_LABELS.get(s, s)}
+                for s in _ste.SCENARIOS
+            ],
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _stress_flag_daily_report(result: dict):
+    """
+    If stress test reveals extreme risk, auto-generate an intraday daily report
+    so it appears in the Phase 8 report dashboard.
+    """
+    score = result.get("portfolio_stress_score", 0)
+    rs    = result.get("risk_summary", {})
+    should_flag = (
+        score > 80
+        or rs.get("stop_loss_triggered")
+        or rs.get("kill_signals_triggered")
+        or rs.get("drag_critical")
+    )
+    if not should_flag:
+        return
+    try:
+        import threading
+        def _bg():
+            try:
+                _run_daily_report("intraday")
+            except Exception:
+                pass
+        threading.Thread(target=_bg, daemon=True).start()
+    except Exception:
+        pass
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
