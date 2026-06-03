@@ -3823,6 +3823,44 @@ def _stress_flag_daily_report(result: dict):
         pass
 
 
+# ── Capital Efficiency Filter — Phase 12 ──────────────────────────────────────
+import capital_filter_engine as _cfe
+
+
+@app.route("/api/capital-filter", methods=["POST"])
+def api_capital_filter():
+    """
+    Capital Efficiency Filter: rank a watchlist for capital deployment priority.
+    Body: {
+      symbols : list[str],   required
+      sort_by ?: 'score' | 'gain5d' | 'vol_change' | 'breakout_dist' | 'rr_ratio'
+    }
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body    = request.json or {}
+        syms    = body.get("symbols") or []
+        sort_by = str(body.get("sort_by", "score") or "score")
+        if not syms:
+            # Fall back to stored watchlist
+            ud  = _load_user_data()
+            raw = ud.get("watchlist", [])
+            if isinstance(raw, str):
+                syms = [s.strip().upper() for s in raw.split(",") if s.strip()]
+            else:
+                syms = [str(s).upper().strip() for s in (raw or []) if s]
+        if not syms:
+            return jsonify({"ok": False, "error": "請提供 symbols 或先設定自選清單"}), 400
+
+        result = _cfe.run_capital_filter(syms, _get_ohlcv_norm, sort_by=sort_by)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Live Observation Period — Phase 11 ────────────────────────────────────────
 import observation_engine as _obe
 

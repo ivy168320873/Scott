@@ -569,6 +569,18 @@ tbody td{padding:9px 10px}
 .obs-verdict-go{color:#56d364;font-weight:700}
 .obs-verdict-nogo{color:#f85149;font-weight:700}
 .obs-verdict-observing{color:#e3b341;font-weight:700}
+/* Capital Filter */
+.cf-table{width:100%;border-collapse:collapse;font-size:.74rem}
+.cf-table th{padding:5px 8px;text-align:left;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border);white-space:nowrap;cursor:pointer}
+.cf-table th:hover{color:var(--text)}
+.cf-table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.cf-tier-badge{display:inline-block;padding:2px 8px;border-radius:5px;font-size:.7rem;font-weight:700}
+.cf-suit-chip{display:inline-block;padding:1px 5px;border-radius:4px;font-size:.65rem;border:1px solid;margin-right:2px}
+.cf-top3-card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+.cf-price-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;font-size:.74rem}
+.cf-price-cell{background:var(--surface2);border-radius:4px;padding:3px 8px;text-align:center}
+.cf-price-lbl{font-size:.6rem;color:var(--muted)}
+.cf-price-val{font-weight:700}
 .st-score-ring{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:700;border:4px solid}
 .st-impact-table{width:100%;border-collapse:collapse;font-size:.75rem}
 .st-impact-table th{padding:5px 8px;text-align:left;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border);white-space:nowrap}
@@ -2274,6 +2286,55 @@ tbody td{padding:9px 10px}
       </div>
       <div style="margin-top:8px;font-size:.69rem;color:var(--muted)">
         排程時間（ET）：09:00 盤前掃描 · 09:32 開盤執行 · 15:50 盤後檢查
+      </div>
+    </div>
+
+    <!-- ══ Phase 12: Capital Efficiency Filter ══ -->
+    <div class="sr-card" style="margin-top:16px;border:1px solid #3fb950">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <div>
+          <div style="font-size:.95rem;font-weight:700;color:#3fb950">💰 資金效率篩選器</div>
+          <div style="font-size:.72rem;color:var(--muted);margin-top:2px">分析自選清單，依資金部署優先順序排序。此為決策輔助，不代表自動下單。</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select id="cf-sort-by" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:.76rem">
+            <option value="score">綜合分數</option>
+            <option value="gain5d">近5日漲幅</option>
+            <option value="vol_change">量能比</option>
+            <option value="breakout_dist">距突破價</option>
+            <option value="rr_ratio">風報比</option>
+            <option value="stop_dist">停損距離</option>
+            <option value="upside">預估漲幅</option>
+          </select>
+          <button class="btn" style="font-size:.76rem;background:#3fb950;color:#000" onclick="runCapitalFilter()">🔍 開始篩選</button>
+        </div>
+      </div>
+
+      <!-- Input -->
+      <div style="margin-bottom:12px">
+        <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px">輸入標的（逗號分隔，留空則使用自選清單）</div>
+        <div style="display:flex;gap:8px">
+          <input id="cf-symbols-input" type="text" placeholder="例如：NVDA, AAPL, TSLA, 2330.TW"
+            style="flex:1;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 12px;font-size:.82rem">
+        </div>
+      </div>
+
+      <!-- Top 3 picks -->
+      <div id="cf-top3" style="display:none;margin-bottom:16px">
+        <div style="font-size:.82rem;font-weight:700;color:#3fb950;margin-bottom:10px">🏆 今日最值得買的前 3 名</div>
+        <div id="cf-top3-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px"></div>
+      </div>
+
+      <!-- Tier summary chips -->
+      <div id="cf-tier-summary" style="display:none;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <span id="cf-tier-a" style="padding:3px 10px;border-radius:10px;background:#0d2b14;color:#3fb950;font-size:.74rem;font-weight:700;border:1px solid #3fb950"></span>
+        <span id="cf-tier-b" style="padding:3px 10px;border-radius:10px;background:#2b2200;color:#e3b341;font-size:.74rem;font-weight:700;border:1px solid #e3b341"></span>
+        <span id="cf-tier-c" style="padding:3px 10px;border-radius:10px;background:#1a1a1a;color:#8b949e;font-size:.74rem;font-weight:700;border:1px solid #444"></span>
+      </div>
+
+      <!-- Results table -->
+      <div id="cf-results" style="overflow-x:auto">
+        <div style="color:var(--muted);font-size:.82rem;padding:16px 0;text-align:center">點擊「開始篩選」以分析自選清單的資金效率</div>
       </div>
     </div>
 
@@ -11363,6 +11424,120 @@ async function saveDrSettings() {
       body: JSON.stringify(settings),
     });
   } catch(_) {}
+}
+
+// ══════════════════════════════════════════════════════
+// Phase 12: Capital Efficiency Filter
+// ══════════════════════════════════════════════════════
+
+async function runCapitalFilter() {
+  const btn = document.querySelector('[onclick="runCapitalFilter()"]');
+  const resEl = document.getElementById('cf-results');
+  const top3El = document.getElementById('cf-top3');
+  const tierSummEl = document.getElementById('cf-tier-summary');
+  if (btn) { btn.disabled = true; btn.textContent = '分析中…'; }
+  if (resEl) resEl.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:20px;text-align:center">正在抓取K線資料並計算分數，請稍候…</div>';
+  if (top3El) top3El.style.display = 'none';
+
+  const rawInput = (document.getElementById('cf-symbols-input')?.value || '').trim();
+  const symbols  = rawInput ? rawInput.split(/[\s,，]+/).map(s => s.toUpperCase()).filter(Boolean) : [];
+  const sortBy   = document.getElementById('cf-sort-by')?.value || 'score';
+
+  try {
+    const r = await fetch('/api/capital-filter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Password': window._authPw || '' },
+      body: JSON.stringify({ symbols, sort_by: sortBy }),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error);
+
+    // Tier summary
+    const tc = d.tier_counts || {};
+    if (tierSummEl) {
+      tierSummEl.style.display = 'flex';
+      document.getElementById('cf-tier-a').textContent = `A級 ${tc.A || 0} 檔`;
+      document.getElementById('cf-tier-b').textContent = `B級 ${tc.B || 0} 檔`;
+      document.getElementById('cf-tier-c').textContent = `C級 ${tc.C || 0} 檔`;
+    }
+
+    // Top 3 picks
+    if (d.top3?.length) {
+      top3El.style.display = 'block';
+      document.getElementById('cf-top3-cards').innerHTML = d.top3.map(t => {
+        const suits = [];
+        if (t.suitability?.short_term) suits.push('<span class="cf-suit-chip" style="color:#56d364;border-color:#56d364">短線</span>');
+        if (t.suitability?.overnight)  suits.push('<span class="cf-suit-chip" style="color:#58a6ff;border-color:#58a6ff">隔日沖</span>');
+        if (t.suitability?.swing)      suits.push('<span class="cf-suit-chip" style="color:#bc8cff;border-color:#bc8cff">波段</span>');
+        const reasonHtml = (t.reasons || []).map(r => `<div style="font-size:.7rem;color:var(--muted);margin-top:2px">• ${r}</div>`).join('');
+        return `
+          <div class="cf-top3-card">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-size:1.3rem;font-weight:900;color:#e3b341">#${t.rank}</span>
+              <div>
+                <div style="font-weight:700;font-size:.9rem">${t.symbol}</div>
+                <div style="font-size:.7rem;color:var(--muted)">資金效率 <strong style="color:#3fb950">${t.score}</strong>/100 · ${suits.join('')}</div>
+              </div>
+            </div>
+            ${reasonHtml}
+            <div class="cf-price-row">
+              <div class="cf-price-cell"><div class="cf-price-lbl">進場價</div><div class="cf-price-val" style="color:#58a6ff">${t.entry}</div></div>
+              <div class="cf-price-cell"><div class="cf-price-lbl">停損價</div><div class="cf-price-val" style="color:#f85149">${t.stop}</div></div>
+              <div class="cf-price-cell"><div class="cf-price-lbl">目標1</div><div class="cf-price-val" style="color:#3fb950">${t.target1}</div></div>
+              <div class="cf-price-cell"><div class="cf-price-lbl">目標2</div><div class="cf-price-val" style="color:#56d364">${t.target2}</div></div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    // Results table
+    if (!d.results?.length) {
+      resEl.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:16px">無可分析的標的（請確認 OHLCV 資料可取得）</div>';
+    } else {
+      const rows = d.results.map(item => {
+        const tierStyle = `background:${item.tier_bg};color:${item.tier_color};border-color:${item.tier_color}`;
+        const scoreColor = item.score >= 70 ? '#3fb950' : item.score >= 50 ? '#e3b341' : '#8b949e';
+        const gainColor  = item.gain5d_pct >= 0 ? '#3fb950' : '#f85149';
+        const suits = [];
+        if (item.suitability?.short_term) suits.push('<span class="cf-suit-chip" style="color:#56d364;border-color:#56d364">短</span>');
+        if (item.suitability?.overnight)  suits.push('<span class="cf-suit-chip" style="color:#58a6ff;border-color:#58a6ff">沖</span>');
+        if (item.suitability?.swing)      suits.push('<span class="cf-suit-chip" style="color:#bc8cff;border-color:#bc8cff">波</span>');
+        return `<tr>
+          <td><span class="cf-tier-badge" style="${tierStyle}">${item.tier}</span></td>
+          <td style="font-weight:700">${item.symbol}</td>
+          <td style="text-align:right;font-weight:700;color:${scoreColor}">${item.score}</td>
+          <td style="text-align:right;color:${gainColor}">${item.gain5d_pct >= 0 ? '+' : ''}${item.gain5d_pct}%</td>
+          <td style="text-align:right">${item.vol_ratio}x</td>
+          <td style="text-align:right">${item.breakout_dist_pct <= 0 ? '<span style="color:#3fb950">已突破</span>' : item.breakout_dist_pct + '%'}</td>
+          <td style="text-align:right;color:#f85149">${item.stop_dist_pct}%</td>
+          <td style="text-align:right;color:#3fb950">+${item.upside_pct}%</td>
+          <td style="text-align:right">${item.rr_ratio}x</td>
+          <td style="text-align:right;color:#58a6ff">${item.entry_price}</td>
+          <td style="text-align:right;color:#f85149">${item.stop_price}</td>
+          <td style="text-align:right;color:#3fb950">${item.target1}</td>
+          <td style="text-align:right;color:#56d364">${item.target2}</td>
+          <td>${suits.join('')}</td>
+        </tr>`;
+      }).join('');
+      resEl.innerHTML = `
+        <table class="cf-table">
+          <thead><tr>
+            <th>級別</th><th>標的</th><th>效率分</th>
+            <th>5日漲幅</th><th>量能比</th><th>距突破</th>
+            <th>停損距</th><th>預估漲幅</th><th>風報比</th>
+            <th>進場價</th><th>停損價</th><th>目標1</th><th>目標2</th>
+            <th>適合</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${d.errors?.length ? `<div style="margin-top:8px;font-size:.7rem;color:var(--muted)">⚠ ${d.errors.length} 檔無法取得資料：${d.errors.map(e=>e.symbol).join(', ')}</div>` : ''}
+        <div style="margin-top:8px;font-size:.68rem;color:var(--muted)">${d.disclaimer || ''}</div>`;
+    }
+  } catch(e) {
+    if (resEl) resEl.innerHTML = `<div style="color:#f85149;font-size:.82rem;padding:16px">篩選失敗：${e.message}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 開始篩選'; }
+  }
 }
 
 // ══════════════════════════════════════════════════════
