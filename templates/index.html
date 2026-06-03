@@ -1180,32 +1180,116 @@ body{padding-bottom:52px}
 .ssd-recbox strong{display:block;font-size:.86rem;margin-bottom:4px}
 .ssd-riskbox{font-size:.7rem;color:var(--bear);background:rgba(248,81,73,.07);
   border:1px solid rgba(248,81,73,.2);border-radius:7px;padding:6px 10px;line-height:1.5;margin-top:7px}
+/* ── Header mobile-first ──────────────────────── */
+.hdr-left{display:flex;align-items:center;gap:6px;flex-shrink:0;min-width:0}
+.hdr-center{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;
+  min-width:0;overflow:hidden;padding:0 6px}
+.hdr-center span{flex-shrink:0}
+.hdr-right{flex-shrink:0;position:relative}
+.hdr-settings-btn{background:none;border:1px solid var(--border);border-radius:8px;
+  color:var(--muted);cursor:pointer;padding:5px 10px;font-size:.88rem;line-height:1;
+  transition:all .15s;min-height:30px}
+.hdr-settings-btn:hover,.hdr-settings-btn.open{border-color:var(--accent);color:var(--accent)}
+.hdr-menu{position:absolute;right:0;top:calc(100% + 6px);
+  background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+  padding:5px;min-width:130px;z-index:901;box-shadow:0 8px 24px rgba(0,0,0,.4);display:none}
+.hdr-menu.open{display:block}
+.hdr-menu a{display:flex;align-items:center;gap:7px;padding:8px 12px;font-size:.82rem;
+  color:var(--muted);text-decoration:none;border-radius:7px;transition:all .15s}
+.hdr-menu a:hover{background:var(--surface);color:var(--text)}
+.hdr-menu-div{height:1px;background:var(--border);margin:3px 6px}
+@media(max-width:639px){
+  .hdr-center #mkt-pnl{display:none}
+  .hdr-center #mkt-regime{display:none}
+}
+
+/* ── Trading Decision Card (renderPanel) ─────── */
+.tdc{background:var(--card);border:1px solid var(--card-border);border-radius:var(--card-radius);
+  padding:14px;margin-bottom:12px}
+.tdc-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px}
+.tdc-sym-row{font-size:.82rem;color:var(--muted);margin-bottom:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tdc-price{font-size:2rem;font-weight:900;line-height:1;letter-spacing:-.02em}
+.tdc-chg{font-size:.95rem;font-weight:700;margin-top:2px}
+.tdc-score-box{text-align:center;flex-shrink:0}
+.tdc-score{font-size:2.4rem;font-weight:900;line-height:1}
+.tdc-score-lbl{font-size:.62rem;color:var(--muted);margin-top:1px}
+.tdc-op-row{display:flex;gap:7px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.tdc-op-badge{font-size:.82rem;font-weight:800;padding:5px 14px;border-radius:22px;letter-spacing:-.01em}
+.tdc-risk-badge{font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:20px}
+.tdc-op-desc{font-size:.72rem;color:var(--muted);flex:1;min-width:120px}
+.tdc-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:8px}
+@media(min-width:480px){.tdc-stats{grid-template-columns:repeat(4,1fr)}}
+.tdc-stat{background:var(--surface2);border-radius:8px;padding:7px 9px}
+.tdc-stat-lbl{font-size:.58rem;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.03em}
+.tdc-stat-val{font-size:.82rem;font-weight:700;line-height:1.2}
+.tdc-stat-sub{font-size:.62rem;margin-top:1px}
+.tdc-range{display:flex;align-items:center;gap:8px;padding:7px 10px;
+  background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2);border-radius:8px;margin-bottom:8px;flex-wrap:wrap}
+.tdc-range-lbl{font-size:.64rem;color:var(--muted);flex-shrink:0}
+.tdc-meta{font-size:.65rem;color:var(--muted);margin-top:3px}
+
+/* ── SSD fixes ──────────────────────────────── */
+.ssd-52w-mklbl{position:absolute;bottom:16px;transform:translateX(-50%);font-size:.64rem;font-weight:700;
+  white-space:nowrap;background:var(--surface2);border:1px solid var(--border);
+  padding:2px 6px;border-radius:5px;color:var(--text);box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.ssd-52w-mk{z-index:2}
+
+/* ── AI 3-section compact ───────────────────── */
+.ai3{display:grid;grid-template-columns:1fr;gap:7px;margin-bottom:12px}
+@media(min-width:600px){.ai3{grid-template-columns:repeat(3,1fr)}}
+.ai3-sec{border-radius:9px;padding:10px 12px}
+.ai3-sec-title{font-size:.7rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:5px}
+.ai3-sec-body{font-size:.78rem;line-height:1.6;color:var(--text)}
+.ai3-sec-body ul{margin:0;padding-left:14px}
+.ai3-sec-body li{margin-bottom:2px}
+.ai3-bull{background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.25)}
+.ai3-bear{background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2)}
+.ai3-op{background:rgba(210,168,255,.08);border:1px solid rgba(210,168,255,.2)}
+.ai3-detail-toggle{font-size:.7rem;color:var(--muted);cursor:pointer;text-align:center;padding:5px;user-select:none}
+.ai3-detail-toggle:hover{color:var(--accent)}
+.ai3-details{display:none}
+.ai3-details.open{display:block}
+
+/* ── Mobile spacing improvements ───────────── */
+@media(max-width:639px){
+  .container{padding:8px}
+  .ph{margin-bottom:0}
+  .ssd{padding:12px;margin-bottom:10px}
+  .ssd-gauge svg{width:76px;height:46px}
+  .ssd-gauge-score{font-size:1.3rem}
+  .tdc{padding:12px}
+  .tdc-price{font-size:1.7rem}
+  .tdc-score{font-size:2rem}
+  .tdc-op-badge{font-size:.76rem;padding:4px 12px}
+}
 </style>
 </head>
 <body>
 <header>
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
-    <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>
-  </svg>
-  <h1>股市即時動能分析</h1>
-  {% if has_claude %}<span class="ai-badge">✦ Claude AI</span>{% endif %}
-  <span style="flex:1"></span>
-  <!-- Live market status strip -->
-  <div id="mkt-bar" style="display:flex;align-items:center;gap:10px;font-size:.72rem">
-    <span id="mkt-label" style="padding:3px 9px;border-radius:10px;background:var(--surface2);color:var(--muted)">連線中…</span>
-    <span id="mkt-regime" style="color:var(--muted)"></span>
-    <span id="mkt-pnl" style="color:var(--muted)"></span>
-    <span id="mkt-ks" style="display:none;padding:3px 8px;border-radius:8px;background:#f85149;color:#fff;font-weight:700">🛑 停損限制</span>
+  <div class="hdr-left">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" style="flex-shrink:0">
+      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>
+    </svg>
+    <h1>股市動能分析</h1>
+    {% if has_claude %}<span class="ai-badge" style="flex-shrink:0">✦ AI</span>{% endif %}
   </div>
-  <span id="upd" style="font-size:.74rem;color:var(--muted);margin-left:8px"></span>
-  <a href="/admin" title="主控後台"
-    style="margin-left:10px;font-size:.72rem;color:var(--muted);text-decoration:none;padding:3px 8px;
-           border:1px solid var(--border);border-radius:7px;white-space:nowrap"
-    onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">⚙️ 後台</a>
-  <a href="/logout" title="登出"
-    style="margin-left:6px;font-size:.72rem;color:var(--muted);text-decoration:none;padding:3px 8px;
-           border:1px solid var(--border);border-radius:7px;white-space:nowrap"
-    onmouseover="this.style.color='var(--bear)'" onmouseout="this.style.color='var(--muted)'">登出</a>
+  <!-- Center: market status strip -->
+  <div class="hdr-center" id="mkt-bar">
+    <span id="mkt-label" style="padding:3px 9px;border-radius:10px;background:var(--surface2);color:var(--muted);font-size:.7rem;white-space:nowrap">連線中…</span>
+    <span id="mkt-regime" style="color:var(--muted);font-size:.7rem"></span>
+    <span id="mkt-pnl" style="color:var(--muted);font-size:.7rem"></span>
+    <span id="mkt-ks" style="display:none;padding:3px 8px;border-radius:8px;background:#f85149;color:#fff;font-weight:700;font-size:.7rem">🛑 停損</span>
+    <span id="upd" style="font-size:.68rem;color:var(--muted);white-space:nowrap"></span>
+  </div>
+  <!-- Right: settings dropdown -->
+  <div class="hdr-right">
+    <button class="hdr-settings-btn" id="hdr-settings-btn" onclick="_toggleHdrMenu()" title="選單">⋯</button>
+    <div class="hdr-menu" id="hdr-menu">
+      <a href="/admin">⚙️ 後台管理</a>
+      <div class="hdr-menu-div"></div>
+      <a href="/logout" style="color:var(--bear)">🚪 登出</a>
+    </div>
+  </div>
 </header>
 
 <!-- ── Demo data warning banner ── -->
@@ -3700,19 +3784,107 @@ function renderPanel(d) {
   const srcTag = d.dataSource && srcMap[d.dataSource]
     ? ` <span style="font-size:.6rem;padding:1px 6px;border-radius:4px;background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3)">${srcMap[d.dataSource]}</span>`
     : '';
+
+  const ind = d.indicators;
+  const cr = ind.chaseRisk   ?? 50;
+  const bp = ind.bearPressure ?? 50;
+  const rsiV = ind.rsi ?? 50;
+
+  // Operation suggestion
+  let opLabel, opBg, opColor, opDesc;
+  if (bp >= 65 || d.score < 35) {
+    opLabel='🛑 停損警戒'; opBg='rgba(248,81,73,.12)'; opColor='var(--bear)';
+    opDesc='動能偏空，嚴格執行停損計畫';
+  } else if (cr >= 65) {
+    opLabel='⏳ 等待回測'; opBg='rgba(227,179,65,.10)'; opColor='var(--neutral)';
+    opDesc='追高風險高，等候回調再進場';
+  } else if (d.score >= 65 && cr < 50 && bp < 50) {
+    opLabel='✅ 可進場'; opBg='rgba(63,185,80,.12)'; opColor='var(--bull)';
+    opDesc='動能強勢，進場區間合理';
+  } else if (d.score >= 55 && d.pctFromHigh > -6) {
+    opLabel='📈 突破追蹤'; opBg='rgba(88,166,255,.10)'; opColor='var(--accent)';
+    opDesc='接近關鍵壓力，突破後可追入';
+  } else if (d.score >= 50) {
+    opLabel='🔄 可續抱'; opBg='rgba(63,185,80,.08)'; opColor='var(--bull)';
+    opDesc='趨勢持續，持有為主';
+  } else {
+    opLabel='👀 觀察等待'; opBg='rgba(139,148,158,.08)'; opColor='var(--muted)';
+    opDesc='方向不明，等待明確訊號';
+  }
+
+  // Risk level badge
+  const riskScore = Math.round(cr * 0.55 + bp * 0.45);
+  const riskBadge = riskScore >= 65
+    ? { t:'高風險', bg:'rgba(248,81,73,.12)', c:'var(--bear)', bd:'rgba(248,81,73,.3)' }
+    : riskScore >= 42
+    ? { t:'中等風險', bg:'rgba(227,179,65,.10)', c:'var(--neutral)', bd:'rgba(227,179,65,.3)' }
+    : { t:'低風險', bg:'rgba(63,185,80,.10)', c:'var(--bull)', bd:'rgba(63,185,80,.3)' };
+
+  // Short-term range (BB bands)
+  const bbL = ind.bbLower, bbU = ind.bbUpper;
+  const rangeHtml = (bbL && bbU)
+    ? `<span style="color:var(--bull);font-weight:700">$${fmt(bbL)}</span>&nbsp;~&nbsp;<span style="color:var(--bear);font-weight:700">$${fmt(bbU)}</span>`
+    : `<span style="color:var(--muted)">—</span>`;
+
+  const sColor = d.score >= 65 ? 'var(--bull)' : d.score >= 50 ? 'var(--neutral)' : 'var(--bear)';
+
   document.getElementById('ph').innerHTML = `
-    <div class="price-blk">
-      <div style="color:var(--muted);font-size:.88rem;margin-bottom:4px">${d.symbol} &nbsp;${d.name}${demoTag}${srcTag}</div>
-      <h2>${fmt(d.price)}</h2>
-      <div class="chg ${pC(d.changeAbs)}">${sgn(d.changeAbs)}${fmt(d.changeAbs)} (${sgn(d.changePct)}${fmt(d.changePct)}%)</div>
-      <div class="meta">更新：${new Date().toLocaleString('zh-TW')}</div>
-    </div>
-    <div class="gauge-blk">${gaugeHTML(d.score)}<div>${badge(d.signalClass, d.signal)}</div></div>
-    <div class="stat-row">
-      <div class="stat"><div class="lbl">52週高點</div><div class="val">${fmt(d.high52)}</div><div class="sub ${pC(d.pctFromHigh)}">${sgn(d.pctFromHigh)}${fmt(d.pctFromHigh)}%</div></div>
-      <div class="stat"><div class="lbl">52週低點</div><div class="val">${fmt(d.low52)}</div><div class="sub pos">+${fmt(d.pctFromLow)}%</div></div>
-      <div class="stat"><div class="lbl">量能比率</div><div class="val ${d.volumeRatio>1.3?'pos':'muted'}">${fmt(d.volumeRatio,2)}x</div></div>
-      <div class="stat"><div class="lbl">均線多空</div><div class="val">${d.bullMa}/${d.maItems.length} 多頭</div></div>
+    <div class="tdc">
+      <div class="tdc-top">
+        <div style="flex:1;min-width:0">
+          <div class="tdc-sym-row">
+            <span style="font-weight:700;color:var(--accent)">${d.symbol}</span>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.name||''}${demoTag}${srcTag}</span>
+          </div>
+          <div class="tdc-price" style="color:var(--text)">$${fmt(d.price)}</div>
+          <div class="tdc-chg ${pC(d.changeAbs)}">${sgn(d.changeAbs)}${fmt(d.changeAbs)} (${sgn(d.changePct)}${fmt(d.changePct)}%)</div>
+        </div>
+        <div class="tdc-score-box">
+          <div class="tdc-score" style="color:${sColor}">${d.score.toFixed(0)}</div>
+          <div style="height:3px;border-radius:2px;background:${sColor};opacity:.5;margin:3px 0;border-radius:2px"></div>
+          ${badge(d.signalClass, d.signal)}
+          <div class="tdc-score-lbl">動能分</div>
+        </div>
+      </div>
+
+      <!-- Operation suggestion -->
+      <div class="tdc-op-row">
+        <span class="tdc-op-badge" style="background:${opBg};color:${opColor};border:1px solid ${opColor}4d">${opLabel}</span>
+        <span class="tdc-risk-badge" style="background:${riskBadge.bg};color:${riskBadge.c};border:1px solid ${riskBadge.bd}">${riskBadge.t}</span>
+        <span class="tdc-op-desc">${opDesc}</span>
+      </div>
+
+      <!-- Short-term range -->
+      <div class="tdc-range">
+        <span class="tdc-range-lbl">短線區間（布林）</span>
+        ${rangeHtml}
+        <span style="font-size:.63rem;color:var(--muted);margin-left:auto">BB通道</span>
+      </div>
+
+      <!-- Key stats grid -->
+      <div class="tdc-stats">
+        <div class="tdc-stat">
+          <div class="tdc-stat-lbl">52W 高點</div>
+          <div class="tdc-stat-val">${fmt(d.high52)}</div>
+          <div class="tdc-stat-sub ${pC(d.pctFromHigh)}">${sgn(d.pctFromHigh)}${fmt(d.pctFromHigh)}%</div>
+        </div>
+        <div class="tdc-stat">
+          <div class="tdc-stat-lbl">52W 低點</div>
+          <div class="tdc-stat-val">${fmt(d.low52)}</div>
+          <div class="tdc-stat-sub pos">+${fmt(d.pctFromLow)}%</div>
+        </div>
+        <div class="tdc-stat">
+          <div class="tdc-stat-lbl">量能比率</div>
+          <div class="tdc-stat-val ${d.volumeRatio>1.3?'pos':'muted'}">${fmt(d.volumeRatio,2)}x</div>
+          <div class="tdc-stat-sub" style="color:var(--muted)">${d.volumeRatio>1.5?'放量 🔥':d.volumeRatio<0.7?'縮量':'正常'}</div>
+        </div>
+        <div class="tdc-stat">
+          <div class="tdc-stat-lbl">均線多空</div>
+          <div class="tdc-stat-val">${d.bullMa}/${d.maItems.length}</div>
+          <div class="tdc-stat-sub" style="color:${d.bullMa>=3?'var(--bull)':'var(--muted)'}">多頭均線</div>
+        </div>
+      </div>
+      <div class="tdc-meta">更新：${new Date().toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
     </div>`;
 }
 
@@ -3933,48 +4105,75 @@ function renderAICards(j) {
   const hasStructured = summaryText || bullCase.length || bearCase.length || chaseRiskTxt || sellPlanTxt || killTxt || finalAdvice;
 
   if (hasStructured) {
-    // 7-card layout
+    // 3-section compact view + detail toggle
+    const advantageItems = bullCase.length ? bullCase : (j.analysis ? [j.analysis] : []);
+    const riskItems = [
+      ...bearCase,
+      ...(chaseRiskTxt ? [chaseRiskTxt] : []),
+      ...(killTxt ? killTxt.split('\n').filter(s=>s.trim().replace(/^•\s*/,'')) : []),
+    ].filter(Boolean);
+    const opText = finalAdvice || sellPlanTxt || '依據以上分析，謹慎操作，嚴守停損。';
+
     return `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         ${badge(j.signal_class, j.signal)}
-        <span style="font-size:.8rem;color:var(--muted)">動能: ${j.score}</span>
+        <span style="font-size:.78rem;color:var(--muted)">動能 ${j.score}</span>
         ${src}
+        ${summaryText ? `<span style="font-size:.77rem;color:var(--muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(summaryText)}</span>` : ''}
       </div>
-      ${summaryText ? `<div style="font-size:.88rem;font-weight:600;color:var(--text);margin-bottom:12px;line-height:1.6">${_fmt(summaryText)}</div>` : ''}
-      <div class="ai-cards">
-        <div class="ai-card ai-bull">
-          <div class="ai-card-title">🟢 Bull Case 看多理由</div>
-          <div class="ai-card-body">${bullCase.length ? _listHtml(bullCase) : _fmt(j.analysis||'—')}</div>
+      <!-- 3-section compact -->
+      <div class="ai3">
+        <div class="ai3-sec ai3-bull">
+          <div class="ai3-sec-title" style="color:var(--bull)">✅ 優勢有利訊號</div>
+          <div class="ai3-sec-body">${advantageItems.length ? _listHtml(advantageItems) : '<span style="color:var(--muted)">暫無明顯優勢</span>'}</div>
         </div>
-        <div class="ai-card ai-bear">
-          <div class="ai-card-title">🔴 Bear Case 看空理由</div>
-          <div class="ai-card-body">${_listHtml(bearCase)}</div>
+        <div class="ai3-sec ai3-bear">
+          <div class="ai3-sec-title" style="color:var(--bear)">⚠️ 風險注意事項</div>
+          <div class="ai3-sec-body">${riskItems.length ? _listHtml(riskItems.slice(0,4)) : '<span style="color:var(--muted)">暫無明顯風險</span>'}</div>
         </div>
-        ${chaseRiskTxt ? `<div class="ai-card">
-          <div class="ai-card-title">⚡ Chase Risk 追高風險</div>
-          <div class="ai-card-body">${_fmt(chaseRiskTxt)}</div>
-        </div>` : ''}
-        ${sellPlanTxt ? `<div class="ai-card">
-          <div class="ai-card-title">📋 Sell Plan 賣出計畫</div>
-          <div class="ai-card-body">${_fmt(sellPlanTxt)}</div>
-        </div>` : ''}
-        ${killTxt ? `<div class="ai-card ai-kill ai-full">
-          <div class="ai-card-title">⚠️ Kill Signal 判斷失效條件</div>
-          <div class="ai-card-body" style="white-space:pre-line">${_fmt(killTxt)}</div>
-          ${killSentence ? `<div class="ai-kill-sentence">若出現「${_esc(killSentence.replace(/^若出現[「『]?|[」』].*$/g,'').trim() || killSentence)}」，原本看多判斷失效。</div>` : ''}
-        </div>` : (killSentence ? `<div class="ai-kill-sentence ai-full">${_fmt(killSentence)}</div>` : '')}
-        ${finalAdvice ? `<div class="ai-card ai-full">
-          <div class="ai-card-title">🎯 最終操作建議</div>
-          <div class="ai-card-body">${_fmt(finalAdvice)}</div>
-        </div>` : ''}
+        <div class="ai3-sec ai3-op">
+          <div class="ai3-sec-title" style="color:var(--purple)">🎯 操作建議</div>
+          <div class="ai3-sec-body">${_fmt(opText)}</div>
+        </div>
       </div>
-      ${j.source !== 'claude-ai' && (j.confluence||j.risk) ? `
-      <div class="ai-row" style="margin-top:10px">
-        ${j.confluence ? `<div class="ai-box"><div class="albl">指標共振</div><div class="aval">${_esc(j.confluence)}</div></div>` : ''}
-        ${j.risk ? `<div class="ai-box"><div class="albl">風險提示</div><div class="aval ${j.risk!=='無明顯風險訊號'?'neg':''}">${_esc(j.risk)}</div></div>` : ''}
-        ${j.support_resistance?.nearest_support?.length ? `<div class="ai-box"><div class="albl">近期支撐</div><div class="aval">${j.support_resistance.nearest_support.join(' / ')}</div></div>` : ''}
-        ${j.support_resistance?.nearest_resistance?.length ? `<div class="ai-box"><div class="albl">近期壓力</div><div class="aval">${j.support_resistance.nearest_resistance.join(' / ')}</div></div>` : ''}
-      </div>` : ''}`;
+      <!-- Detail toggle -->
+      <div class="ai3-detail-toggle" onclick="this.nextElementSibling.classList.toggle('open');this.textContent=this.nextElementSibling.classList.contains('open')?'▴ 收起完整分析':'▾ 展開完整分析'">▾ 展開完整分析</div>
+      <div class="ai3-details">
+        <div class="ai-cards" style="margin-top:10px">
+          <div class="ai-card ai-bull">
+            <div class="ai-card-title">🟢 Bull Case 看多理由</div>
+            <div class="ai-card-body">${advantageItems.length ? _listHtml(advantageItems) : _fmt(j.analysis||'—')}</div>
+          </div>
+          <div class="ai-card ai-bear">
+            <div class="ai-card-title">🔴 Bear Case 看空理由</div>
+            <div class="ai-card-body">${_listHtml(bearCase)}</div>
+          </div>
+          ${chaseRiskTxt ? `<div class="ai-card">
+            <div class="ai-card-title">⚡ 追高風險</div>
+            <div class="ai-card-body">${_fmt(chaseRiskTxt)}</div>
+          </div>` : ''}
+          ${sellPlanTxt ? `<div class="ai-card">
+            <div class="ai-card-title">📋 賣出計畫</div>
+            <div class="ai-card-body">${_fmt(sellPlanTxt)}</div>
+          </div>` : ''}
+          ${killTxt ? `<div class="ai-card ai-kill ai-full">
+            <div class="ai-card-title">⚠️ 判斷失效條件</div>
+            <div class="ai-card-body" style="white-space:pre-line">${_fmt(killTxt)}</div>
+            ${killSentence ? `<div class="ai-kill-sentence">若出現「${_esc(killSentence.replace(/^若出現[「『]?|[」』].*$/g,'').trim()||killSentence)}」，看多判斷失效。</div>` : ''}
+          </div>` : (killSentence ? `<div class="ai-kill-sentence ai-full">${_fmt(killSentence)}</div>` : '')}
+          ${finalAdvice ? `<div class="ai-card ai-full">
+            <div class="ai-card-title">🎯 最終操作建議</div>
+            <div class="ai-card-body">${_fmt(finalAdvice)}</div>
+          </div>` : ''}
+        </div>
+        ${j.source !== 'claude-ai' && (j.confluence||j.risk) ? `
+        <div class="ai-row" style="margin-top:10px">
+          ${j.confluence ? `<div class="ai-box"><div class="albl">指標共振</div><div class="aval">${_esc(j.confluence)}</div></div>` : ''}
+          ${j.risk ? `<div class="ai-box"><div class="albl">風險提示</div><div class="aval ${j.risk!=='無明顯風險訊號'?'neg':''}">${_esc(j.risk)}</div></div>` : ''}
+          ${j.support_resistance?.nearest_support?.length ? `<div class="ai-box"><div class="albl">近期支撐</div><div class="aval">${j.support_resistance.nearest_support.join(' / ')}</div></div>` : ''}
+          ${j.support_resistance?.nearest_resistance?.length ? `<div class="ai-box"><div class="albl">近期壓力</div><div class="aval">${j.support_resistance.nearest_resistance.join(' / ')}</div></div>` : ''}
+        </div>` : ''}
+      </div>`;
   }
 
   // Legacy fallback: no structured data
@@ -12262,17 +12461,22 @@ function _renderSSD(d) {
   const vr       = Math.min((d.volumeRatio ?? 1) / 3, 1);
   const volume   = Math.min(100, Math.round(vr * 40 + sm * 0.6));
   const momentum = Math.min(100, Math.round((rsi / 100) * 55 + (macdH > 0 ? 45 : macdH > -0.005 ? 30 : 15)));
-  const risk     = Math.min(100, Math.round((1 - cr / 100) * 50 + (1 - bp / 100) * 50));
+  // Risk: higher score = higher risk (red = danger)
+  const risk     = Math.min(100, Math.round(cr * 0.55 + bp * 0.45));
   const strength = Math.min(100, Math.round(Math.max(0, 1 - Math.abs(d.pctFromHigh||0) / 30) * 30 + score * 0.7));
 
+  // Per-dimension color functions
+  const dCBull = v => v >= 65 ? 'var(--bull)' : v >= 45 ? 'var(--neutral)' : 'var(--bear)'; // 趨勢/動能/強弱
+  const dCVol  = () => 'var(--accent)';  // 量能: neutral blue always
+  const dCRisk = v => v >= 65 ? 'var(--bear)' : v >= 42 ? '#f0883e' : 'var(--bull)'; // 風險: high=red, low=green
+
   const dims = [
-    { n:'趨勢', v:trend },
-    { n:'量能', v:volume },
-    { n:'動能', v:momentum },
-    { n:'風險', v:risk },
-    { n:'強弱', v:strength },
+    { n:'趨勢', v:trend,    c:dCBull(trend)    },
+    { n:'量能', v:volume,   c:dCVol()          },
+    { n:'動能', v:momentum, c:dCBull(momentum) },
+    { n:'風險', v:risk,     c:dCRisk(risk)     },
+    { n:'強弱', v:strength, c:dCBull(strength) },
   ];
-  const dC = v => v >= 65 ? 'var(--bull)' : v >= 45 ? 'var(--accent)' : 'var(--bear)';
 
   // SVG gauge (half-circle)
   const arcLen = 125.66;
@@ -12325,21 +12529,21 @@ function _renderSSD(d) {
         ${dims.map(dim => `
         <div class="ssd-dim">
           <span class="ssd-dname">${dim.n}</span>
-          <div class="ssd-dbar"><div class="ssd-dfill" style="width:${dim.v}%;background:${dC(dim.v)}"></div></div>
-          <span class="ssd-dval" style="color:${dC(dim.v)}">${dim.v}</span>
+          <div class="ssd-dbar"><div class="ssd-dfill" style="width:${dim.v}%;background:${dim.c}"></div></div>
+          <span class="ssd-dval" style="color:${dim.c}">${dim.v}</span>
         </div>`).join('')}
       </div>
     </div>
-    <div class="ssd-52w">
-      <div class="ssd-52w-lbl">
-        <span>52W低 $${fmt(d.low52||0)}</span>
-        <span>位置 ${pos52}%</span>
-        <span>52W高 $${fmt(d.high52||0)}</span>
-      </div>
-      <div class="ssd-52w-track">
+    <div class="ssd-52w" style="margin-top:20px">
+      <div class="ssd-52w-track" style="margin-bottom:6px">
         <div class="ssd-52w-fill" style="width:${pos52}%;background:linear-gradient(to right,var(--bear),var(--neutral),var(--bull))"></div>
         <div class="ssd-52w-mk" style="left:${pos52}%"></div>
-        <div class="ssd-52w-mklbl" style="left:${pos52}%">$${fmt(d.price)}</div>
+        <div class="ssd-52w-mklbl" style="left:${pos52}%">目前 $${fmt(d.price)}</div>
+      </div>
+      <div class="ssd-52w-lbl" style="margin-top:4px">
+        <span>52W低 $${fmt(d.low52||0)}</span>
+        <span style="color:var(--text);font-weight:600">位置 ${pos52}%</span>
+        <span>52W高 $${fmt(d.high52||0)}</span>
       </div>
     </div>
     ${ir ? `<div class="ssd-recbox" style="background:${recColor};border:1px solid ${recBorder}">
@@ -12485,6 +12689,26 @@ function _sdbAnalyzeTop() {
 }
 
 // ══════════════════════════════════════════════════════
+// ── Header settings menu toggle ──────────────────────
+function _toggleHdrMenu() {
+  const btn  = document.getElementById('hdr-settings-btn');
+  const menu = document.getElementById('hdr-menu');
+  if (!menu) return;
+  const open = menu.classList.toggle('open');
+  if (btn) btn.classList.toggle('open', open);
+  if (open) {
+    // Close on outside click
+    const close = e => {
+      if (!menu.contains(e.target) && e.target !== btn) {
+        menu.classList.remove('open');
+        btn?.classList.remove('open');
+        document.removeEventListener('click', close, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', close, true), 10);
+  }
+}
+
 // PWA Service Worker
 // ══════════════════════════════════════════════════════
 if ('serviceWorker' in navigator) {
