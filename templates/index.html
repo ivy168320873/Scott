@@ -557,6 +557,18 @@ tbody td{padding:9px 10px}
 #debate-section{display:none}
 #daily-report-section{display:none}
 #stress-test-section{display:none}
+#obs-log-section{display:none}
+.obs-stat-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-bottom:12px}
+.obs-stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:10px}
+.obs-stat-cell{background:var(--bg);border-radius:6px;padding:8px 10px;text-align:center}
+.obs-stat-num{font-size:1.5rem;font-weight:700;color:var(--accent)}
+.obs-stat-lbl{font-size:.68rem;color:var(--muted);margin-top:2px}
+.obs-log-table{width:100%;border-collapse:collapse;font-size:.75rem}
+.obs-log-table th{padding:5px 8px;text-align:left;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border);white-space:nowrap}
+.obs-log-table td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.obs-verdict-go{color:#56d364;font-weight:700}
+.obs-verdict-nogo{color:#f85149;font-weight:700}
+.obs-verdict-observing{color:#e3b341;font-weight:700}
 .st-score-ring{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:700;border:4px solid}
 .st-impact-table{width:100%;border-collapse:collapse;font-size:.75rem}
 .st-impact-table th{padding:5px 8px;text-align:left;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border);white-space:nowrap}
@@ -1187,6 +1199,7 @@ tbody td{padding:9px 10px}
     <button class="tab" onclick="switchTab('debate')" style="color:#d2a8ff">🧠 分析師辯論室</button>
     <button class="tab" onclick="switchTab('daily-report')" style="color:#79c0ff">📋 每日報告</button>
     <button class="tab" onclick="switchTab('stress-test')" style="color:#ff7b72">🧪 壓力測試</button>
+    <button class="tab" onclick="switchTab('obs-log')" style="color:#56d364">📊 觀察日誌</button>
   </div>
 
   <div id="detail">
@@ -2560,6 +2573,73 @@ tbody td{padding:9px 10px}
 
 </div>
 
+<!-- ── Phase 11: Observation Log Tab ── -->
+<div id="obs-log-section" style="display:none">
+
+  <!-- Disclaimer -->
+  <div style="background:#1b2a1b;border:1px solid #56d364;border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:.8rem;color:#56d364;display:flex;align-items:center;gap:8px">
+    <span style="font-size:1rem">📊</span>
+    <strong>目前為實盤觀察期，不代表自動下單。</strong>
+    <span style="color:var(--muted);font-size:.75rem">訊號品質統計每日自動更新。</span>
+  </div>
+
+  <!-- Stats card -->
+  <div class="obs-stat-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span style="font-weight:700;font-size:.95rem">訊號品質統計</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="obs-days-select" onchange="loadObsStats()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:.78rem">
+          <option value="7">最近 7 天</option>
+          <option value="14" selected>最近 14 天</option>
+          <option value="30">最近 30 天</option>
+        </select>
+        <button onclick="loadObsStats()" style="font-size:.78rem;padding:3px 10px;background:var(--accent);color:#000;border:none;border-radius:4px;cursor:pointer">刷新</button>
+      </div>
+    </div>
+    <div class="obs-stat-grid" id="obs-stat-grid">
+      <div style="color:var(--muted);font-size:.82rem;grid-column:1/-1">載入中…</div>
+    </div>
+    <div id="obs-hit-rates" style="margin-top:10px;font-size:.8rem;color:var(--muted)"></div>
+    <div id="obs-top-symbols" style="margin-top:8px;font-size:.78rem;color:var(--muted)"></div>
+  </div>
+
+  <!-- Daily log table -->
+  <div class="obs-stat-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span style="font-weight:700;font-size:.95rem">每日觀察記錄</span>
+      <button onclick="loadObsDailyLog()" style="font-size:.78rem;padding:3px 10px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer">刷新</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="obs-log-table">
+        <thead>
+          <tr>
+            <th>日期</th><th>市場狀態</th><th>市場領導</th><th>精選觀察</th>
+            <th>殺手訊號</th><th>S警報</th><th>A警報</th><th>備註</th>
+          </tr>
+        </thead>
+        <tbody id="obs-log-tbody">
+          <tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">尚無記錄</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Accuracy report -->
+  <div class="obs-stat-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span style="font-weight:700;font-size:.95rem">觀察期準確度報告</span>
+      <div style="display:flex;gap:8px">
+        <button onclick="loadObsReport()" style="font-size:.78rem;padding:3px 10px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer">刷新報告</button>
+        <button onclick="runObsUpdateOutcomes()" style="font-size:.78rem;padding:3px 10px;background:#1a3a1a;color:#56d364;border:1px solid #56d364;border-radius:4px;cursor:pointer">更新績效</button>
+      </div>
+    </div>
+    <div id="obs-report-body">
+      <div style="color:var(--muted);font-size:.82rem">點擊「刷新報告」載入</div>
+    </div>
+  </div>
+
+</div>
+
 <!-- ── Chat FAB ── -->
 <button id="chat-fab" onclick="openChat()"
   style="position:fixed;bottom:80px;right:20px;z-index:1000;width:52px;height:52px;border-radius:50%;border:none;
@@ -3622,7 +3702,7 @@ document.getElementById('sym').addEventListener('keydown', e => { if (e.key === 
 
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','decision-alerts','position','radar','quant','debate','daily-report','stress-test'];
+  const tabOrder = ['analysis','signal','backtest','kline','chips','alerts','decision-alerts','position','radar','quant','debate','daily-report','stress-test','obs-log'];
   const idx = tabOrder.indexOf(tab);
   if (idx >= 0) document.querySelectorAll('.tab')[idx].classList.add('active');
 
@@ -3639,6 +3719,7 @@ function switchTab(tab) {
   document.getElementById('debate-section').style.display            = tab === 'debate'           ? 'block' : 'none';
   document.getElementById('daily-report-section').style.display      = tab === 'daily-report'     ? 'block' : 'none';
   document.getElementById('stress-test-section').style.display       = tab === 'stress-test'      ? 'block' : 'none';
+  document.getElementById('obs-log-section').style.display           = tab === 'obs-log'          ? 'block' : 'none';
 
   if (tab === 'signal' && _lastComputedData) startSignalRadar();
   else if (tab !== 'signal') { clearInterval(_sigTimer); _sigTimer = null; }
@@ -3652,6 +3733,7 @@ function switchTab(tab) {
   if (tab === 'radar')                                  loadVIX();
   if (tab === 'quant')                                  qtRefresh();
   if (tab === 'debate')                                 _dbCheckApiKey();
+  if (tab === 'obs-log')                                { loadObsStats(); loadObsDailyLog(); loadObsReport(); }
 }
 
 // ══════════════════════════════════════════════════════
@@ -11281,6 +11363,135 @@ async function saveDrSettings() {
       body: JSON.stringify(settings),
     });
   } catch(_) {}
+}
+
+// ══════════════════════════════════════════════════════
+// Phase 11: Observation Log
+// ══════════════════════════════════════════════════════
+
+async function loadObsStats() {
+  const days = document.getElementById('obs-days-select')?.value || 14;
+  const grid = document.getElementById('obs-stat-grid');
+  const hitEl = document.getElementById('obs-hit-rates');
+  const topEl = document.getElementById('obs-top-symbols');
+  if (grid) grid.innerHTML = '<div style="color:var(--muted);font-size:.82rem;grid-column:1/-1">載入中…</div>';
+  try {
+    const r = await fetch(`/api/obs/stats?days=${days}`);
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error);
+
+    const cells = [
+      { num: d.total,           lbl: '總觀察訊號' },
+      { num: d.avg_pct_1d != null ? d.avg_pct_1d + '%' : '—', lbl: '平均1日報酬' },
+      { num: d.avg_pct_3d != null ? d.avg_pct_3d + '%' : '—', lbl: '平均3日報酬' },
+      { num: d.avg_pct_5d != null ? d.avg_pct_5d + '%' : '—', lbl: '平均5日報酬' },
+    ];
+    if (grid) grid.innerHTML = cells.map(c => `
+      <div class="obs-stat-cell">
+        <div class="obs-stat-num">${c.num ?? '—'}</div>
+        <div class="obs-stat-lbl">${c.lbl}</div>
+      </div>`).join('');
+
+    const byType = d.by_type || {};
+    const typeHtml = Object.entries(byType).map(([t, n]) => `<span style="margin-right:10px"><strong>${t}</strong>: ${n}</span>`).join('');
+    if (hitEl) hitEl.innerHTML = typeHtml ? `訊號分佈：${typeHtml}` : '';
+
+    const hitRates = d.hit_rates || {};
+    const hrHtml = Object.entries(hitRates).map(([k, v]) => `<span style="margin-right:10px">${k}: <strong>${v}%</strong></span>`).join('');
+    const topSyms = (d.top_symbols || []).map(s => `${s.symbol}(${s.count})`).join(', ');
+    if (topEl) topEl.innerHTML = (hrHtml ? `命中率：${hrHtml}<br>` : '') + (topSyms ? `觀察最多：${topSyms}` : '');
+  } catch(e) {
+    if (grid) grid.innerHTML = `<div style="color:var(--muted);font-size:.82rem;grid-column:1/-1">載入失敗: ${e.message}</div>`;
+  }
+}
+
+async function loadObsDailyLog() {
+  const tbody = document.getElementById('obs-log-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:16px">載入中…</td></tr>';
+  try {
+    const r = await fetch('/api/obs/daily-log?days=14');
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error);
+    const logs = d.logs || [];
+    if (!logs.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">尚無記錄</td></tr>';
+      return;
+    }
+    tbody.innerHTML = logs.map(log => {
+      const leaders = (log.sector_leaders || []).join(', ') || '—';
+      const picks   = (log.top_picks || []).join(', ') || '—';
+      const kills   = (log.kill_signals || []).join(', ') || '—';
+      const msCls   = { '偏多':'color:#56d364', '偏弱':'color:#f85149', '風險升高':'color:#e3b341' }[log.market_state] || '';
+      return `<tr>
+        <td style="white-space:nowrap">${log.date || '—'}</td>
+        <td style="${msCls};font-weight:600">${log.market_state || '—'}</td>
+        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${leaders}">${leaders}</td>
+        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${picks}">${picks}</td>
+        <td style="color:#f85149">${kills}</td>
+        <td style="text-align:center;color:#e3b341;font-weight:700">${log.alert_s_count || 0}</td>
+        <td style="text-align:center">${log.alert_a_count || 0}</td>
+        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${log.notes || ''}">${log.notes || '—'}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--muted);text-align:center">載入失敗: ${e.message}</td></tr>`;
+  }
+}
+
+async function loadObsReport() {
+  const el = document.getElementById('obs-report-body');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--muted);font-size:.82rem">載入中…</div>';
+  try {
+    const r = await fetch('/api/obs/report');
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error);
+
+    if (!d.total_signals) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:.82rem">尚無足夠資料，請等待觀察期累積訊號。</div>';
+      return;
+    }
+
+    const verdictMap = { go:'<span class="obs-verdict-go">✅ GO — 可進入小資金試單</span>', no_go:'<span class="obs-verdict-nogo">❌ NO GO — 準確度不足，繼續觀察</span>', observing:'<span class="obs-verdict-observing">⏳ 觀察中 — 資料尚不足7天</span>', insufficient_data:'<span style="color:var(--muted)">資料不足</span>' };
+    const verdict = verdictMap[d.verdict] || d.verdict;
+
+    const byType = d.by_signal_type || {};
+    const typeRows = Object.entries(byType).map(([t, v]) =>
+      `<tr><td>${t}</td><td>${v.total}</td><td>${v.hit_rate_1d != null ? v.hit_rate_1d + '%' : '—'}</td><td>${v.avg_pct_1d != null ? v.avg_pct_1d + '%' : '—'}</td><td>${v.avg_pct_3d != null ? v.avg_pct_3d + '%' : '—'}</td></tr>`
+    ).join('');
+
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:16px">
+        <div class="obs-stat-cell"><div class="obs-stat-num">${d.total_signals}</div><div class="obs-stat-lbl">總訊號數</div></div>
+        <div class="obs-stat-cell"><div class="obs-stat-num">${d.observation_days}</div><div class="obs-stat-lbl">觀察天數</div></div>
+        <div class="obs-stat-cell"><div class="obs-stat-num">${d.overall_hit_rate_1d != null ? d.overall_hit_rate_1d + '%' : '—'}</div><div class="obs-stat-lbl">買入1日命中率</div></div>
+        <div class="obs-stat-cell"><div class="obs-stat-num" style="color:#f85149">${d.false_signal_rate != null ? d.false_signal_rate + '%' : '—'}</div><div class="obs-stat-lbl">假訊號率(&gt;-3%)</div></div>
+      </div>
+      ${typeRows ? `<table class="obs-log-table" style="margin-bottom:14px"><thead><tr><th>訊號類型</th><th>數量</th><th>1日命中率</th><th>平均1日</th><th>平均3日</th></tr></thead><tbody>${typeRows}</tbody></table>` : ''}
+      ${d.best_indicators?.length ? `<div style="margin-bottom:6px;font-size:.8rem">最佳指標：<strong style="color:#56d364">${d.best_indicators.join(' / ')}</strong></div>` : ''}
+      ${d.worst_indicators?.length ? `<div style="margin-bottom:10px;font-size:.8rem">最弱指標：<strong style="color:#f85149">${d.worst_indicators.join(' / ')}</strong></div>` : ''}
+      <div style="padding:10px 14px;border-radius:6px;background:var(--bg);font-size:.88rem">${verdict}</div>
+      <div style="margin-top:10px;font-size:.72rem;color:var(--muted)">${d.disclaimer || ''}</div>
+    `;
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:.82rem">載入失敗: ${e.message}</div>`;
+  }
+}
+
+async function runObsUpdateOutcomes() {
+  const btn = event.target;
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '更新中…';
+  try {
+    const r = await fetch('/api/obs/update-outcomes', { method: 'POST', headers: {'Content-Type':'application/json', 'X-Password': window._authPw || ''}, body: '{}' });
+    const d = await r.json();
+    btn.textContent = d.ok ? `✅ 已更新 ${d.updated} 筆` : '❌ 失敗';
+    setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 2500);
+    if (d.ok) loadObsReport();
+  } catch(e) {
+    btn.textContent = '❌ 錯誤'; setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 2500);
+  }
 }
 
 // ══════════════════════════════════════════════════════

@@ -1463,6 +1463,15 @@ def api_analyze():
         if is_demo:
             result = _apply_demo_guard(result)
 
+        # Phase 11: auto-record notable signals in background
+        if sym:
+            import threading as _thr
+            _thr.Thread(
+                target=_obs_auto_record_from_result,
+                args=(sym, {**result, "is_demo": is_demo}),
+                daemon=True,
+            ).start()
+
         return jsonify({
             "ok": True, **result,
             "decision_results": dr_out,
@@ -3197,6 +3206,23 @@ def api_decision_alerts_scan():
             for a in alerts:
                 _ah.record(a)
                 fired.append(_af.format_app(a))
+            # Phase 11: auto-record S/A alerts
+            import threading as _thr
+            for fa in fired:
+                _thr.Thread(
+                    target=_obe.record_signal,
+                    kwargs=dict(
+                        symbol=symbol,
+                        signal_type=str(fa.get("signal_type", "") or fa.get("type", "")),
+                        signal_class=str(fa.get("signal_class", "") or fa.get("level", "")),
+                        signal=str(fa.get("signal", "")),
+                        score=float(fa.get("score", 0) or 0),
+                        price_at_signal=float(fa.get("price", 0) or 0),
+                        market_state="",
+                        is_demo=_is_demo_ohlcv(ohlcv),
+                    ),
+                    daemon=True,
+                ).start()
             return jsonify({"ok": True, "alerts": fired, "count": len(fired)})
 
         # Full scan — use provided lists or fall back to stored data
@@ -3215,10 +3241,32 @@ def api_decision_alerts_scan():
             ohlcv_fn=_get_ohlcv_norm,
             send_fn=_send_decision_alert,
         )
+        fired_formatted = [_af.format_app(a) for a in fired_alerts]
+        # Phase 11: auto-record fired alerts in background
+        import threading as _thr2
+        for fa in fired_formatted:
+            sym_fa = str(fa.get("symbol", "") or "").upper()
+            if not sym_fa:
+                continue
+            ohlcv_fa = _get_ohlcv_norm(sym_fa)
+            _thr2.Thread(
+                target=_obe.record_signal,
+                kwargs=dict(
+                    symbol=sym_fa,
+                    signal_type=str(fa.get("signal_type", "") or fa.get("type", "")),
+                    signal_class=str(fa.get("signal_class", "") or fa.get("level", "")),
+                    signal=str(fa.get("signal", "")),
+                    score=float(fa.get("score", 0) or 0),
+                    price_at_signal=float(fa.get("price", 0) or 0),
+                    market_state="",
+                    is_demo=_is_demo_ohlcv(ohlcv_fa),
+                ),
+                daemon=True,
+            ).start()
         return jsonify({
             "ok":     True,
-            "alerts": [_af.format_app(a) for a in fired_alerts],
-            "count":  len(fired_alerts),
+            "alerts": fired_formatted,
+            "count":  len(fired_formatted),
         })
     except Exception as e:
         traceback.print_exc()
@@ -3771,6 +3819,133 @@ def _stress_flag_daily_report(result: dict):
             except Exception:
                 pass
         threading.Thread(target=_bg, daemon=True).start()
+    except Exception:
+        pass
+
+
+# ── Live Observation Period — Phase 11 ────────────────────────────────────────
+import observation_engine as _obe
+
+_obe.init_db()
+
+
+@app.route("/api/obs/record", methods=["POST"])
+def api_obs_record():
+    """Manually record a signal observation."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body = request.json or {}
+        obs_id = _obe.record_signal(
+            symbol=str(body.get("symbol", "") or "").upper().strip(),
+            signal_type=str(body.get("signal_type", "") or ""),
+            signal_class=str(body.get("signal_class", "") or ""),
+            signal=str(body.get("signal", "") or ""),
+            score=float(body.get("score", 0) or 0),
+            price_at_signal=float(body.get("price_at_signal", 0) or 0),
+            market_state=str(body.get("market_state", "") or ""),
+            is_demo=bool(body.get("is_demo", False)),
+        )
+        return jsonify({"ok": True, "obs_id": obs_id,
+                        "disclaimer": "目前為實盤觀察期，不代表自動下單。"})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/obs/stats", methods=["GET"])
+def api_obs_stats():
+    try:
+        days = int(request.args.get("days", 14))
+        return jsonify({"ok": True, **_obe.get_signal_stats(days)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/obs/daily-log", methods=["GET", "POST"])
+def api_obs_daily_log():
+    if request.method == "POST":
+        auth = _require_auth()
+        if auth:
+            return auth
+        try:
+            body = request.json or {}
+            log = _obe.create_daily_log(
+                log_date=body.get("date"),
+                market_state=str(body.get("market_state", "") or ""),
+                sector_leaders=body.get("sector_leaders") or [],
+                top_picks=body.get("top_picks") or [],
+                kill_signals=body.get("kill_signals") or [],
+                sell_signals=body.get("sell_signals") or [],
+                high_chase_risk=body.get("high_chase_risk") or [],
+                rotation_recs=body.get("rotation_recs") or [],
+                alert_s_count=int(body.get("alert_s_count", 0) or 0),
+                alert_a_count=int(body.get("alert_a_count", 0) or 0),
+                notes=str(body.get("notes", "") or ""),
+            )
+            return jsonify({"ok": True, "log": log,
+                            "disclaimer": "目前為實盤觀察期，不代表自動下單。"})
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({"ok": False, "error": str(e)}), 500
+    else:
+        try:
+            days = int(request.args.get("days", 14))
+            log_date = request.args.get("date")
+            result = _obe.get_daily_log(days=days, log_date=log_date)
+            return jsonify({"ok": True, "logs": result if isinstance(result, list) else [result],
+                            "disclaimer": "目前為實盤觀察期，不代表自動下單。"})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/obs/report", methods=["GET"])
+def api_obs_report():
+    try:
+        return jsonify({"ok": True, **_obe.get_accuracy_report()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/obs/update-outcomes", methods=["POST"])
+def api_obs_update_outcomes():
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        result = _obe.update_outcomes(ohlcv_fn=_get_ohlcv_norm)
+        return jsonify({"ok": True, **result,
+                        "disclaimer": "目前為實盤觀察期，不代表自動下單。"})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _obs_auto_record_from_result(sym: str, result: dict, market_st: str = "") -> None:
+    """Background: auto-record a notable analyze result as a signal observation."""
+    try:
+        sig_type = str(result.get("signal", "") or result.get("recommendation", "") or "")
+        if not sig_type:
+            return
+        score = float(result.get("score", 0) or 0)
+        if score < 50 and sig_type not in ("BUY", "STRONG_BUY", "SELL", "TRIM"):
+            return
+        ohlcv = _get_ohlcv_norm(sym)
+        price = 0.0
+        is_demo = bool(result.get("is_demo", False))
+        if ohlcv and ohlcv.get("closes"):
+            price = float(ohlcv["closes"][-1])
+        _obe.record_signal(
+            symbol=sym,
+            signal_type=sig_type,
+            signal_class=str(result.get("signal_class", "") or ""),
+            signal=sig_type,
+            score=score,
+            price_at_signal=price,
+            market_state=market_st,
+            is_demo=is_demo,
+        )
     except Exception:
         pass
 
