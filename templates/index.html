@@ -912,6 +912,138 @@ tbody td{padding:9px 10px}
 .rot-pick-sym{font-size:.85rem;font-weight:700;margin-bottom:2px}
 .rot-pick-sub{font-size:.7rem;margin-bottom:3px}
 .rot-pick-tag{font-size:.63rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ══════════════════════════════════════════════════════
+   Mobile-First Dashboard Design System (Phase 12 UI)
+══════════════════════════════════════════════════════ */
+:root {
+  --card:#1a1f27;--card2:#1e242d;--card-radius:14px;
+  --card-border:rgba(48,54,61,.9);--shadow-card:0 4px 20px rgba(0,0,0,.4);
+  --glow-bull:rgba(63,185,80,.18);--glow-bear:rgba(248,81,73,.18);
+  --ai-bg:rgba(210,168,255,.08);--t:.18s cubic-bezier(.4,0,.2,1);
+}
+@keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ── MarketOverviewCard ───────────────────────────── */
+.moc-wrap{background:linear-gradient(135deg,#131820 0%,#1a1f2b 100%);
+  border:1px solid var(--card-border);border-radius:var(--card-radius);
+  padding:15px;margin-bottom:12px;box-shadow:var(--shadow-card);
+  position:relative;overflow:hidden;animation:fadeIn .3s ease}
+.moc-wrap::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,var(--bull) 0%,var(--accent) 55%,var(--purple) 100%)}
+.moc-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.moc-title{font-size:.65rem;font-weight:700;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+.moc-ts{font-size:.62rem;color:var(--muted)}
+.moc-dir-row{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.moc-dir-badge{font-size:1.25rem;font-weight:900;padding:6px 16px;border-radius:10px;letter-spacing:-.01em}
+.moc-dir-bull{background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.4)}
+.moc-dir-bear{background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.4)}
+.moc-dir-neutral{background:rgba(227,179,65,.12);color:#e3b341;border:1px solid rgba(227,179,65,.4)}
+.moc-score{display:flex;flex-direction:column;align-items:center;background:var(--surface2);
+  border-radius:9px;padding:7px 13px;min-width:60px;flex-shrink:0}
+.moc-score-num{font-size:1.7rem;font-weight:900;line-height:1}
+.moc-score-lbl{font-size:.58rem;color:var(--muted);margin-top:1px}
+.moc-kv-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px}
+.moc-kv{background:var(--surface2);border-radius:8px;padding:8px 10px}
+.moc-kv-lbl{font-size:.58rem;color:var(--muted);margin-bottom:2px}
+.moc-kv-val{font-size:.82rem;font-weight:700;line-height:1.3}
+.moc-sectors{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
+.moc-sec-chip{font-size:.7rem;font-weight:700;padding:3px 9px;border-radius:20px;
+  background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.3)}
+.moc-advice{background:var(--ai-bg);border:1px solid rgba(210,168,255,.2);
+  border-radius:8px;padding:9px 12px;font-size:.78rem;line-height:1.55;color:var(--text);
+  display:flex;align-items:flex-start;gap:7px}
+.moc-risk{font-size:.72rem;color:var(--neutral);margin-top:8px;display:flex;align-items:center;gap:5px}
+.moc-skel{border-radius:6px;background:var(--surface2);animation:pulse 1.5s infinite}
+
+/* ── TopOpportunitiesSection ─────────────────────── */
+.top-opp-wrap{margin-bottom:12px;animation:fadeIn .35s ease}
+.top-opp-title{font-size:.73rem;font-weight:700;color:var(--muted);letter-spacing:.06em;
+  text-transform:uppercase;margin-bottom:9px;display:flex;align-items:center;gap:6px}
+.top-opp-title::before{content:'';display:inline-block;width:3px;height:13px;border-radius:2px;
+  background:linear-gradient(to bottom,var(--bull),var(--accent))}
+.top-opp-cards{display:grid;grid-template-columns:1fr;gap:9px}
+@media(min-width:640px){.top-opp-cards{grid-template-columns:repeat(3,1fr)}}
+.toc{background:var(--card);border:1px solid var(--card-border);border-radius:var(--card-radius);
+  padding:13px;cursor:pointer;transition:border-color var(--t),transform var(--t);
+  position:relative;overflow:hidden}
+.toc:hover{border-color:var(--bull);transform:translateY(-2px)}
+.toc.tier-a{border-left:3px solid #3fb950}
+.toc.tier-b{border-left:3px solid #e3b341}
+.toc.tier-c{border-left:3px solid #8b949e}
+.toc-rank{position:absolute;top:9px;right:11px;font-size:1.2rem;font-weight:900;opacity:.12}
+.toc-sym{font-size:1rem;font-weight:900}
+.toc-name{font-size:.65rem;color:var(--muted);margin-top:1px}
+.toc-pr{display:flex;align-items:baseline;gap:7px;margin:7px 0 4px}
+.toc-price{font-size:1.1rem;font-weight:800}
+.toc-chg{font-size:.8rem;font-weight:700}
+.toc-score-row{display:flex;align-items:center;gap:5px;margin-bottom:7px}
+.toc-bar{flex:1;height:4px;border-radius:2px;background:var(--surface2);overflow:hidden}
+.toc-bar-fill{height:100%;border-radius:2px}
+.toc-tier{font-size:.65rem;font-weight:700;padding:2px 7px;border-radius:20px}
+.toc-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:4px;margin-bottom:7px}
+.toc-cell{background:var(--surface2);border-radius:6px;padding:4px 7px}
+.toc-cell-lbl{font-size:.56rem;color:var(--muted)}
+.toc-cell-val{font-size:.76rem;font-weight:700}
+.toc-reason{font-size:.7rem;color:var(--muted);line-height:1.5;border-top:1px solid var(--border);padding-top:5px;margin-top:5px}
+.toc-btns{display:flex;gap:5px;margin-top:7px}
+.toc-btn{flex:1;padding:6px;border:1px solid var(--border);border-radius:7px;
+  background:none;color:var(--muted);font-size:.65rem;cursor:pointer;
+  transition:all var(--t);text-align:center;min-height:30px}
+.toc-btn:hover{border-color:var(--accent);color:var(--accent)}
+.toc-btn.pri{background:rgba(63,185,80,.1);border-color:var(--bull);color:var(--bull)}
+
+/* ── OpportunityTabs ─────────────────────────────── */
+.opp-tab-nav{display:flex;gap:0;overflow-x:auto;margin-bottom:11px;
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:3px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.opp-tab-nav::-webkit-scrollbar{display:none}
+.opp-tab-btn{flex-shrink:0;padding:6px 13px;border:none;border-radius:8px;
+  background:none;color:var(--muted);font-size:.75rem;font-weight:600;cursor:pointer;
+  transition:all var(--t);white-space:nowrap;min-height:34px}
+.opp-tab-btn.active{background:var(--surface2);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.opp-tab-btn:hover:not(.active){color:var(--text)}
+.opp-tab-content{display:none}
+.opp-tab-content.active{display:block}
+
+/* ── StickyDecisionBar ───────────────────────────── */
+.sdb{position:fixed;bottom:0;left:0;right:0;
+  background:rgba(22,27,34,.96);border-top:1px solid var(--border);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  z-index:900;padding:7px 12px;
+  display:flex;align-items:center;gap:9px;
+  box-shadow:0 -4px 24px rgba(0,0,0,.4)}
+.sdb-stat{display:flex;flex-direction:column;gap:0;flex-shrink:0}
+.sdb-lbl{font-size:.54rem;color:var(--muted)}
+.sdb-val{font-size:.76rem;font-weight:700;white-space:nowrap}
+.sdb-div{width:1px;height:28px;background:var(--border);flex-shrink:0}
+.sdb-btns{display:flex;gap:5px;margin-left:auto;flex-shrink:0}
+.sdb-btn{padding:5px 10px;border-radius:7px;border:1px solid var(--border);
+  background:none;color:var(--text);font-size:.7rem;cursor:pointer;
+  white-space:nowrap;min-height:30px;transition:all var(--t)}
+.sdb-btn:hover{border-color:var(--accent);color:var(--accent)}
+.sdb-btn.pri{background:var(--bull);color:#000;border-color:var(--bull);font-weight:700}
+
+/* ── Mobile first ────────────────────────────────── */
+body{padding-bottom:52px}
+@media(max-width:639px){
+  .container{padding:10px}
+  .moc-kv-grid{grid-template-columns:1fr 1fr}
+  header h1{font-size:.85rem}
+  .search-row input{font-size:.88rem}
+  .sdb-stat:nth-child(n+7){display:none}
+}
+@media(max-width:390px){
+  .opp-tab-btn{padding:5px 9px;font-size:.7rem}
+  .toc-grid{grid-template-columns:1fr 1fr}
+  .toc-btns{gap:3px}
+  .toc-btn{font-size:.6rem;padding:5px}
+}
+@media(min-width:1024px){
+  body{padding-bottom:0}
+  .sdb{display:none}
+}
 </style>
 </head>
 <body>
@@ -955,6 +1087,33 @@ tbody td{padding:9px 10px}
 <div id="toast-container" style="position:fixed;top:60px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none"></div>
 
 <div class="container">
+
+  <!-- ══ MarketOverviewCard ══ -->
+  <div class="moc-wrap" id="moc-wrap">
+    <div id="moc-content">
+      <div class="moc-hdr">
+        <span class="moc-title">今日市場戰情</span>
+        <span class="moc-ts" id="moc-ts">掃描中…</span>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <div class="moc-skel" style="width:100px;height:40px"></div>
+        <div class="moc-skel" style="width:60px;height:52px"></div>
+      </div>
+      <div class="moc-skel" style="height:9px;width:60%;margin-bottom:8px"></div>
+      <div class="moc-skel" style="height:40px;width:100%"></div>
+    </div>
+  </div>
+
+  <!-- ══ TopOpportunitiesSection ══ -->
+  <div class="top-opp-wrap" id="top-opp-wrap">
+    <div class="top-opp-title">今日最值得操作的機會</div>
+    <div class="top-opp-cards" id="top-opp-cards">
+      <div style="color:var(--muted);font-size:.8rem;padding:14px;text-align:center;grid-column:1/-1">
+        <div class="moc-skel" style="height:120px;border-radius:10px"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="search-row">
     <input id="sym" type="text" placeholder="股票代碼：AAPL, NVDA, 2330.TW, 0050.TW …" autocomplete="off">
     <button class="btn btn-primary" onclick="search()">分析</button>
@@ -1038,11 +1197,20 @@ tbody td{padding:9px 10px}
       </div>
     </div>
     <div id="ar-cards" style="display:none">
+      <!-- OpportunityTabs nav -->
+      <div class="opp-tab-nav" id="opp-tab-nav">
+        <button class="opp-tab-btn active" data-tab="buy-now" onclick="switchOppTab('buy-now')">✅ 可立即買</button>
+        <button class="opp-tab-btn" data-tab="coiling" onclick="switchOppTab('coiling')">👀 蓄勢待發</button>
+        <button class="opp-tab-btn" data-tab="tenx" onclick="switchOppTab('tenx')">🚀 十倍股</button>
+        <button class="opp-tab-btn" data-tab="fourd" onclick="switchOppTab('fourd')">🎯 四維齊全</button>
+        <button class="opp-tab-btn" data-tab="ai-rec" onclick="switchOppTab('ai-rec')">🤖 AI推薦</button>
+        <button class="opp-tab-btn" data-tab="news" onclick="switchOppTab('news')">📰 新聞催化</button>
+      </div>
       <!-- Demo warning banner -->
       <div id="ar-demo-banner" style="display:none;background:rgba(210,153,34,.18);border:1px solid var(--neutral);border-radius:8px;padding:9px 13px;font-size:.8rem;color:var(--neutral);margin-bottom:10px"></div>
       <!-- 1. Market Pulse — one-liner status -->
       <div id="ar-pulse" style="margin-bottom:10px"></div>
-      <!-- 1b. News Intelligence -->
+      <div id="opp-sec-news" class="opp-tab-content"><!-- 1b. News Intelligence -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('ar-news','ar-news-ti')">
           📰 產業即時情報 <span id="ar-news-sentiment" style="font-weight:400;letter-spacing:0"></span>
@@ -1066,7 +1234,8 @@ tbody td{padding:9px 10px}
       <div id="ar-macro" style="margin-bottom:16px">
         <div style="color:var(--muted);font-size:.8rem;padding:6px 0">正在分析宏觀經濟數據…</div>
       </div>
-      <!-- 2. Today's Picks -->
+      </div><!-- /opp-sec-news -->
+      <div id="opp-sec-tenx" class="opp-tab-content"><!-- 2. Today's Picks -->
       <!-- Trump Signal Panel -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('trump-panel','trump-ti')">
@@ -1095,7 +1264,8 @@ tbody td{padding:9px 10px}
         <div id="ar-10x"><div style="color:var(--muted);font-size:.8rem;padding:6px 0">掃描中…</div></div>
         <div id="ar-10x-catalyst" style="margin-top:4px"></div>
       </div>
-
+      </div><!-- /opp-sec-tenx -->
+      <div id="opp-sec-fourd" class="opp-tab-content">
       <!-- 4D Optimal Section -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('ar-4d','ar-4d-ti')">
@@ -1109,7 +1279,8 @@ tbody td{padding:9px 10px}
       <div id="ar-4d" style="margin-bottom:16px">
         <div style="color:var(--muted);font-size:.8rem;padding:6px 0">掃描中…</div>
       </div>
-
+      </div><!-- /opp-sec-fourd -->
+      <div id="opp-sec-buy" class="opp-tab-content active">
       <div class="ar-sec-lbl">✅ 現在可以考慮買</div>
       <div class="cap-settings" style="margin:8px 0 10px">
         <label>💵 總資金 $</label>
@@ -1119,6 +1290,8 @@ tbody td{padding:9px 10px}
         <span class="cap-hint">%</span>
       </div>
       <div class="invest-grid" id="ar-invest"></div>
+      </div><!-- /opp-sec-buy -->
+      <div id="opp-sec-coil" class="opp-tab-content">
       <!-- 3. Watch — coiling stocks -->
       <div class="ar-sec-lbl" style="margin-top:16px">👀 盯緊這幾檔（蓄勢待發）</div>
       <div class="auto-rec-grid" id="ar-prebreak"></div>
@@ -1127,6 +1300,8 @@ tbody td{padding:9px 10px}
       <div class="ar-sector-row" id="ar-sectors"></div>
       <!-- 5. Sector Rotation condensed -->
       <div id="ar-rotation" style="display:none;margin-top:4px"></div>
+      </div><!-- /opp-sec-coil -->
+      <div id="opp-sec-airec" class="opp-tab-content">
       <!-- Details toggle -->
       <div style="text-align:center;margin-top:18px">
         <button class="btn btn-secondary" style="font-size:.75rem;padding:5px 16px" onclick="toggleArDetails()">📋 展開詳細分析</button>
@@ -1160,6 +1335,7 @@ tbody td{padding:9px 10px}
         </div>
         <div id="ar-sentiment" style="margin-top:10px"></div>
       </div>
+      </div><!-- /opp-sec-airec -->
       <!-- Historical Signal Tracking -->
       <div style="margin-top:20px">
         <div class="ar-sec-lbl" style="cursor:pointer" onclick="toggleSection('ar-history','ar-hist-ti')">
@@ -5331,6 +5507,7 @@ async function autoRecommend(force = false) {
         _allAutoRecScored = c.data;
         _lastAutoRecMeta  = { sectorData: c.sectorData, nasdaqMeta: c.nasdaqMeta, rotData: c.rotData };
         renderAutoRec(c.data, c.sectorData, c.nasdaqMeta, c.rotData);
+        _updateDashboard(c.data, c.sectorData, c.nasdaqMeta);
         return;
       }
     } catch {}
@@ -5465,6 +5642,7 @@ async function autoRecommend(force = false) {
   _lastAutoRecMeta  = { sectorData, nasdaqMeta, rotData };
   arLoading.style.display = 'none';
   renderAutoRec(scored, sectorData, nasdaqMeta, rotData);
+  _updateDashboard(scored, sectorData, nasdaqMeta);
 }
 
 function renderNasdaqMeta(meta) {
@@ -11670,11 +11848,174 @@ async function runObsUpdateOutcomes() {
 }
 
 // ══════════════════════════════════════════════════════
+// Phase 12: Mobile-First Dashboard Components
+// ══════════════════════════════════════════════════════
+
+function _updateDashboard(scored, sectorData, nasdaqMeta) {
+  try { _renderMOC(scored, sectorData, nasdaqMeta); } catch(e) {}
+  try { _renderTopOpp(scored); } catch(e) {}
+  try { _updateStickyBar(scored, sectorData, nasdaqMeta); } catch(e) {}
+}
+
+function _renderMOC(scored, sectorData, nasdaqMeta) {
+  const el = document.getElementById('moc-content');
+  if (!el) return;
+  const nm = nasdaqMeta;
+  if (!nm) { el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:8px">市場資料載入中…</div>'; return; }
+
+  const gr = nm.total > 0 ? nm.gainers / nm.total : 0.5;
+  const score = Math.max(10, Math.min(99, Math.round(gr * 130)));
+  const dir = gr > 0.60 ? { t:'偏多 📈', cls:'moc-dir-bull' }
+            : gr > 0.52 ? { t:'偏多 📊', cls:'moc-dir-bull' }
+            : gr > 0.45 ? { t:'中性 😐', cls:'moc-dir-neutral' }
+            : gr > 0.38 ? { t:'偏空 ⚠️', cls:'moc-dir-neutral' }
+            :               { t:'偏空 🚨', cls:'moc-dir-bear' };
+  const advice = gr > 0.60 ? '市場強勢，可積極選強勢板塊個股，優先低接不追高' :
+                 gr > 0.52 ? '偏多但不特別強，選優質個股，設好停損' :
+                 gr > 0.45 ? '多空拉鋸，選強勢板塊個股，縮小部位' :
+                 gr > 0.38 ? '市場偏弱，縮小倉位，嚴設停損' : '明顯偏空，建議觀望不追';
+  const sColor = score >= 60 ? 'var(--bull)' : score >= 45 ? 'var(--neutral)' : 'var(--bear)';
+  const topSectors = Object.entries(sectorData || {}).sort((a,b) => b[1].avg - a[1].avg).slice(0, 3);
+  const secHtml = topSectors.map(([n,s]) => `<span class="moc-sec-chip">${s.e||''}${n}</span>`).join('');
+  const bestPick = (scored||[]).find(d => d.investRating && !isETF(d.symbol) && !d.isDemo);
+  const hotCnt = (scored||[]).filter(d => (d.indicators?.rsi||0) > 72).length;
+  const riskTxt = hotCnt > 5 ? `⚠ ${hotCnt} 檔超買，追高風險高` : hotCnt > 2 ? `⚠ ${hotCnt} 檔 RSI 偏高` : '✅ 追高風險可控';
+
+  el.innerHTML = `
+    <div class="moc-hdr">
+      <span class="moc-title">今日市場戰情</span>
+      <span class="moc-ts">${new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}</span>
+    </div>
+    <div class="moc-dir-row">
+      <div class="moc-dir-badge ${dir.cls}">${dir.t}</div>
+      <div class="moc-score"><div class="moc-score-num" style="color:${sColor}">${score}</div><div class="moc-score-lbl">情緒分</div></div>
+    </div>
+    <div class="moc-kv-grid">
+      <div class="moc-kv"><div class="moc-kv-lbl">今日 Top Pick</div><div class="moc-kv-val" style="color:var(--bull);font-size:.9rem">${bestPick ? bestPick.symbol : '掃描中'}</div></div>
+      <div class="moc-kv"><div class="moc-kv-lbl">市場廣度</div><div class="moc-kv-val"><span style="color:var(--bull)">▲${nm.gainers}</span> <span style="color:var(--muted)">—${nm.unchanged}</span> <span style="color:var(--bear)">▼${nm.losers}</span></div></div>
+    </div>
+    <div class="moc-sectors"><span style="font-size:.6rem;color:var(--muted);align-self:center;flex-shrink:0">主線：</span>${secHtml||'<span style="color:var(--muted);font-size:.72rem">載入中</span>'}</div>
+    <div class="moc-advice"><span style="font-size:.9rem;flex-shrink:0;color:var(--purple)">✦</span><span style="color:rgba(210,168,255,.9)">${advice}</span></div>
+    <div class="moc-risk">${riskTxt}</div>`;
+}
+
+function _renderTopOpp(scored) {
+  const el = document.getElementById('top-opp-cards');
+  if (!el) return;
+  const picks = (scored||[]).filter(d => d.investRating && !isETF(d.symbol) && !d.isDemo)
+    .sort((a,b) => b.investRating.composite - a.investRating.composite).slice(0, 3);
+  if (!picks.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:.8rem;padding:14px;text-align:center;grid-column:1/-1">目前無符合條件標的，市場需趨勢+量能+停損空間確認</div>';
+    return;
+  }
+  el.innerHTML = picks.map((d, i) => {
+    const ir = d.investRating; if (!ir) return '';
+    const chg = d.changePct || 0;
+    const s = Math.round(ir.composite || 0);
+    const t = s >= 65 ? { cls:'tier-a', c:'#3fb950', bg:'rgba(63,185,80,.1)', lbl:'A級' }
+              : s >= 52 ? { cls:'tier-b', c:'#e3b341', bg:'rgba(227,179,65,.08)', lbl:'B級' }
+              : { cls:'tier-c', c:'#8b949e', bg:'rgba(139,148,158,.06)', lbl:'C級' };
+    return `<div class="toc ${t.cls}" onclick="qs('${d.symbol}');switchTab('analysis')">
+      <div class="toc-rank">#${i+1}</div>
+      <div class="toc-sym">${d.symbol}</div>
+      <div class="toc-name">${twName(d.symbol,d.name)||d.name?.slice(0,20)||''}</div>
+      <div class="toc-pr"><span class="toc-price">$${fmt(d.price)}</span><span class="toc-chg" style="color:${chg>=0?'var(--bull)':'var(--bear)'}">${chg>=0?'+':''}${fmt(chg)}%</span></div>
+      <div class="toc-score-row">
+        <div class="toc-bar"><div class="toc-bar-fill" style="width:${Math.min(100,s)}%;background:${t.c}"></div></div>
+        <span style="font-size:.7rem;font-weight:700;color:${t.c}">${s}</span>
+        <span class="toc-tier" style="background:${t.bg};color:${t.c};border:1px solid ${t.c}4d">${t.lbl}</span>
+      </div>
+      <div class="toc-grid">
+        <div class="toc-cell"><div class="toc-cell-lbl">進場區</div><div class="toc-cell-val" style="color:var(--accent)">${ir.buyLow?'$'+fmt(ir.buyLow):'$'+fmt(ir.entry)}</div></div>
+        <div class="toc-cell"><div class="toc-cell-lbl">停損價</div><div class="toc-cell-val" style="color:var(--bear)">$${fmt(ir.stop)}</div></div>
+        <div class="toc-cell"><div class="toc-cell-lbl">目標①</div><div class="toc-cell-val" style="color:var(--bull)">$${fmt(ir.tp1?.price)}</div></div>
+        <div class="toc-cell"><div class="toc-cell-lbl">目標②</div><div class="toc-cell-val" style="color:var(--bull)">$${fmt(ir.tp2?.price)}</div></div>
+      </div>
+      <div class="toc-reason">${ir.reason||'動能強勢，符合買入條件'}</div>
+      <div class="toc-btns" onclick="event.stopPropagation()">
+        <button class="toc-btn pri" onclick="openPaModal('${d.symbol}')">🔔 設警報</button>
+        <button class="toc-btn" onclick="qs('${d.symbol}');switchTab('analysis')">📊 展開分析</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function switchOppTab(tab) {
+  document.querySelectorAll('#opp-tab-nav .opp-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  ['opp-sec-news','opp-sec-tenx','opp-sec-fourd','opp-sec-buy','opp-sec-coil','opp-sec-airec'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const tabMap = { 'opp-sec-news':'news','opp-sec-tenx':'tenx','opp-sec-fourd':'fourd',
+                     'opp-sec-buy':'buy-now','opp-sec-coil':'coiling','opp-sec-airec':'ai-rec' };
+    el.classList.toggle('active', tabMap[id] === tab);
+  });
+}
+
+function _updateStickyBar(scored, sectorData, nasdaqMeta) {
+  const sdb = document.getElementById('sdb');
+  if (!sdb || !nasdaqMeta) return;
+  sdb.style.display = 'flex';
+  const gr = nasdaqMeta.total > 0 ? nasdaqMeta.gainers / nasdaqMeta.total : 0.5;
+  const dir = gr > 0.60 ? { t:'偏多 📈', c:'var(--bull)' }
+             : gr > 0.45 ? { t:'中性 😐', c:'var(--neutral)' }
+             : { t:'偏空 ⚠️', c:'var(--bear)' };
+  const best = (scored||[]).find(d => d.investRating && !isETF(d.symbol) && !d.isDemo);
+  const topSec = Object.entries(sectorData||{}).sort((a,b)=>b[1].avg-a[1].avg)[0];
+  const mood = Math.round(gr * 100);
+  const moodC = mood >= 58 ? 'var(--bull)' : mood >= 45 ? 'var(--neutral)' : 'var(--bear)';
+  const dEl = document.getElementById('sdb-direction');
+  const pEl = document.getElementById('sdb-toppick');
+  const sEl = document.getElementById('sdb-sector');
+  const mEl = document.getElementById('sdb-mood');
+  if (dEl) { dEl.textContent = dir.t; dEl.style.color = dir.c; }
+  if (pEl) pEl.textContent = best ? best.symbol : '—';
+  if (sEl) sEl.textContent = topSec ? topSec[0] : '—';
+  if (mEl) { mEl.textContent = mood + '/100'; mEl.style.color = moodC; }
+  const btn = document.getElementById('sdb-analyze-btn');
+  if (btn && best) btn.onclick = () => { qs(best.symbol); switchTab('analysis'); };
+}
+
+function _sdbAnalyzeTop() {
+  const sym = document.getElementById('sdb-toppick')?.textContent;
+  if (sym && sym !== '—') { qs(sym); switchTab('analysis'); }
+  else { switchOppTab('buy-now'); document.getElementById('ar-cards')?.scrollIntoView({behavior:'smooth'}); }
+}
+
+// ══════════════════════════════════════════════════════
 // PWA Service Worker
 // ══════════════════════════════════════════════════════
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/static/sw.js').catch(() => {});
 }
 </script>
+
+<!-- ══ StickyDecisionBar ══ -->
+<div class="sdb" id="sdb" style="display:none">
+  <div class="sdb-stat">
+    <div class="sdb-lbl">今日方向</div>
+    <div class="sdb-val" id="sdb-direction" style="color:var(--muted)">掃描中</div>
+  </div>
+  <div class="sdb-div"></div>
+  <div class="sdb-stat">
+    <div class="sdb-lbl">Top Pick</div>
+    <div class="sdb-val" id="sdb-toppick" style="color:var(--bull)">—</div>
+  </div>
+  <div class="sdb-div"></div>
+  <div class="sdb-stat">
+    <div class="sdb-lbl">主線板塊</div>
+    <div class="sdb-val" id="sdb-sector" style="color:var(--accent)">—</div>
+  </div>
+  <div class="sdb-div"></div>
+  <div class="sdb-stat">
+    <div class="sdb-lbl">市場情緒</div>
+    <div class="sdb-val" id="sdb-mood">—</div>
+  </div>
+  <div class="sdb-btns">
+    <button class="sdb-btn" onclick="switchOppTab('buy-now');document.getElementById('ar-cards')?.scrollIntoView({behavior:'smooth'})">✅ 買入機會</button>
+    <button class="sdb-btn pri" id="sdb-analyze-btn" onclick="_sdbAnalyzeTop()">📊 分析</button>
+  </div>
+</div>
 </body>
 </html>
