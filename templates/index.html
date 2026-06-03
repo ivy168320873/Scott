@@ -1044,6 +1044,142 @@ body{padding-bottom:52px}
   body{padding-bottom:0}
   .sdb{display:none}
 }
+
+/* ── StockSignalCard ─────────────────────────────── */
+.ssc{background:var(--card);border:1px solid var(--card-border);border-radius:var(--card-radius);
+  padding:13px;margin-bottom:8px;cursor:pointer;transition:border-color var(--t);position:relative;overflow:hidden}
+.ssc:hover{border-color:var(--accent)}
+.ssc.ssc-buy{border-left:3px solid var(--bull)}
+.ssc.ssc-coil{border-left:3px solid var(--neutral)}
+.ssc.ssc-risk{border-left:3px solid var(--bear)}
+.ssc.ssc-watch{border-left:3px solid var(--accent)}
+.ssc-hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:7px}
+.ssc-sym{font-size:.9rem;font-weight:900;line-height:1.2}
+.ssc-pr{font-size:.78rem;margin-top:2px;color:var(--muted)}
+.ssc-right{text-align:right;flex-shrink:0}
+.ssc-score{font-size:1.5rem;font-weight:900;line-height:1}
+.ssc-slbl{font-size:.56rem;color:var(--muted)}
+.ssc-badge{display:inline-block;font-size:.64rem;font-weight:700;padding:2px 8px;border-radius:20px;margin-top:3px;white-space:nowrap}
+.ssc-b-buy{background:rgba(63,185,80,.15);color:var(--bull);border:1px solid rgba(63,185,80,.35)}
+.ssc-b-watch{background:rgba(88,166,255,.12);color:var(--accent);border:1px solid rgba(88,166,255,.3)}
+.ssc-b-coil{background:rgba(227,179,65,.12);color:var(--neutral);border:1px solid rgba(227,179,65,.3)}
+.ssc-b-risk{background:rgba(248,81,73,.12);color:var(--bear);border:1px solid rgba(248,81,73,.3)}
+.ssc-b-no{background:rgba(139,148,158,.1);color:var(--muted);border:1px solid var(--border)}
+.ssc-levels{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:7px 0}
+.ssc-lvl{background:var(--surface2);border-radius:6px;padding:4px 6px;text-align:center}
+.ssc-lvl-lbl{font-size:.55rem;color:var(--muted);margin-bottom:1px}
+.ssc-lvl-val{font-size:.73rem;font-weight:700}
+.ssc-reason{font-size:.7rem;color:var(--muted);line-height:1.5;border-top:1px solid var(--border);padding-top:5px}
+.ssc-expand{max-height:0;overflow:hidden;transition:max-height .3s ease}
+.ssc-expand.open{max-height:500px}
+.ssc-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding-top:8px;border-top:1px solid var(--border);margin-top:7px}
+.ssc-metric{background:var(--surface2);border-radius:6px;padding:5px 7px;text-align:center}
+.ssc-metric-lbl{font-size:.54rem;color:var(--muted);margin-bottom:1px}
+.ssc-metric-val{font-size:.74rem;font-weight:700}
+.ssc-btns{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
+.ssc-btn{flex:1;padding:5px;border:1px solid var(--border);border-radius:7px;background:none;
+  color:var(--muted);font-size:.63rem;cursor:pointer;transition:all var(--t);min-height:28px;text-align:center}
+.ssc-btn:hover{border-color:var(--accent);color:var(--accent)}
+.ssc-btn-pri{background:rgba(63,185,80,.1);border-color:var(--bull)!important;color:var(--bull)!important}
+.ssc-toggle{display:block;text-align:center;font-size:.63rem;color:var(--muted);
+  padding:3px;cursor:pointer;margin-top:4px;user-select:none}
+.ssc-toggle:hover{color:var(--accent)}
+
+/* ── SectorHeatmap enhanced ────────────────────── */
+.shm-ctrl-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:5px;margin-bottom:7px}
+.shm-mode-pills{display:flex;gap:0;background:var(--surface);border:1px solid var(--border);
+  border-radius:7px;padding:2px;overflow:hidden}
+.shm-btn{padding:3px 9px;border:none;background:none;color:var(--muted);
+  font-size:.7rem;cursor:pointer;border-radius:5px;font-weight:600;white-space:nowrap;transition:all .15s}
+.shm-btn.active{background:var(--surface2);color:var(--text)}
+.shm-rank-item{display:flex;align-items:center;gap:7px;padding:5px 3px;border-bottom:1px solid var(--border)}
+.shm-rank-item:last-child{border-bottom:none}
+.shm-rank-num{font-size:.6rem;color:var(--muted);min-width:14px;text-align:right;font-weight:700}
+.shm-rank-name{font-size:.76rem;font-weight:700;min-width:70px}
+.shm-rank-bar{flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.shm-rank-fill{height:100%;border-radius:3px}
+.shm-rank-score{font-size:.7rem;font-weight:700;min-width:26px;text-align:right}
+.shm-top{background:rgba(63,185,80,.04);border:1px solid rgba(63,185,80,.18);border-radius:6px;padding:3px 5px;margin:1px 0}
+
+/* ── RelativeStrengthPanel ─────────────────────── */
+.rsp{background:var(--card);border:1px solid var(--card-border);border-radius:var(--card-radius);padding:12px;margin-top:12px}
+.rsp-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:5px}
+.rsp-title{font-size:.74rem;font-weight:700;display:flex;align-items:center;gap:5px}
+.rsp-title::before{content:'';width:3px;height:12px;border-radius:2px;display:inline-block;
+  background:linear-gradient(to bottom,var(--accent),var(--purple))}
+.rsp-pills{display:flex;gap:3px}
+.rsp-pill{padding:2px 7px;border:none;background:var(--surface2);color:var(--muted);
+  font-size:.65rem;cursor:pointer;border-radius:5px;font-weight:600;transition:all .15s}
+.rsp-pill.active{background:var(--accent);color:#000}
+.rsp-row{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)}
+.rsp-row:last-child{border-bottom:none}
+.rsp-row.rsp-top3{background:rgba(63,185,80,.04);border-radius:5px;padding-left:4px}
+.rsp-rname{font-size:.73rem;font-weight:600;min-width:78px}
+.rsp-bwrap{flex:1;height:7px;background:var(--border);border-radius:4px;overflow:hidden}
+.rsp-bfill{height:100%;border-radius:4px;transition:width .5s}
+.rsp-val{font-size:.68rem;font-weight:700;min-width:30px;text-align:right}
+.rsp-topmark{font-size:.57rem;font-weight:700;padding:1px 5px;border-radius:4px;
+  background:rgba(63,185,80,.12);color:var(--bull);border:1px solid rgba(63,185,80,.25);white-space:nowrap}
+
+/* ── DecisionNewsPanel ──────────────────────────── */
+.dnp-card{border-left:3px solid var(--border);background:var(--surface2);
+  border-radius:0 8px 8px 0;padding:8px 11px;margin-bottom:5px;transition:border-left-color .15s}
+.dnp-card.dnp-bull{border-left-color:var(--bull)}
+.dnp-card.dnp-bear{border-left-color:var(--bear)}
+.dnp-card.dnp-hi{outline:1px solid rgba(227,179,65,.25);background:rgba(227,179,65,.04)}
+.dnp-top{display:flex;gap:7px;align-items:flex-start}
+.dnp-sent{font-size:.62rem;font-weight:700;padding:2px 6px;border-radius:10px;flex-shrink:0;margin-top:1px}
+.dnp-sent.bull{background:rgba(63,185,80,.15);color:var(--bull)}
+.dnp-sent.bear{background:rgba(248,81,73,.15);color:var(--bear)}
+.dnp-sent.neutral{background:var(--surface);color:var(--muted);border:1px solid var(--border)}
+.dnp-text{flex:1;min-width:0}
+.dnp-title{font-size:.78rem;line-height:1.45;font-weight:600}
+.dnp-title a{color:var(--text);text-decoration:none}
+.dnp-title a:hover{color:var(--accent)}
+.dnp-meta{display:flex;gap:5px;align-items:center;margin-top:3px;flex-wrap:wrap}
+.dnp-src{font-size:.62rem;color:var(--muted)}
+.dnp-sym{font-size:.62rem;font-weight:700;padding:1px 5px;border-radius:4px;
+  background:var(--surface);color:var(--accent);border:1px solid rgba(88,166,255,.2)}
+.dnp-imp{display:flex;gap:2px;align-items:center;flex-shrink:0}
+.dnp-dot{width:5px;height:5px;border-radius:50%;background:var(--border)}
+.dnp-dot.on{background:var(--neutral)}
+.dnp-more{width:100%;padding:6px 12px;border:1px dashed var(--border);border-radius:7px;
+  font-size:.7rem;color:var(--muted);background:none;cursor:pointer;margin-top:4px;text-align:center}
+.dnp-more:hover{border-color:var(--accent);color:var(--accent)}
+.dnp-extra{display:none}
+
+/* ── SingleStockDashboard ─────────────────────── */
+.ssd{background:var(--card);border:1px solid var(--card-border);border-radius:var(--card-radius);
+  padding:14px;margin-bottom:14px;animation:fadeIn .25s ease}
+.ssd-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:7px}
+.ssd-htitle{font-size:.77rem;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.05em;display:flex;align-items:center;gap:5px}
+.ssd-htitle::before{content:'';width:3px;height:12px;border-radius:2px;display:inline-block;
+  background:linear-gradient(to bottom,var(--accent),var(--purple))}
+.ssd-rec-badge{font-size:.72rem;font-weight:700;padding:3px 11px;border-radius:20px}
+.ssd-body{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}
+@media(max-width:560px){.ssd-body{grid-template-columns:1fr;justify-items:center}}
+.ssd-gauge{display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0}
+.ssd-gauge svg{width:88px;height:54px}
+.ssd-gauge-score{font-size:1.45rem;font-weight:900;line-height:1}
+.ssd-gauge-lbl{font-size:.58rem;color:var(--muted)}
+.ssd-dims{width:100%}
+.ssd-dim{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+.ssd-dname{font-size:.67rem;font-weight:600;min-width:34px;color:var(--muted)}
+.ssd-dbar{flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.ssd-dfill{height:100%;border-radius:3px;transition:width .6s}
+.ssd-dval{font-size:.67rem;font-weight:700;min-width:27px;text-align:right}
+.ssd-52w{margin:10px 0 13px}
+.ssd-52w-lbl{font-size:.62rem;display:flex;justify-content:space-between;color:var(--muted);margin-bottom:5px}
+.ssd-52w-track{height:9px;background:var(--border);border-radius:5px;position:relative;overflow:visible}
+.ssd-52w-fill{position:absolute;left:0;top:0;height:100%;border-radius:5px}
+.ssd-52w-mk{position:absolute;top:-4px;bottom:-4px;width:3px;border-radius:2px;
+  background:#fff;transform:translateX(-50%);z-index:1}
+.ssd-52w-mklbl{position:absolute;top:13px;transform:translateX(-50%);font-size:.6rem;font-weight:700;white-space:nowrap}
+.ssd-recbox{border-radius:9px;padding:10px 13px;font-size:.8rem;line-height:1.6;margin-top:10px}
+.ssd-recbox strong{display:block;font-size:.86rem;margin-bottom:4px}
+.ssd-riskbox{font-size:.7rem;color:var(--bear);background:rgba(248,81,73,.07);
+  border:1px solid rgba(248,81,73,.2);border-radius:7px;padding:6px 10px;line-height:1.5;margin-top:7px}
 </style>
 </head>
 <body>
@@ -1295,11 +1431,32 @@ body{padding-bottom:52px}
       <!-- 3. Watch — coiling stocks -->
       <div class="ar-sec-lbl" style="margin-top:16px">👀 盯緊這幾檔（蓄勢待發）</div>
       <div class="auto-rec-grid" id="ar-prebreak"></div>
-      <!-- 4. Market pulse strip -->
-      <div class="ar-sec-lbl" style="margin-top:16px">🌡 今天哪個板塊最熱</div>
-      <div class="ar-sector-row" id="ar-sectors"></div>
+      <!-- 4. Market pulse strip + enhanced sector panel -->
+      <div class="shm-ctrl-row" style="margin-top:16px">
+        <div class="ar-sec-lbl" style="margin:0">🌡 今天哪個板塊最熱</div>
+        <div class="shm-mode-pills">
+          <button class="shm-btn active" id="shm-btn-badge" onclick="_shmToggle('badge')">徽章</button>
+          <button class="shm-btn" id="shm-btn-rank" onclick="_shmToggle('rank')">排行榜</button>
+          <button class="shm-btn" id="shm-btn-heat" onclick="_shmToggle('heat')">熱力圖</button>
+        </div>
+      </div>
+      <div id="ar-sectors" class="ar-sector-row"></div>
+      <div id="ar-shm-ranking" style="display:none"></div>
+      <div id="ar-shm-heat" style="display:none"></div>
       <!-- 5. Sector Rotation condensed -->
       <div id="ar-rotation" style="display:none;margin-top:4px"></div>
+      <!-- RelativeStrengthPanel -->
+      <div class="rsp" id="rsp-panel" style="display:none">
+        <div class="rsp-hdr">
+          <div class="rsp-title">板塊相對強弱</div>
+          <div class="rsp-pills">
+            <button class="rsp-pill active" id="rsp-w-btn" onclick="_rspToggle('w')">即時</button>
+            <button class="rsp-pill" id="rsp-m-btn" onclick="_rspToggle('m')">1W</button>
+            <button class="rsp-pill" id="rsp-q-btn" onclick="_rspToggle('q')">1M</button>
+          </div>
+        </div>
+        <div id="rsp-content"></div>
+      </div>
       </div><!-- /opp-sec-coil -->
       <div id="opp-sec-airec" class="opp-tab-content">
       <!-- Details toggle -->
@@ -1395,6 +1552,9 @@ body{padding-bottom:52px}
       <button class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem" onclick="exportCSV()">📥 匯出CSV</button>
     </div>
     <div class="ph" id="ph"></div>
+
+    <!-- SingleStockDashboard -->
+    <div class="ssd" id="ssd-panel" style="display:none"></div>
 
     <!-- Taiwan Stock Momentum Score Panel -->
     <div id="tw-score-panel" style="display:none;margin-bottom:14px">
@@ -4284,6 +4444,7 @@ async function search(sym) {
     renderTradingLevels(d);
     renderMoneyFlow(d);
     renderDecisionCore(d);
+    try { _renderSSD(d); } catch(e) {}
     renderSR(d);
     requestAI(d);
     loadExtendedHours(d);   // non-blocking
@@ -5166,30 +5327,50 @@ function renderNewsPanel(newsMap) {
     return;
   }
 
-  const top = all.slice(0, 10);
-  el.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:5px">
-      ${top.map(n => {
-        const e  = n.score > 0 ? '📈' : n.score < 0 ? '📉' : '📋';
-        const bc = n.score > 0 ? 'rgba(63,185,80,.08)' : n.score < 0 ? 'rgba(248,81,73,.08)' : 'var(--surface2)';
-        const symC = n.score > 0 ? 'var(--bull)' : n.score < 0 ? 'var(--bear)' : 'var(--accent)';
-        return `<a href="${n.link||'#'}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
-          <div style="background:${bc};border-radius:8px;padding:7px 10px;display:flex;gap:8px;align-items:flex-start">
-            <span style="font-size:.95rem;flex-shrink:0;line-height:1.4">${e}</span>
-            <div style="flex:1;min-width:0">
-              <div class="news-en" style="font-size:.79rem;line-height:1.45;color:var(--text)">${n.title}</div>
-              <div class="news-zh" style="display:none;font-size:.74rem;line-height:1.45;color:var(--accent);margin-top:1px"></div>
-              <div style="font-size:.67rem;color:var(--muted);margin-top:2px">
-                <b style="color:${symC}">${n.sym}</b> · ${n.publisher||'新聞'} · ${timeAgo(n.published)}
-              </div>
-            </div>
+  // Decision format: sentiment label, impact dots, affected symbol
+  const _dnpCard = (n, hidden) => {
+    const s = n.score;
+    const sent     = s > 0.3 ? '利多' : s < -0.3 ? '利空' : '中性';
+    const sentCls  = s > 0.3 ? 'bull' : s < -0.3 ? 'bear' : 'neutral';
+    const cardCls  = s > 0.3 ? 'dnp-bull' : s < -0.3 ? 'dnp-bear' : '';
+    const impact   = Math.min(5, Math.ceil(1 + Math.abs(s) * 4));
+    const hiImp    = impact >= 4;
+    const dots     = [1,2,3,4,5].map(i => `<div class="dnp-dot${i<=impact?' on':''}"></div>`).join('');
+    const symChip  = n.sym ? `<span class="dnp-sym">${n.sym}</span>` : '';
+    return `<div class="dnp-card ${cardCls}${hiImp?' dnp-hi':''}${hidden?' dnp-extra':''}">
+      <div class="dnp-top">
+        <span class="dnp-sent ${sentCls}">${sent}</span>
+        <div class="dnp-text">
+          <div class="dnp-title"><a href="${n.link||'#'}" target="_blank" rel="noopener">
+            <span class="news-en">${n.title}</span>
+          </a></div>
+          <div class="news-zh" style="display:none;font-size:.73rem;line-height:1.45;color:var(--accent);margin-top:1px"></div>
+          <div class="dnp-meta">
+            ${symChip}
+            <span class="dnp-src">${n.publisher||'新聞'} · ${timeAgo(n.published)}</span>
+            <div class="dnp-imp" title="衝擊分${impact}/5">${dots}</div>
+            ${hiImp ? '<span style="font-size:.58rem;font-weight:700;color:var(--neutral)">⚡ 高衝擊</span>' : ''}
           </div>
-        </a>`;
-      }).join('')}
-    </div>
-    <div style="text-align:right;margin-top:6px">
-      <button class="btn btn-secondary" style="font-size:.68rem;padding:2px 10px" onclick="fetchSectorNews(true)">↻ 更新消息</button>
+        </div>
+      </div>
     </div>`;
+  };
+
+  const featured = all.slice(0, 3);
+  const rest     = all.slice(3, 12);
+  el.innerHTML = featured.map(n => _dnpCard(n, false)).join('')
+    + (rest.length ? rest.map(n => _dnpCard(n, true)).join('')
+      + `<button class="dnp-more" onclick="_dnpToggleMore(this)">▾ 更多新聞（${rest.length}）</button>` : '')
+    + `<div style="text-align:right;margin-top:6px">
+        <button class="btn btn-secondary" style="font-size:.68rem;padding:2px 10px" onclick="fetchSectorNews(true)">↻ 更新消息</button>
+      </div>`;
+}
+
+function _dnpToggleMore(btn) {
+  const extras = btn.parentElement.querySelectorAll('.dnp-extra');
+  const open = extras[0]?.style.display !== 'none';
+  extras.forEach(e => { e.style.display = open ? 'none' : ''; });
+  btn.textContent = open ? `▾ 更多新聞（${extras.length}）` : '▴ 收起';
 }
 
 // ══════════════════════════════════════════════════════
@@ -7130,21 +7311,14 @@ function renderPreBreakout(scored, usedSet) {
                      :           { t:'👀 醞釀中，耐心等待', c:'var(--accent)' };
 
   el.innerHTML = top.map(d => {
-    const pb = d.preBreakMeta;
+    const pb  = d.preBreakMeta;
     const urg = urgency(d.preBreakScore);
-    return `<div class="pb-card" onclick="qs('${d.symbol}');switchTab('analysis')">
-      <div class="pb-top">
-        <div>
-          <div class="pb-sym">${d.symbol}${d.isDemo?'<span style="font-size:.6rem;color:var(--muted)"> [示]</span>':''}${twName(d.symbol,d.name)?`<span style="font-size:.62rem;font-weight:400;color:var(--muted);margin-left:3px">${twName(d.symbol,d.name)}</span>`:''}</div>
-          <div style="font-size:.78rem;color:var(--muted)">現價 ${fmt(d.price)} <span class="${pC(d.changePct)}">${sgn(d.changePct)}${fmt(d.changePct)}%</span></div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:.72rem;color:${urg.c};font-weight:600">${urg.t}</div>
-          <div style="font-size:.7rem;color:var(--muted);margin-top:2px">突破 <b style="color:var(--bull)">$${fmt(pb.triggerPrice)}</b> 可進場</div>
-        </div>
-      </div>
-      <div class="pb-bar" style="margin:7px 0 4px"><div class="pb-bar-fill" style="width:${d.preBreakScore}%;background:${urg.c}"></div></div>
-    </div>`;
+    const urgHtml = `<div style="font-size:.7rem;color:${urg.c};font-weight:600;margin-bottom:2px">${urg.t}</div>
+      <div style="font-size:.68rem;color:var(--muted)">突破 <b style="color:var(--bull)">$${fmt(pb.triggerPrice)}</b> 可進場</div>
+      <div style="height:4px;background:var(--border);border-radius:2px;margin-top:5px;overflow:hidden">
+        <div style="height:100%;border-radius:2px;width:${d.preBreakScore}%;background:${urg.c}"></div>
+      </div>`;
+    return _buildSSC(d, { scoreVal: d.preBreakScore, scoreLbl: '爆發分', extra: urgHtml });
   }).join('') || '<div style="color:var(--muted);font-size:.82rem;padding:4px 0">目前沒有蓄勢明顯的股票，繼續觀察</div>';
 }
 
@@ -11851,10 +12025,337 @@ async function runObsUpdateOutcomes() {
 // Phase 12: Mobile-First Dashboard Components
 // ══════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════
+// StockSignalCard — unified expandable card
+// ══════════════════════════════════════════════════════
+function _buildSSC(d, opts) {
+  opts = opts || {};
+  const ir = d.investRating || opts.ir || null;
+  const pb = d.preBreakMeta || null;
+  const chg = d.changePct || 0;
+  const score = opts.scoreVal != null ? opts.scoreVal
+    : (ir ? Math.round(ir.composite || 0) : Math.round(d.score || 0));
+
+  // Status badge
+  const cr = d.indicators?.chaseRisk ?? 50;
+  const bp = d.indicators?.bearPressure ?? 50;
+  let badgeCls, badgeTxt;
+  if (cr >= 65 || (bp >= 65 && score < 45)) {
+    badgeCls = 'ssc-b-risk'; badgeTxt = '⚠️ 高風險';
+  } else if (ir && score >= 65) {
+    badgeCls = 'ssc-b-buy'; badgeTxt = '✅ 可買';
+  } else if (pb && d.preBreakScore >= 45) {
+    badgeCls = 'ssc-b-coil'; badgeTxt = '⏳ 蓄勢';
+  } else if (score >= 52) {
+    badgeCls = 'ssc-b-watch'; badgeTxt = '👀 觀察';
+  } else {
+    badgeCls = 'ssc-b-no'; badgeTxt = '🚫 不追';
+  }
+
+  // Card border class
+  const borderCls = (cr >= 65 || bp >= 65) ? 'ssc-risk'
+    : (ir && score >= 65) ? 'ssc-buy'
+    : (pb && d.preBreakScore >= 45) ? 'ssc-coil'
+    : 'ssc-watch';
+
+  // Score color
+  const sColor = score >= 65 ? 'var(--bull)' : score >= 50 ? 'var(--neutral)' : 'var(--bear)';
+
+  // Levels
+  const entry = ir ? (ir.buyLow ? `$${fmt(ir.buyLow)}~${fmt(ir.buyHigh)}` : `$${fmt(ir.entry)}`)
+    : pb ? `$${fmt(pb.triggerPrice)}` : `$${fmt(d.price)}`;
+  const stop = ir ? `$${fmt(ir.stop)}` : '—';
+  const tp1  = ir ? `$${fmt(ir.tp1?.price)}` : '—';
+
+  // Summary reason
+  const reason = ir?.reason || (pb ? (pb.tags||[]).slice(0,2).map(t=>t.t).join(' · ') : '') || opts.extra || '';
+
+  // Expanded metrics
+  const rsi = (d.indicators?.rsi ?? 0).toFixed(0);
+  const macdH = d.indicators?.macdHist ?? 0;
+  const adx = (d.indicators?.adx ?? 0).toFixed(0);
+  const vr = (d.volumeRatio ?? d.monsterMeta?.volRatio ?? 1).toFixed(1);
+  const sm = Math.round(d.indicators?.smartMoney ?? 0);
+  const pbScore = d.preBreakScore ?? 0;
+  const mscore = d.monsterScore ?? 0;
+  const macdTxt = macdH > 0 ? `+${macdH.toFixed(3)}` : macdH.toFixed(3);
+  const macdC = macdH > 0 ? 'var(--bull)' : 'var(--bear)';
+  const tp2 = ir ? `$${fmt(ir.tp2?.price)}` : '—';
+
+  const uid = d.symbol.replace(/[^a-z0-9]/gi, '_');
+  const hasNote  = !!_notes[d.symbol];
+  const hasAlert = _priceAlerts.some(a => a.symbol === d.symbol);
+
+  return `<div class="ssc ssc-${borderCls}" onclick="qs('${d.symbol}');switchTab('analysis')">
+    <div class="ssc-hdr">
+      <div>
+        <div class="ssc-sym">${d.symbol}${d.isDemo?'<span style="font-size:.6rem;color:var(--muted);font-weight:400"> [示]</span>':''}${twName(d.symbol,d.name)?`<span style="font-size:.62rem;font-weight:400;color:var(--muted);margin-left:3px">${twName(d.symbol,d.name)}</span>`:''}</div>
+        <div class="ssc-pr">$${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
+      </div>
+      <div class="ssc-right">
+        <div class="ssc-score" style="color:${sColor}">${score}</div>
+        <div class="ssc-slbl">${opts.scoreLbl||'動能分'}</div>
+        <div class="ssc-badge ${badgeCls}">${badgeTxt}</div>
+      </div>
+    </div>
+    <div class="ssc-levels">
+      <div class="ssc-lvl"><div class="ssc-lvl-lbl">進場</div><div class="ssc-lvl-val" style="color:var(--accent)">${entry}</div></div>
+      <div class="ssc-lvl"><div class="ssc-lvl-lbl">停損</div><div class="ssc-lvl-val" style="color:var(--bear)">${stop}</div></div>
+      <div class="ssc-lvl"><div class="ssc-lvl-lbl">目標①</div><div class="ssc-lvl-val" style="color:var(--bull)">${tp1}</div></div>
+    </div>
+    ${reason ? `<div class="ssc-reason">${reason}</div>` : ''}
+    <div class="ssc-expand" id="ssc-exp-${uid}">
+      <div class="ssc-metrics">
+        <div class="ssc-metric"><div class="ssc-metric-lbl">RSI</div><div class="ssc-metric-val" style="color:${rsi>70?'var(--bear)':rsi<40?'var(--bear)':'var(--bull)'}">${rsi}</div></div>
+        <div class="ssc-metric"><div class="ssc-metric-lbl">MACD</div><div class="ssc-metric-val" style="color:${macdC}">${macdTxt}</div></div>
+        <div class="ssc-metric"><div class="ssc-metric-lbl">ADX</div><div class="ssc-metric-val" style="color:${adx>25?'var(--bull)':'var(--muted)'}">${adx}</div></div>
+        <div class="ssc-metric"><div class="ssc-metric-lbl">量比</div><div class="ssc-metric-val" style="color:${vr>=1.5?'var(--bull)':'var(--muted)'}">${vr}x</div></div>
+        <div class="ssc-metric"><div class="ssc-metric-lbl">主力分</div><div class="ssc-metric-val" style="color:${sm>=60?'var(--bull)':sm>=35?'var(--neutral)':'var(--muted)'}">${sm}</div></div>
+        <div class="ssc-metric"><div class="ssc-metric-lbl">目標②</div><div class="ssc-metric-val" style="color:var(--bull)">${tp2}</div></div>
+      </div>
+      <div class="ssc-btns" onclick="event.stopPropagation()">
+        <button class="ssc-btn ${hasNote?'':'ssc-btn-pri'}" onclick="openNoteModal('${d.symbol}')" title="${hasNote?'查看筆記':'新增筆記'}">📝 筆記</button>
+        <button class="ssc-btn ${hasAlert?'ssc-btn-pri':''}" onclick="openPaModal('${d.symbol}')" title="設定警報">🔔 警報</button>
+        ${ir ? `<button class="ssc-btn ssc-btn-pri" onclick="quickAddAlerts('${d.symbol}',${ir.stop},${ir.tp1?.price},this)">⚡ 快速警報</button>` : ''}
+      </div>
+    </div>
+    <span class="ssc-toggle" id="ssc-tg-${uid}" onclick="event.stopPropagation();_sscToggle('${uid}')">▾ 展開指標</span>
+  </div>`;
+}
+
+function _sscToggle(uid) {
+  const exp = document.getElementById('ssc-exp-'+uid);
+  const tg  = document.getElementById('ssc-tg-'+uid);
+  if (!exp) return;
+  const open = exp.classList.toggle('open');
+  if (tg) tg.textContent = open ? '▴ 收起' : '▾ 展開指標';
+}
+
+// ══════════════════════════════════════════════════════
+// SectorHeatmap — enhanced ranking + heatmap modes
+// ══════════════════════════════════════════════════════
+let _shmMode = 'badge';
+let _lastSectorDataForPanel = null;
+
+function _shmToggle(mode) {
+  _shmMode = mode;
+  ['badge','rank','heat'].forEach(m => {
+    document.getElementById('shm-btn-'+m)?.classList.toggle('active', m === mode);
+  });
+  document.getElementById('ar-sectors').style.display     = mode === 'badge' ? '' : 'none';
+  document.getElementById('ar-shm-ranking').style.display = mode === 'rank'  ? '' : 'none';
+  document.getElementById('ar-shm-heat').style.display    = mode === 'heat'  ? '' : 'none';
+  if (_lastSectorDataForPanel) _renderSectorPanel(_lastSectorDataForPanel);
+}
+
+function _renderSectorPanel(sectorData) {
+  _lastSectorDataForPanel = sectorData;
+  const sorted = Object.entries(sectorData).sort((a,b) => b[1].avg - a[1].avg);
+  const maxAvg = sorted[0]?.[1].avg || 70;
+
+  // Ranking view
+  const rankEl = document.getElementById('ar-shm-ranking');
+  if (rankEl && _shmMode === 'rank') {
+    rankEl.innerHTML = sorted.map(([name, s], i) => {
+      const isTop = i < 3;
+      const c = s.avg >= 58 ? 'var(--bull)' : s.avg >= 50 ? 'var(--neutral)' : 'var(--muted)';
+      const w = Math.round(s.avg / maxAvg * 100);
+      const best = [...(s.stocks||[])].sort((a,b) => b.score - a.score)[0];
+      const sym = best?.symbol || '';
+      return `<div class="shm-rank-item ${isTop ? 'shm-top' : ''}" onclick="qs('${sym}');switchTab('analysis')">
+        <span class="shm-rank-num">${i+1}</span>
+        <span class="shm-rank-name">${s.e||''} ${name}</span>
+        <div class="shm-rank-bar"><div class="shm-rank-fill" style="width:${w}%;background:${c}"></div></div>
+        <span class="shm-rank-score" style="color:${c}">${s.avg}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Heatmap view
+  const heatEl = document.getElementById('ar-shm-heat');
+  if (heatEl && _shmMode === 'heat') {
+    heatEl.innerHTML = sorted.map(([name, s]) => {
+      const cells = (s.stocks||[]).map(d => {
+        const pct = d.changePct || 0;
+        const intensity = Math.min(Math.abs(pct) / 5, 1);
+        const bg = pct > 0
+          ? `rgba(63,185,80,${(0.2 + intensity * 0.75).toFixed(2)})`
+          : `rgba(248,81,73,${(0.2 + intensity * 0.75).toFixed(2)})`;
+        return `<div class="hm-cell" style="background:${bg};color:#fff"
+          onclick="qs('${d.symbol}');switchTab('analysis')"
+          title="${d.symbol}: ${pct>=0?'+':''}${pct.toFixed(1)}%">
+          ${d.symbol.replace('.TW','').replace('.TWO','')}&nbsp;<span style="font-weight:400;font-size:.62rem">${pct>=0?'+':''}${pct.toFixed(1)}%</span>
+        </div>`;
+      }).join('');
+      return `<div class="hm-sector">
+        <div class="hm-sector-name">${s.e||''} ${name}</div>
+        <div class="hm-cells">${cells}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Always update RS panel
+  _renderRSPanel(sectorData);
+  const rsp = document.getElementById('rsp-panel');
+  if (rsp) rsp.style.display = '';
+}
+
+// ══════════════════════════════════════════════════════
+// RelativeStrengthPanel
+// ══════════════════════════════════════════════════════
+let _rspPeriod = 'w';
+
+function _rspToggle(period) {
+  _rspPeriod = period;
+  ['w','m','q'].forEach(p => {
+    document.getElementById(`rsp-${p}-btn`)?.classList.toggle('active', p === period);
+  });
+  if (_lastSectorDataForPanel) _renderRSPanel(_lastSectorDataForPanel);
+}
+
+function _renderRSPanel(sectorData) {
+  const el = document.getElementById('rsp-content');
+  if (!el) return;
+  const sorted = Object.entries(sectorData).sort((a,b) => b[1].avg - a[1].avg);
+  if (!sorted.length) return;
+  const maxAvg = sorted[0][1].avg || 70;
+  const minAvg = sorted[sorted.length-1][1].avg || 30;
+  const mid = (maxAvg + minAvg) / 2;
+
+  el.innerHTML = sorted.map(([name, s], i) => {
+    const isTop3 = i < 3;
+    const diff = Math.round(s.avg - mid);
+    const pct = Math.round((s.avg - minAvg) / Math.max(maxAvg - minAvg, 1) * 100);
+    const c = s.avg >= mid + 5 ? 'var(--bull)' : s.avg <= mid - 5 ? 'var(--bear)' : 'var(--muted)';
+    const label = s.avg >= mid + 5 ? '強勢' : s.avg <= mid - 5 ? '偏弱' : '';
+    return `<div class="rsp-row${isTop3 ? ' rsp-top3' : ''}">
+      <span class="rsp-rname">${s.e||''} ${name.slice(0,6)}</span>
+      <div class="rsp-bwrap">
+        <div class="rsp-bfill" style="width:${pct}%;background:${c}"></div>
+      </div>
+      <span class="rsp-val" style="color:${c}">${diff >= 0 ? '+' : ''}${diff}</span>
+      ${isTop3 && label ? `<span class="rsp-topmark">${label}</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// SingleStockDashboard — 5-dimension panel
+// ══════════════════════════════════════════════════════
+function _renderSSD(d) {
+  const el = document.getElementById('ssd-panel');
+  if (!el) return;
+  el.style.display = '';
+
+  const ind = d.indicators;
+  const rsi  = ind.rsi   ?? 50;
+  const macdH = ind.macdHist ?? 0;
+  const adx  = ind.adx  ?? 0;
+  const sm   = ind.smartMoney   ?? 50;
+  const bp   = ind.bearPressure ?? 50;
+  const cr   = ind.chaseRisk    ?? 50;
+  const rs   = ind.resonance    ?? 50;
+  const score = d.score || 0;
+
+  // Compute 5 dimensions
+  const trend    = Math.min(100, Math.round((adx / 50) * 40 + (d.bullMa / 5) * 40 + (rs / 100) * 20));
+  const vr       = Math.min((d.volumeRatio ?? 1) / 3, 1);
+  const volume   = Math.min(100, Math.round(vr * 40 + sm * 0.6));
+  const momentum = Math.min(100, Math.round((rsi / 100) * 55 + (macdH > 0 ? 45 : macdH > -0.005 ? 30 : 15)));
+  const risk     = Math.min(100, Math.round((1 - cr / 100) * 50 + (1 - bp / 100) * 50));
+  const strength = Math.min(100, Math.round(Math.max(0, 1 - Math.abs(d.pctFromHigh||0) / 30) * 30 + score * 0.7));
+
+  const dims = [
+    { n:'趨勢', v:trend },
+    { n:'量能', v:volume },
+    { n:'動能', v:momentum },
+    { n:'風險', v:risk },
+    { n:'強弱', v:strength },
+  ];
+  const dC = v => v >= 65 ? 'var(--bull)' : v >= 45 ? 'var(--accent)' : 'var(--bear)';
+
+  // SVG gauge (half-circle)
+  const arcLen = 125.66;
+  const dashOff = (arcLen * (1 - Math.min(score, 100) / 100)).toFixed(1);
+  const gColor = score >= 65 ? '#3fb950' : score >= 50 ? '#e3b341' : '#f85149';
+
+  // 52-week position
+  const fromLow  = d.pctFromLow  ?? 0;
+  const fromHigh = d.pctFromHigh ?? 0;
+  const range52  = Math.abs(fromHigh) + fromLow;
+  const pos52    = range52 > 0 ? Math.min(99, Math.max(1, Math.round(fromLow / range52 * 100))) : 50;
+
+  // Trade recommendation from investRating or computed
+  let ir = d.investRating || null;
+  if (!ir) {
+    try {
+      const pbs = calcPreBreakoutScore(d);
+      ir = calcInvestmentRating(d, pbs.score);
+    } catch(e) {}
+  }
+
+  const recColor   = score >= 65 ? 'rgba(63,185,80,.12)'   : score >= 50 ? 'rgba(227,179,65,.1)' : 'rgba(248,81,73,.1)';
+  const recBorder  = score >= 65 ? 'rgba(63,185,80,.4)'    : score >= 50 ? 'rgba(227,179,65,.3)'  : 'rgba(248,81,73,.3)';
+  const badgeStyle = score >= 65 ? 'background:rgba(63,185,80,.15);color:var(--bull);border:1px solid rgba(63,185,80,.4)'
+    : score >= 50 ? 'background:rgba(227,179,65,.12);color:var(--neutral);border:1px solid rgba(227,179,65,.3)'
+    : 'background:rgba(248,81,73,.12);color:var(--bear);border:1px solid rgba(248,81,73,.3)';
+  const recLabel = score >= 65 ? '✅ 可考慮進場' : score >= 50 ? '📊 觀察等信號' : '⚠️ 謹慎觀望';
+
+  const riskWarn = cr >= 65 ? '⚠️ 追高風險過高，RSI超買區間，建議等候回調再買'
+    : bp >= 62 ? '⚠️ 空方壓力偏重，謹慎操作，嚴設停損'
+    : score < 40 ? '⚠️ 動能偏弱，確認趨勢後再進場'
+    : '';
+
+  el.innerHTML = `
+    <div class="ssd-hdr">
+      <div class="ssd-htitle">五維度分析</div>
+      <span class="ssd-rec-badge" style="${badgeStyle}">${recLabel}</span>
+    </div>
+    <div class="ssd-body">
+      <div class="ssd-gauge">
+        <svg viewBox="0 0 100 60" style="overflow:visible">
+          <path d="M10,55 A40,40 0 0,1 90,55" fill="none" stroke="var(--border)" stroke-width="9" stroke-linecap="round"/>
+          <path d="M10,55 A40,40 0 0,1 90,55" fill="none" stroke="${gColor}" stroke-width="9" stroke-linecap="round"
+            stroke-dasharray="${arcLen}" stroke-dashoffset="${dashOff}"/>
+        </svg>
+        <div class="ssd-gauge-score" style="color:${gColor}">${score.toFixed(0)}</div>
+        <div class="ssd-gauge-lbl">動能分</div>
+      </div>
+      <div class="ssd-dims">
+        ${dims.map(dim => `
+        <div class="ssd-dim">
+          <span class="ssd-dname">${dim.n}</span>
+          <div class="ssd-dbar"><div class="ssd-dfill" style="width:${dim.v}%;background:${dC(dim.v)}"></div></div>
+          <span class="ssd-dval" style="color:${dC(dim.v)}">${dim.v}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div class="ssd-52w">
+      <div class="ssd-52w-lbl">
+        <span>52W低 $${fmt(d.low52||0)}</span>
+        <span>位置 ${pos52}%</span>
+        <span>52W高 $${fmt(d.high52||0)}</span>
+      </div>
+      <div class="ssd-52w-track">
+        <div class="ssd-52w-fill" style="width:${pos52}%;background:linear-gradient(to right,var(--bear),var(--neutral),var(--bull))"></div>
+        <div class="ssd-52w-mk" style="left:${pos52}%"></div>
+        <div class="ssd-52w-mklbl" style="left:${pos52}%">$${fmt(d.price)}</div>
+      </div>
+    </div>
+    ${ir ? `<div class="ssd-recbox" style="background:${recColor};border:1px solid ${recBorder}">
+      <strong>${ir.reason || (score >= 65 ? '趨勢強勁，符合買入條件' : score >= 50 ? '中性整理，等待突破信號' : '動能偏弱，建議觀望')}</strong>
+      進場區間 <b style="color:var(--accent)">$${ir.buyLow ? fmt(ir.buyLow)+' ~ $'+fmt(ir.buyHigh) : fmt(ir.entry)}</b> ·
+      停損 <b style="color:var(--bear)">$${fmt(ir.stop)}</b> ·
+      目標① <b style="color:var(--bull)">$${fmt(ir.tp1?.price)}</b>
+    </div>` : ''}
+    ${riskWarn ? `<div class="ssd-riskbox">${riskWarn}</div>` : ''}`;
+}
+
 function _updateDashboard(scored, sectorData, nasdaqMeta) {
   try { _renderMOC(scored, sectorData, nasdaqMeta); } catch(e) {}
   try { _renderTopOpp(scored); } catch(e) {}
   try { _updateStickyBar(scored, sectorData, nasdaqMeta); } catch(e) {}
+  try { _renderSectorPanel(sectorData); } catch(e) {}
 }
 
 function _renderMOC(scored, sectorData, nasdaqMeta) {
