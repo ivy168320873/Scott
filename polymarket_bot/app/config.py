@@ -8,7 +8,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import List
 
-from pydantic import Field, field_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,11 +25,14 @@ class Settings(BaseSettings):
     clob_rest_url: str = Field("https://clob.polymarket.com", alias="CLOB_REST_URL")
     clob_ws_url: str = Field("wss://ws-subscribe-clob.polymarket.com/ws/market", alias="CLOB_WS_URL")
     gamma_api_url: str = Field("https://gamma-api.polymarket.com", alias="GAMMA_API_URL")
-    tracked_markets: List[str] = Field(default_factory=list, alias="TRACKED_MARKETS")
+    # Stored as raw CSV strings: pydantic-settings JSON-decodes List-typed env
+    # vars, which would reject a plain comma-separated value. We split manually
+    # via the properties below.
+    tracked_markets_raw: str = Field("", alias="TRACKED_MARKETS")
     auto_track_top_n: int = Field(10, alias="AUTO_TRACK_TOP_N")
 
     # --- News ---------------------------------------------------------------
-    news_rss_feeds: List[str] = Field(default_factory=list, alias="NEWS_RSS_FEEDS")
+    news_rss_feeds_raw: str = Field("", alias="NEWS_RSS_FEEDS")
     news_poll_seconds: int = Field(30, alias="NEWS_POLL_SECONDS")
 
     # --- LLM ----------------------------------------------------------------
@@ -64,15 +67,17 @@ class Settings(BaseSettings):
     port: int = Field(8000, alias="PORT")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
 
-    @field_validator("tracked_markets", "news_rss_feeds", mode="before")
-    @classmethod
-    def _split_csv(cls, v):
-        """Accept comma-separated strings from env vars as lists."""
-        if v is None or v == "":
-            return []
-        if isinstance(v, str):
-            return [item.strip() for item in v.split(",") if item.strip()]
-        return v
+    @staticmethod
+    def _split_csv(raw: str) -> List[str]:
+        return [item.strip() for item in (raw or "").split(",") if item.strip()]
+
+    @property
+    def tracked_markets(self) -> List[str]:
+        return self._split_csv(self.tracked_markets_raw)
+
+    @property
+    def news_rss_feeds(self) -> List[str]:
+        return self._split_csv(self.news_rss_feeds_raw)
 
 
 @lru_cache
