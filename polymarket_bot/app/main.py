@@ -5,6 +5,7 @@ or:        python -m app.main
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -37,13 +38,26 @@ async def lifespan(app: FastAPI):
     if settings.live_trading_enabled:
         raise RuntimeError("LIVE_TRADING_ENABLED=true is not permitted in v1 (paper-only).")
 
-    await init_pool()
-    orchestrator = Orchestrator()
-    await orchestrator.start()
-    log.info("Startup complete")
+    app.state.boot_error = None
+
+    async def _boot():
+        global orchestrator
+        try:
+            await init_pool()
+            orchestrator = Orchestrator()
+            await orchestrator.start()
+            log.info("Startup complete")
+        except Exception as exc:  # noqa: BLE001
+            app.state.boot_error = repr(exc)
+            log.exception("startup failed: %s", exc)
+
+    # Boot in the background so the server binds $PORT immediately; any failure
+    # (DB unreachable, etc.) is surfaced via /api/health rather than crashing.
+    boot_task = asyncio.create_task(_boot())
     try:
         yield
     finally:
+        boot_task.cancel()
         if orchestrator:
             await orchestrator.stop()
         await close_pool()
@@ -58,8 +72,15 @@ app = FastAPI(title="Polymarket Paper Trading Bot", version="0.1.0", lifespan=li
 # --------------------------------------------------------------------------- #
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "live_trading_enabled": settings.live_trading_enabled,
-            "open_positions": orchestrator.trader.open_count if orchestrator else 0}
+    boot_error = getattr(app.state, "boot_error", None)
+    return {
+        "status": "ok" if boot_error is None else "degraded",
+        "boot_error": boot_error,
+        "orchestrator_ready": bool(orchestrator and orchestrator.ready),
+        "orchestrator_last_error": orchestrator.last_error if orchestrator else None,
+        "live_trading_enabled": settings.live_trading_enabled,
+        "open_positions": orchestrator.trader.open_count if orchestrator else 0,
+    }
 
 
 @app.get("/api/markets")

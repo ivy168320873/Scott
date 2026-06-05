@@ -42,18 +42,37 @@ class Orchestrator:
         self.ingestor = NewsIngestor(self.news_queue)
         self.ws: Optional[PolymarketWS] = None
         self._tasks: List[asyncio.Task] = []
+        self._supervisor: Optional[asyncio.Task] = None
         self._markets: List[dict] = []
+        self.ready: bool = False
+        self.last_error: Optional[str] = None
 
     # ------------------------------------------------------------------ #
     async def start(self) -> None:
-        assert not self.settings.live_trading_enabled, "v1 is paper-only; LIVE_TRADING_ENABLED must be false"
-        await self._bootstrap_markets()
+        """Return immediately; heavy network bootstrap runs in the background.
 
-        token_ids = [t for t in self.store.tracked_tokens()]
+        This keeps the HTTP server able to bind $PORT and answer health checks
+        right away — Polymarket API latency / outages must never block boot.
+        """
+        assert not self.settings.live_trading_enabled, "v1 is paper-only; LIVE_TRADING_ENABLED must be false"
+        self._supervisor = asyncio.create_task(self._bootstrap_and_run(), name="supervisor")
+
+    async def _bootstrap_and_run(self) -> None:
+        # Market discovery hits the network and may fail; never let that stop
+        # the news / trade-management loops from running.
+        try:
+            await self._bootstrap_markets()
+        except Exception as exc:  # noqa: BLE001
+            self.last_error = f"market bootstrap failed: {exc!r}"
+            log.exception("market bootstrap failed; continuing with empty market set")
+
+        token_ids = self.store.tracked_tokens()
         self.ws = PolymarketWS(self.store)
 
-        # Seed REST snapshots so signals can fire before the first WS tick.
-        await self._seed_books()
+        try:
+            await self._seed_books()
+        except Exception as exc:  # noqa: BLE001
+            log.exception("seeding books failed: %s", exc)
 
         self._tasks = [
             asyncio.create_task(self.ws.run(token_ids), name="ws"),
@@ -62,15 +81,18 @@ class Orchestrator:
             asyncio.create_task(self._classify_loop(), name="classify"),
             asyncio.create_task(self.trader.manage_loop(), name="trader"),
         ]
+        self.ready = True
         log.info("Orchestrator started with %d markets / %d tokens",
                  len(self._markets), len(token_ids))
 
     async def stop(self) -> None:
+        if self._supervisor:
+            self._supervisor.cancel()
         if self.ws:
             self.ws.stop()
         for t in self._tasks:
             t.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        await asyncio.gather(self._supervisor, *self._tasks, return_exceptions=True)
         await self.clob.close()
         log.info("Orchestrator stopped")
 
