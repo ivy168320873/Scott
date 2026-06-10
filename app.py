@@ -3988,26 +3988,99 @@ def _obs_auto_record_from_result(sym: str, result: dict, market_st: str = "") ->
         pass
 
 
-# ── Top-Tier Decision Engine — Phase 13 ──────────────────────────────────────
-import top_tier_engine as _tte
+# ── Top-Tier Decision System — Phase 13B ──────────────────────────────────────
+import top_tier_engine          as _tte    # legacy simplified engine (UI compat)
+import market_regime_engine     as _mre
+import data_quality_engine      as _dqe
+import top_tier_decision_engine as _ttde
 
+
+# ── GET /api/market-regime ────────────────────────────────────────────────────
+
+@app.route("/api/market-regime")
+def api_market_regime():
+    """
+    Current market regime: RISK_ON / NEUTRAL / RISK_OFF / CRASH_RISK.
+    Based on SPY and QQQ MA positions and daily changes.
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        result = _mre.run_market_regime(_get_ohlcv_norm)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── GET /api/top-tier-decision/<symbol> ──────────────────────────────────────
+
+@app.route("/api/top-tier-decision/<symbol>")
+def api_top_tier_decision_get(symbol: str):
+    """
+    Full top-tier decision for a symbol.
+    Optional query params: cost, holding_days
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        sym  = str(symbol or "").upper().strip()
+        cost = float(request.args.get("cost", 0) or 0)
+        days = int(request.args.get("holding_days", 0) or 0)
+        if not sym:
+            return jsonify({"ok": False, "error": "symbol 不能為空"}), 400
+        result = _ttde.run_top_tier_decision(
+            sym, _get_ohlcv_norm, cost=cost, holding_days=days
+        )
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── POST /api/top-tier-decision ───────────────────────────────────────────────
 
 @app.route("/api/top-tier-decision", methods=["POST"])
 def api_top_tier_decision():
     """
-    Top-Tier Decision Mode: 10-dimension final decision layer.
-    Body: {
-      symbol, price, change_pct, momentum_score, volume_ratio,
-      pct_from_high, indicators, sector_data, ai_result,
-      watchlist, nasdaq_meta
-    }
+    Full top-tier decision. Accepts:
+      { symbol, cost?, holding_days?, sector_name?,
+        watchlist_symbols?[list of symbol strings] }
+    Also accepts legacy frontend payload (falls back gracefully).
     """
     auth = _require_auth()
     if auth:
         return auth
     try:
         body = request.json or {}
-        result = _tte.run_top_tier(body)
+        sym  = str(body.get("symbol", "") or "").upper().strip()
+
+        # Legacy frontend path: no symbol means pre-computed data from old engine
+        if not sym:
+            result = _tte.run_top_tier(body)
+            return jsonify(result)
+
+        cost  = float(body.get("cost", 0) or 0)
+        days  = int(body.get("holding_days", 0) or 0)
+        sec_n = str(body.get("sector_name", "") or "")
+
+        # Build watchlist ohlcv map if symbols provided
+        wl_syms = body.get("watchlist_symbols") or []
+        wl_ohlcv: dict = {}
+        for ws in (wl_syms or []):
+            try:
+                wl_ohlcv[str(ws).upper()] = _get_ohlcv_norm(str(ws).upper())
+            except Exception:
+                pass
+
+        result = _ttde.run_top_tier_decision(
+            sym, _get_ohlcv_norm,
+            cost=cost, holding_days=days,
+            sector_name=sec_n,
+            watchlist_ohlcv=wl_ohlcv if wl_ohlcv else None,
+        )
         return jsonify(result)
     except Exception as e:
         traceback.print_exc()
