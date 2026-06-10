@@ -27,8 +27,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
 
-import market_regime_engine  as _mre
-import data_quality_engine   as _dqe
+import market_regime_engine   as _mre
+import data_quality_engine    as _dqe
+import position_sizing_engine as _pse
 from risk_engine   import calc_chase_risk
 from sell_engine   import calc_sell_decision
 from sector_engine import calc_sector_leadership
@@ -209,8 +210,18 @@ def run_top_tier_decision(
         and not must_not_buy
     )
 
-    # Position size
-    pos_level = _position_size(decision, regime, chase_score, top_tier_score, mr["risk_budget_multiplier"])
+    # Position sizing (Phase 12B)
+    pos_result = _pse.run_position_sizing({
+        "decision":          decision,
+        "top_tier_score":    top_tier_score,
+        "market_regime":     regime,
+        "risk_budget_mult":  mr.get("risk_budget_multiplier", 1.0),
+        "chase_risk_score":  chase_score,
+        "ohlcv":             ohlcv,
+        "win_rate_estimate": 0.60 if decision == "STRONG_BUY" else 0.55,
+        "reward_risk_ratio": 2.5  if decision == "STRONG_BUY" else 2.0,
+    })
+    pos_level = pos_result.get("position_size_level", "NO_TRADE")
 
     # Next check time
     next_check = _next_check_time(decision)
@@ -234,6 +245,7 @@ def run_top_tier_decision(
         "market_score":        mr.get("market_score"),
         "market_permission":   market_permission,
         "position_size_level": pos_level,
+        "position_sizing":     pos_result,
         "main_reason":         _main_reason(decision, level, top_tier_score, symbol),
         "bull_case":           bull_case,
         "bear_case":           bear_case,
@@ -504,23 +516,6 @@ def _build_cases(ohlcv, cr, sd, sl, mr) -> tuple[list, list]:
 
     return bull[:5], bear[:5]
 
-
-def _position_size(decision, regime, chase_score, score, budget_mult) -> str:
-    if decision in ("AVOID", "SELL", "STOP_LOSS"):
-        return "NO_TRADE"
-    if decision in ("WATCH", "HOLD"):
-        return "NO_TRADE"
-    if regime in ("CRASH_RISK", "RISK_OFF"):
-        return "NO_TRADE"
-    if decision == "STRONG_BUY" and chase_score < 35 and score >= 85:
-        return "AGGRESSIVE" if budget_mult >= 1.0 else "NORMAL"
-    if decision == "BUY":
-        if chase_score > 60 or budget_mult < 0.6:
-            return "SMALL"
-        return "NORMAL"
-    if decision == "TRIM":
-        return "TINY"
-    return "TINY"
 
 
 def _next_check_time(decision: str) -> str:

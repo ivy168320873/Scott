@@ -3993,6 +3993,7 @@ import top_tier_engine          as _tte    # legacy simplified engine (UI compat
 import market_regime_engine     as _mre
 import data_quality_engine      as _dqe
 import top_tier_decision_engine as _ttde
+import position_sizing_engine   as _pse
 
 
 # ── GET /api/market-regime ────────────────────────────────────────────────────
@@ -4081,6 +4082,95 @@ def api_top_tier_decision():
             sector_name=sec_n,
             watchlist_ohlcv=wl_ohlcv if wl_ohlcv else None,
         )
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Position Sizing Engine — Phase 12B ────────────────────────────────────────
+
+@app.route("/api/position-size", methods=["POST"])
+def api_position_size():
+    """
+    Compute optimal position size using Fixed-Risk + Half-Kelly + ATR methods.
+    Body: {
+      decision          : "STRONG_BUY" | "BUY" | ...
+      top_tier_score    : int 0-100
+      market_regime     : "RISK_ON" | "NEUTRAL" | "RISK_OFF" | "CRASH_RISK"
+      risk_budget_mult  : float 0.0-1.5
+      chase_risk_score  : int 0-100
+      symbol?           : str   (optional; fetches OHLCV for ATR)
+      account_size?     : float (USD; enables share/dollar output)
+      entry_price?      : float
+      stop_loss_price?  : float (override; default = ATR-based)
+      risk_per_trade_pct? : float (default 1.0)
+      max_position_pct?   : float % (default 15.0)
+      win_rate_estimate?  : float 0-1 (default 0.55)
+      reward_risk_ratio?  : float (default 2.0)
+    }
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body = request.json or {}
+        sym  = str(body.get("symbol", "") or "").upper().strip()
+
+        # Fetch OHLCV for ATR calculation if symbol provided
+        if sym and "ohlcv" not in body:
+            try:
+                body["ohlcv"] = _get_ohlcv_norm(sym)
+            except Exception:
+                pass
+
+        result = _pse.run_position_sizing(body)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/position-size/<symbol>")
+def api_position_size_get(symbol: str):
+    """
+    Quick position size check for a symbol using current market conditions.
+    Queries market regime and chase risk automatically.
+    Optional query params: account_size, risk_per_trade_pct, entry_price, cost
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        sym = str(symbol or "").upper().strip()
+        if not sym:
+            return jsonify({"ok": False, "error": "symbol 不能為空"}), 400
+
+        # Fetch all data
+        ohlcv  = _get_ohlcv_norm(sym)
+        mr     = _mre.run_market_regime(_get_ohlcv_norm)
+        from risk_engine import calc_chase_risk
+        cr     = calc_chase_risk(ohlcv) if (ohlcv or {}).get("closes") else {"score": 50}
+
+        account = float(request.args.get("account_size", 0) or 0)
+        risk_pct = float(request.args.get("risk_per_trade_pct", 1.0) or 1.0)
+        entry   = float(request.args.get("entry_price", 0) or 0)
+
+        payload = {
+            "decision":           "BUY",   # conservative default
+            "top_tier_score":     60,
+            "market_regime":      mr.get("market_regime", "NEUTRAL"),
+            "risk_budget_mult":   mr.get("risk_budget_multiplier", 0.6),
+            "chase_risk_score":   cr.get("score") or 50,
+            "ohlcv":              ohlcv,
+            "account_size":       account,
+            "entry_price":        entry or None,
+            "risk_per_trade_pct": risk_pct,
+        }
+        result = _pse.run_position_sizing(payload)
+        result["symbol"] = sym
+        result["market_regime"] = mr.get("market_regime")
+        result["chase_risk_score"] = cr.get("score")
         return jsonify(result)
     except Exception as e:
         traceback.print_exc()
