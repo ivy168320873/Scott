@@ -4182,6 +4182,94 @@ def api_position_size_get(symbol: str):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# ── Signal Confidence Engine — Phase 12C ──────────────────────────────────────
+import signal_confidence_engine as _sce
+
+try:
+    _sce.init_db(_USER_DATA_DB)
+except Exception:
+    traceback.print_exc()
+
+
+@app.route("/api/signal-confidence")
+def api_signal_confidence_all():
+    """Return confidence statistics for all signal types."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        data = _sce.get_confidence_stats()
+        return jsonify({"ok": True, "signal_confidence": data})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/signal-confidence/<signal_type>")
+def api_signal_confidence_type(signal_type: str):
+    """Return confidence statistics for a single signal type."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    valid = {st.upper() for st in _sce.SIGNAL_TYPES}
+    stype = signal_type.upper().replace("-", "_")
+    if stype not in valid:
+        return jsonify({"ok": False, "error": f"Unknown signal type. Valid: {sorted(valid)}"}), 400
+    try:
+        data = _sce.get_confidence_stats(stype)
+        return jsonify({"ok": True, "signal_confidence": data})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/signal-confidence/record", methods=["POST"])
+def api_signal_confidence_record():
+    """Manually record one signal for testing or production use."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body = request.json or {}
+        result = _sce.record_signal(body)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/signal-confidence/update-outcomes", methods=["POST"])
+def api_signal_confidence_update():
+    """Update 1d/3d/5d outcomes for recorded signals."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body = request.json or {}
+        # Accept either a single dict or {"updates": [...]}
+        updates = body if isinstance(body, list) else body.get("updates", body)
+        result = _sce.update_outcomes(updates)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/signal-history")
+def api_signal_history():
+    """Return recent signal history records."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        limit = int(request.args.get("limit", 50))
+        data  = _sce.get_signal_history(limit=limit)
+        return jsonify({"ok": True, "count": len(data), "records": data})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")

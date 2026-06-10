@@ -32,6 +32,12 @@ try:
 except ImportError:
     _HAS_DP = False
 
+try:
+    import signal_confidence_engine as _sce
+    _HAS_SCE = True
+except ImportError:
+    _HAS_SCE = False
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -647,6 +653,56 @@ def _rule_based_summary(report: dict) -> str:
     return "\n".join(lines)
 
 
+def _build_signal_confidence_summary() -> dict:
+    """Return a compact confidence summary for the daily report."""
+    if not _HAS_SCE:
+        return {"available": False}
+    try:
+        all_stats = _sce.get_confidence_stats()
+        if not isinstance(all_stats, list):
+            return {"available": False}
+
+        def _pick(stype):
+            for s in all_stats:
+                if s.get("signal_type") == stype:
+                    return s
+            return _sce._empty_stats(stype)
+
+        buy_s    = _pick("BUY")
+        sbuy_s   = _pick("STRONG_BUY")
+        sell_s   = _pick("SELL")
+        trim_s   = _pick("TRIM")
+        kill_s   = _pick("KILL_SIGNAL")
+        chase_s  = _pick("CHASE_RISK_HIGH")
+
+        warnings: list[str] = []
+        for s in [buy_s, sbuy_s]:
+            if s.get("sample_size", 0) > 0 and s.get("recommendation") == "REDUCE_WEIGHT":
+                warnings.append(f"{s['signal_type']} 可信度偏低，建議降低倉位")
+            if s.get("sample_size", 0) < 20:
+                warnings.append(f"{s['signal_type']} 樣本數不足（{s.get('sample_size',0)}），統計不可靠")
+
+        return {
+            "available":       True,
+            "buy_confidence":  buy_s.get("confidence_score"),
+            "buy_win_rate_5d": buy_s.get("win_rate_5d"),
+            "buy_rec":         buy_s.get("recommendation"),
+            "buy_sample":      buy_s.get("sample_size"),
+            "strong_buy_confidence": sbuy_s.get("confidence_score"),
+            "strong_buy_sample":     sbuy_s.get("sample_size"),
+            "sell_confidence": sell_s.get("confidence_score"),
+            "sell_win_rate_5d": sell_s.get("win_rate_5d"),
+            "trim_confidence": trim_s.get("confidence_score"),
+            "kill_signal_accuracy_3d": kill_s.get("win_rate_3d"),
+            "kill_signal_sample": kill_s.get("sample_size"),
+            "chase_risk_accuracy_3d": chase_s.get("win_rate_3d"),
+            "chase_risk_sample": chase_s.get("sample_size"),
+            "warnings":        warnings,
+        }
+    except Exception:
+        return {"available": False}
+
+
 def _generate_ai_summary(report: dict, ai_fn) -> str:
     """
     Call ai_fn with a structured prompt. Fall back to _rule_based_summary on any failure.
@@ -791,6 +847,9 @@ def generate_report(
 
     # --- 10. AI summary ---
     report["ai_summary"] = _generate_ai_summary(report, ai_fn)
+
+    # --- 11. Signal confidence summary (Phase 12C) ---
+    report["signal_confidence_summary"] = _build_signal_confidence_summary()
 
     return report
 

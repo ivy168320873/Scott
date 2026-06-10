@@ -34,6 +34,12 @@ from risk_engine   import calc_chase_risk
 from sell_engine   import calc_sell_decision
 from sector_engine import calc_sector_leadership
 
+try:
+    import signal_confidence_engine as _sce
+    _HAS_SCE = True
+except ImportError:
+    _HAS_SCE = False
+
 _DISCLAIMER = "此為決策輔助系統，不代表自動下單，不構成投資建議。操作前請自行評估風險。"
 
 
@@ -210,6 +216,22 @@ def run_top_tier_decision(
         and not must_not_buy
     )
 
+    # Phase 12C: Signal confidence calibration override
+    calibration: dict = {}
+    if _HAS_SCE and decision in ("STRONG_BUY", "BUY", "WATCH", "HOLD", "TRIM", "SELL", "AVOID"):
+        try:
+            calibration = _sce.get_calibration_override(decision, regime)
+            cal_max = calibration.get("max_decision")
+            if cal_max:
+                _DECISION_ORDER = ["STRONG_BUY", "BUY", "WATCH", "HOLD", "TRIM", "SELL", "AVOID"]
+                cur_idx = _DECISION_ORDER.index(decision) if decision in _DECISION_ORDER else -1
+                cap_idx = _DECISION_ORDER.index(cal_max)  if cal_max  in _DECISION_ORDER else -1
+                if cur_idx != -1 and cap_idx != -1 and cur_idx < cap_idx:
+                    decision = cal_max
+                    risk_controls.append(f"訊號信心校準：{calibration['notes'][-1] if calibration.get('notes') else f'降級為 {cal_max}'}")
+        except Exception:
+            pass
+
     # Position sizing (Phase 12B)
     pos_result = _pse.run_position_sizing({
         "decision":          decision,
@@ -269,6 +291,7 @@ def run_top_tier_decision(
         "chase_risk":      cr,
         "sell_decision":   sd,
         "sector_leadership": sl,
+        "signal_calibration": calibration if calibration else None,
     }
 
 
