@@ -44,6 +44,12 @@ try:
 except ImportError:
     _HAS_POE = False
 
+try:
+    import investment_committee_engine as _ice
+    _HAS_ICE = True
+except ImportError:
+    _HAS_ICE = False
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -709,6 +715,58 @@ def _build_signal_confidence_summary() -> dict:
         return {"available": False}
 
 
+def _build_committee_summary(
+    watchlist: list, ohlcv_fn
+) -> dict:
+    """
+    Run Investment Committee for top watchlist symbols (Phase 15).
+    Returns a compact summary for the daily report.
+    """
+    if not _HAS_ICE or not watchlist or not ohlcv_fn:
+        return {"available": False}
+    try:
+        symbols = [str(s).upper().strip() for s in watchlist[:5] if s]
+        if not symbols:
+            return {"available": False}
+
+        results: list[dict] = []
+        for sym in symbols:
+            try:
+                r = _ice.run_investment_committee(sym, ohlcv_fn)
+                results.append({
+                    "symbol":          sym,
+                    "final_decision":  r.get("final_decision"),
+                    "confidence":      r.get("confidence"),
+                    "committee_score": r.get("committee_score"),
+                    "buy_votes":       r.get("buy_votes"),
+                    "sell_votes":      r.get("sell_votes"),
+                    "top_reason":      (r.get("majority_reasons") or ["—"])[0],
+                    "minority_reason": (r.get("minority_reasons") or ["—"])[0],
+                    "override_notes":  r.get("override_notes", []),
+                    "is_demo":         r.get("is_demo", True),
+                })
+            except Exception:
+                results.append({"symbol": sym, "final_decision": "N/A", "confidence": 0})
+
+        strong_buys = [r for r in results if r.get("final_decision") == "STRONG_BUY"]
+        buys        = [r for r in results if r.get("final_decision") == "BUY"]
+        sells       = [r for r in results if r.get("final_decision") in ("SELL", "AVOID")]
+        divergent   = [r for r in results if r.get("sell_votes", 0) > 0
+                       and r.get("buy_votes", 0) > 0]
+
+        return {
+            "available":     True,
+            "symbols_run":   len(results),
+            "results":       results,
+            "strong_buys":   [r["symbol"] for r in strong_buys],
+            "buys":          [r["symbol"] for r in buys],
+            "sells":         [r["symbol"] for r in sells],
+            "divergent_opinions": [r["symbol"] for r in divergent],
+        }
+    except Exception:
+        return {"available": False}
+
+
 def _build_portfolio_optimization_section(
     positions: list, watchlist: list, ohlcv_fn
 ) -> dict:
@@ -905,6 +963,11 @@ def generate_report(
     # --- 12. Portfolio optimization section (Phase 14) ---
     report["portfolio_optimization"] = _build_portfolio_optimization_section(
         positions or [], watchlist or [], ohlcv_fn
+    )
+
+    # --- 13. Investment Committee summary (Phase 15) ---
+    report["investment_committee"] = _build_committee_summary(
+        watchlist or [], ohlcv_fn
     )
 
     return report
@@ -1188,6 +1251,39 @@ def format_email_body(report: dict) -> str:
             lines.append(f"     原因：{item['reason']}")
     else:
         lines.append("  無特別建議，持倉觀察。")
+
+    # Investment Committee section (Phase 15)
+    ic = report.get("investment_committee", {})
+    if ic.get("available") and ic.get("results"):
+        lines.append(f"\n{'─' * 40}")
+        lines.append("【投資委員會 Investment Committee】")
+        for r in ic["results"]:
+            decision  = r.get("final_decision", "N/A")
+            conf      = r.get("confidence", 0)
+            c_score   = r.get("committee_score", 0)
+            buy_v     = r.get("buy_votes", 0)
+            sell_v    = r.get("sell_votes", 0)
+            reason    = r.get("top_reason", "—")
+            minority  = r.get("minority_reason", "")
+            overrides = r.get("override_notes", [])
+            lines.append(
+                f"  {r['symbol']}：{decision}（信心 {conf}%，評分 {c_score:+d}）"
+                f"  ↑{buy_v} 買 / ↓{sell_v} 賣"
+            )
+            lines.append(f"    多方理由：{reason}")
+            if minority and minority != "—":
+                lines.append(f"    少數意見：{minority}")
+            for note in overrides:
+                lines.append(f"    ⚠ 硬規則：{note}")
+        sb = ic.get("strong_buys", [])
+        sel = ic.get("sells", [])
+        div = ic.get("divergent_opinions", [])
+        if sb:
+            lines.append(f"  STRONG_BUY 共識：{', '.join(sb)}")
+        if sel:
+            lines.append(f"  賣出警示：{', '.join(sel)}")
+        if div:
+            lines.append(f"  委員意見分歧：{', '.join(div)}")
 
     # Portfolio Optimization section (Phase 14)
     popt = report.get("portfolio_optimization", {})

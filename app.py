@@ -4399,6 +4399,75 @@ def api_macro_risk():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# ── Phase 15: Investment Committee ───────────────────────────────────────────
+import investment_committee_engine as _ice
+
+_committee_cache: dict = {}   # symbol -> {result, ts}
+
+
+@app.route("/api/investment-committee/<symbol>")
+def api_investment_committee_get(symbol: str):
+    """
+    GET single-symbol investment committee analysis.
+    Optional query params:
+      risk_profile : conservative | balanced | aggressive  (default: balanced)
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        sym          = symbol.upper().strip()
+        risk_profile = request.args.get("risk_profile", "balanced")
+        if not sym:
+            return jsonify({"ok": False, "error": "symbol required"}), 400
+
+        cached = _committee_cache.get(sym)
+        if cached and _time.time() - cached["ts"] < 300:   # 5-min TTL
+            return jsonify({"ok": True, "cached_seconds_ago": round(_time.time() - cached["ts"]),
+                            **cached["result"]})
+
+        result = _ice.run_investment_committee(sym, _get_ohlcv_norm,
+                                               risk_profile=risk_profile)
+        _committee_cache[sym] = {"result": result, "ts": _time.time()}
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/investment-committee", methods=["POST"])
+def api_investment_committee_post():
+    """
+    POST — batch or single committee analysis with optional holdings.
+    Body: {
+      symbol       : str,
+      risk_profile : str (optional),
+      holdings     : [{symbol, shares, cost}] (optional)
+    }
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body         = request.json or {}
+        sym          = str(body.get("symbol") or "").upper().strip()
+        risk_profile = str(body.get("risk_profile") or "balanced")
+        holdings     = body.get("holdings") or []
+        if not sym:
+            return jsonify({"ok": False, "error": "symbol required"}), 400
+
+        result = _ice.run_investment_committee(
+            sym, _get_ohlcv_norm,
+            holdings=holdings,
+            risk_profile=risk_profile,
+        )
+        _committee_cache[sym] = {"result": result, "ts": _time.time()}
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Phase 14: Portfolio Optimizer ────────────────────────────────────────────
 import portfolio_optimizer as _poe
 
