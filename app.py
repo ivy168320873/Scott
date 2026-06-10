@@ -4399,6 +4399,60 @@ def api_macro_risk():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# ── Phase 14: Portfolio Optimizer ────────────────────────────────────────────
+import portfolio_optimizer as _poe
+
+_optimizer_cache: dict = {"result": None, "ts": 0}
+
+
+@app.route("/api/portfolio-optimize", methods=["POST"])
+def api_portfolio_optimize():
+    """
+    Compute optimal portfolio allocation across all engines.
+    Body: {
+      account_value  : float,
+      current_cash   : float,
+      holdings       : [{symbol, shares, cost, sector?}],
+      watchlist      : [symbol, ...],
+      risk_profile   : "conservative" | "balanced" | "aggressive"
+    }
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body = request.json or {}
+        result = _poe.run_portfolio_optimize(
+            account_value = float(body.get("account_value", 0) or 0),
+            current_cash  = float(body.get("current_cash",  0) or 0),
+            holdings      = body.get("holdings",  []) or [],
+            watchlist     = body.get("watchlist",  []) or [],
+            risk_profile  = str(body.get("risk_profile", "balanced") or "balanced"),
+            ohlcv_fn      = _get_ohlcv_norm,
+        )
+        _optimizer_cache["result"] = result
+        _optimizer_cache["ts"]     = _time.time()
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/portfolio-optimize/latest")
+def api_portfolio_optimize_latest():
+    """Return the most recent portfolio optimization result (in-memory cache)."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    if not _optimizer_cache.get("result"):
+        return jsonify({
+            "ok": False,
+            "error": "尚無優化結果，請先呼叫 POST /api/portfolio-optimize",
+        }), 404
+    age = round(_time.time() - _optimizer_cache["ts"])
+    return jsonify({"ok": True, "cached_seconds_ago": age, **_optimizer_cache["result"]})
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")

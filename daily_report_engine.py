@@ -38,6 +38,12 @@ try:
 except ImportError:
     _HAS_SCE = False
 
+try:
+    import portfolio_optimizer as _poe14
+    _HAS_POE = True
+except ImportError:
+    _HAS_POE = False
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -703,6 +709,51 @@ def _build_signal_confidence_summary() -> dict:
         return {"available": False}
 
 
+def _build_portfolio_optimization_section(
+    positions: list, watchlist: list, ohlcv_fn
+) -> dict:
+    """Return a portfolio optimization summary for the daily report (Phase 14)."""
+    if not _HAS_POE:
+        return {"available": False}
+    if not positions and not watchlist:
+        return {"available": False, "reason": "no positions or watchlist"}
+    try:
+        result = _poe14.run_portfolio_optimize(
+            account_value=0,
+            current_cash=0,
+            holdings=positions,
+            watchlist=[str(s) for s in watchlist],
+            risk_profile="balanced",
+            ohlcv_fn=ohlcv_fn,
+        )
+        if not result.get("ok"):
+            return {"available": False}
+
+        # Compact summary for the report
+        weights = result.get("optimal_weights", {})
+        top_positions = sorted(weights.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        return {
+            "available":            True,
+            "portfolio_score":      result.get("portfolio_score"),
+            "expected_return_pct":  result.get("expected_return_pct"),
+            "expected_vol_pct":     result.get("expected_volatility_pct"),
+            "est_max_drawdown_pct": result.get("estimated_max_drawdown_pct"),
+            "recommended_cash_pct": result.get("recommended_cash_pct"),
+            "macro_regime":         result.get("macro_regime"),
+            "top_weights":          [{"symbol": s, "pct": w} for s, w in top_positions],
+            "sector_exposure":      result.get("sector_exposure", {}),
+            "positions_to_add":     result.get("positions_to_add", []),
+            "positions_to_trim":    result.get("positions_to_trim", []),
+            "positions_to_exit":    result.get("positions_to_exit", []),
+            "risk_notes":           result.get("risk_notes", []),
+            "rebalance_count":      len(result.get("rebalance_suggestions", [])),
+            "is_demo":              result.get("is_demo", True),
+        }
+    except Exception:
+        return {"available": False}
+
+
 def _generate_ai_summary(report: dict, ai_fn) -> str:
     """
     Call ai_fn with a structured prompt. Fall back to _rule_based_summary on any failure.
@@ -850,6 +901,11 @@ def generate_report(
 
     # --- 11. Signal confidence summary (Phase 12C) ---
     report["signal_confidence_summary"] = _build_signal_confidence_summary()
+
+    # --- 12. Portfolio optimization section (Phase 14) ---
+    report["portfolio_optimization"] = _build_portfolio_optimization_section(
+        positions or [], watchlist or [], ohlcv_fn
+    )
 
     return report
 
@@ -1132,6 +1188,33 @@ def format_email_body(report: dict) -> str:
             lines.append(f"     原因：{item['reason']}")
     else:
         lines.append("  無特別建議，持倉觀察。")
+
+    # Portfolio Optimization section (Phase 14)
+    popt = report.get("portfolio_optimization", {})
+    if popt.get("available"):
+        lines.append(f"\n{'─' * 40}")
+        lines.append("【Portfolio Optimization】")
+        lines.append(f"  組合評分：{popt.get('portfolio_score', '—')}/100")
+        lines.append(f"  預估年報酬：{popt.get('expected_return_pct', '—')}%")
+        lines.append(f"  預估最大回撤：{popt.get('est_max_drawdown_pct', '—')}%")
+        lines.append(f"  建議現金比例：{popt.get('recommended_cash_pct', '—')}%")
+        lines.append(f"  總體宏觀環境：{popt.get('macro_regime', '—')}")
+        top_w = popt.get("top_weights", [])
+        if top_w:
+            lines.append("  最佳配比（前5）：")
+            for w in top_w:
+                lines.append(f"    {w['symbol']}：{w['pct']}%")
+        adds  = popt.get("positions_to_add", [])
+        trims = popt.get("positions_to_trim", [])
+        exits = popt.get("positions_to_exit", [])
+        if adds:
+            lines.append(f"  建議新建：{', '.join(adds)}")
+        if trims:
+            lines.append(f"  建議減碼：{', '.join(trims)}")
+        if exits:
+            lines.append(f"  建議出清：{', '.join(exits)}")
+        for note in popt.get("risk_notes", [])[:3]:
+            lines.append(f"  ⚠ {note}")
 
     # Footer
     lines.append(f"\n{sep}")
