@@ -1286,6 +1286,15 @@ body{padding-bottom:52px}
 .ttd-loading{display:flex;align-items:center;gap:10px;padding:20px 0;color:var(--muted);font-size:.84rem}
 .ttd-trigger-btn{font-size:.78rem;padding:5px 13px;background:rgba(210,168,255,.12);color:var(--purple);border:1px solid rgba(210,168,255,.3);border-radius:8px;cursor:pointer;font-weight:700;transition:background .2s}
 .ttd-trigger-btn:hover{background:rgba(210,168,255,.22)}
+.inst-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px}
+.inst-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.inst-badge{padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:700;text-transform:uppercase}
+.inst-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:12px}
+.inst-metric{background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center}
+.inst-metric-label{font-size:.68rem;color:var(--muted);margin-bottom:3px}
+.inst-metric-val{font-size:1.1rem;font-weight:700}
+.inst-bar{height:6px;border-radius:3px;background:var(--surface2);margin-top:3px;overflow:hidden}
+.inst-bar-fill{height:100%;border-radius:3px;transition:width .4s}
 </style>
 </head>
 <body>
@@ -1658,6 +1667,7 @@ body{padding-bottom:52px}
   <div id="detail">
     <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:6px">
       <button class="ttd-trigger-btn" id="ttd-trigger-btn" onclick="runTopTierDecision()" style="display:none">🏆 頂級決策</button>
+      <button class="ttd-trigger-btn" id="inst-trigger-btn" onclick="runInstitutionalFlow()" style="display:none;background:rgba(88,166,255,.12);color:#58a6ff;border-color:rgba(88,166,255,.3)">🏦 機構流向</button>
       <button class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem" onclick="exportCSV()">📥 匯出CSV</button>
     </div>
     <div class="ph" id="ph"></div>
@@ -1864,6 +1874,7 @@ body{padding-bottom:52px}
 
     <!-- Top-Tier Decision Panel -->
     <div class="ttd-panel" id="ttd-panel" style="display:none"></div>
+    <div class="inst-panel" id="inst-panel" style="display:none"></div>
 
     <div class="charts-grid">
       <div class="chart-card price-card">
@@ -4261,6 +4272,8 @@ async function requestAI(d) {
     body.innerHTML = renderAICards(j);
     _lastAIResult = j;
     document.getElementById('ttd-trigger-btn').style.display = 'inline-block';
+    const instBtn = document.getElementById('inst-trigger-btn');
+    if (instBtn) instBtn.style.display = 'inline-block';
 
     // ── Phase 3: populate the 3 side panels from decision_results ──
     const dr = j.decision_results || {};
@@ -4639,6 +4652,10 @@ async function search(sym) {
   document.getElementById('sd-panel').style.display = 'none';
   document.getElementById('ttd-panel').style.display = 'none';
   document.getElementById('ttd-trigger-btn').style.display = 'none';
+  const _instPanelEl = document.getElementById('inst-panel');
+  if (_instPanelEl) _instPanelEl.style.display = 'none';
+  const _instBtnEl = document.getElementById('inst-trigger-btn');
+  if (_instBtnEl) _instBtnEl.style.display = 'none';
   document.getElementById('bt-results').style.display = 'none';
   destroyAll();
 
@@ -4748,6 +4765,96 @@ async function runTopTierDecision() {
   } catch(e) {
     panel.innerHTML = `<div class="neg" style="font-size:.84rem;padding:10px">決策分析失敗：${e.message}</div>`;
   }
+}
+
+// ── Phase 13D: Institutional Flow UI ─────────────────────────────────────────
+async function runInstitutionalFlow() {
+  const sym = (document.getElementById('symbol-input') || {}).value?.trim().toUpperCase()
+           || (_lastSymbol || '');
+  if (!sym) return;
+  const panel = document.getElementById('inst-panel');
+  if (!panel) return;
+  panel.style.display = 'block';
+  panel.innerHTML = `<div style="color:var(--muted);font-size:.84rem;padding:8px">🔍 分析 ${sym} 機構流向中…</div>`;
+  try {
+    const r = await fetch(`/api/institutional-flow/${encodeURIComponent(sym)}`);
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '請求失敗');
+    panel.innerHTML = _renderInstFlow(j);
+  } catch(e) {
+    panel.innerHTML = `<div class="neg" style="font-size:.84rem;padding:10px">機構流向分析失敗：${e.message}</div>`;
+  }
+}
+
+function _renderInstFlow(j) {
+  const flowColors = {
+    ACCUMULATION: '#3fb950', NEUTRAL: '#e3b341',
+    DISTRIBUTION: '#f85149', FAKE_BREAKOUT: '#f0883e'
+  };
+  const flowLabels = {
+    ACCUMULATION: '累積', NEUTRAL: '中性',
+    DISTRIBUTION: '派發', FAKE_BREAKOUT: '假突破'
+  };
+  const fd    = j.flow_direction || 'NEUTRAL';
+  const fclr  = flowColors[fd] || '#8b949e';
+  const flbl  = flowLabels[fd] || fd;
+
+  const bar = (val, color) => {
+    const v = Math.max(0, Math.min(100, val || 0));
+    return `<div class="inst-bar"><div class="inst-bar-fill" style="width:${v}%;background:${color}"></div></div>`;
+  };
+  const metric = (label, val, color) => {
+    const v = (typeof val === 'number') ? val : '—';
+    const barColor = typeof val === 'number' ? color : '#8b949e';
+    return `<div class="inst-metric">
+      <div class="inst-metric-label">${label}</div>
+      <div class="inst-metric-val" style="color:${barColor}">${typeof v==='number'?v:'—'}</div>
+      ${typeof val === 'number' ? bar(val, barColor) : ''}
+    </div>`;
+  };
+
+  const accColor  = j.institutional_accumulation_score >= 60 ? '#3fb950' : j.institutional_accumulation_score >= 40 ? '#e3b341' : '#f85149';
+  const distColor = j.distribution_risk >= 60 ? '#f85149' : j.distribution_risk >= 40 ? '#f0883e' : '#3fb950';
+  const smColor   = j.smart_money_score >= 60 ? '#58a6ff' : j.smart_money_score >= 40 ? '#e3b341' : '#8b949e';
+
+  const rsQQQ = j.relative_strength_vs_QQQ;
+  const rsQQQStr = rsQQQ != null ? rsQQQ.toFixed(2) : '—';
+  const rsQQQColor = rsQQQ != null ? (rsQQQ >= 1.05 ? '#3fb950' : rsQQQ >= 0.95 ? '#e3b341' : '#f85149') : '#8b949e';
+
+  const warnings = (j.warnings || []).map(w => `<div style="font-size:.76rem;color:#f0883e;margin-bottom:3px">⚠ ${w}</div>`).join('');
+  const reasons  = (j.reasons  || []).map(r => `<div style="font-size:.76rem;color:#3fb950;margin-bottom:3px">✓ ${r}</div>`).join('');
+
+  const bkInfo = j.breakout_detail || {};
+  const bkStr = bkInfo.has_breakout
+    ? `突破 | 量能 ${bkInfo.vol_mult || '?'}x | ${bkInfo.holding ? '守住' : '失守'}`
+    : '無近期突破';
+
+  return `<div>
+    <div class="inst-header">
+      <span style="font-weight:700;font-size:.95rem">🏦 機構流向 — ${j.symbol}</span>
+      <span class="inst-badge" style="background:${fclr}22;color:${fclr};border:1px solid ${fclr}44">${flbl}</span>
+      <span style="font-size:.72rem;color:var(--muted)">信心 ${j.confidence}% | ${j.bar_count} 根K線${j.is_demo ? ' | ⚠ Demo資料' : ''}</span>
+    </div>
+    <div class="inst-grid">
+      ${metric('機構累積', j.institutional_accumulation_score, accColor)}
+      ${metric('派發風險', j.distribution_risk, distColor)}
+      ${metric('Smart Money', j.smart_money_score, smColor)}
+      ${metric('量價確認', j.price_volume_confirmation, '#58a6ff')}
+      ${metric('突破品質', j.breakout_quality, j.breakout_quality >= 60 ? '#3fb950' : '#e3b341')}
+      ${metric('量能累積', j.volume_accumulation_score, '#a5d6ff')}
+      ${metric('流動性', j.liquidity_quality, '#8b949e')}
+      ${metric('波動穩定', j.volatility_stability, '#8b949e')}
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;font-size:.76rem">
+      <span>vs QQQ: <span style="color:${rsQQQColor};font-weight:700">${rsQQQStr}</span></span>
+      ${j.relative_strength_vs_sector != null ? `<span>vs 板塊: <span style="font-weight:700">${j.relative_strength_vs_sector.toFixed(2)}</span></span>` : ''}
+      <span style="color:var(--muted)">${bkStr}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div>${reasons || '<span style="color:var(--muted);font-size:.76rem">暫無顯著正面訊號</span>'}</div>
+      <div>${warnings || '<span style="color:var(--muted);font-size:.76rem">暫無警告訊號</span>'}</div>
+    </div>
+  </div>`;
 }
 
 function _renderTTD(j) {

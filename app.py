@@ -4270,6 +4270,135 @@ def api_signal_history():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# ── Phase 13: Institutional Grade Engines ─────────────────────────────────────
+import institutional_flow_engine as _ife
+import macro_risk_engine         as _mre13
+import portfolio_manager_engine  as _pme
+
+_portfolio_cache: dict = {"result": None, "ts": 0}
+
+
+# ── Phase 13A: Institutional Flow ─────────────────────────────────────────────
+
+@app.route("/api/institutional-flow/<symbol>")
+def api_institutional_flow(symbol: str):
+    """Institutional accumulation/distribution analysis for a single symbol."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        sym = symbol.upper().strip()
+        if not sym:
+            return jsonify({"ok": False, "error": "symbol required"}), 400
+        ohlcv       = _get_ohlcv_norm(sym)
+        qqq_ohlcv   = _get_ohlcv_norm("QQQ")
+        # Try to get sector ETF
+        from sector_map import SYMBOL_TO_SECTOR
+        sector_name = SYMBOL_TO_SECTOR.get(sym, "")
+        sector_etf_sym = None
+        _SECTOR_ETF_MAP = {"半導體AI晶片": "SOXX", "AI雲端軟體/網路安全": "XLK",
+                           "電力能源": "XLE", "國防航太": "ITA"}
+        if sector_name:
+            sector_etf_sym = _SECTOR_ETF_MAP.get(sector_name)
+        sector_ohlcv = _get_ohlcv_norm(sector_etf_sym) if sector_etf_sym else None
+        result = _ife.run_institutional_flow(sym, ohlcv, qqq_ohlcv, sector_ohlcv)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/institutional-flow/batch", methods=["POST"])
+def api_institutional_flow_batch():
+    """Batch institutional flow analysis for multiple symbols."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body    = request.json or {}
+        symbols = body.get("symbols") or []
+        if not symbols:
+            return jsonify({"ok": False, "error": "symbols list required"}), 400
+        symbols = [str(s).upper().strip() for s in symbols[:20]]  # cap at 20
+
+        qqq_ohlcv = _get_ohlcv_norm("QQQ")
+        results   = {}
+        for sym in symbols:
+            try:
+                ohlcv = _get_ohlcv_norm(sym)
+                results[sym] = _ife.run_institutional_flow(sym, ohlcv, qqq_ohlcv)
+            except Exception as e:
+                results[sym] = {"ok": False, "symbol": sym, "error": str(e)}
+
+        return jsonify({"ok": True, "results": results, "count": len(results)})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Phase 13B: Portfolio Manager ──────────────────────────────────────────────
+
+@app.route("/api/portfolio-manager/recommendation", methods=["POST"])
+def api_portfolio_recommendation():
+    """
+    Full portfolio allocation recommendation.
+    Body: {
+      account_value    : float,
+      current_cash     : float,
+      holdings         : [{symbol, shares, cost, sector?}],
+      watchlist        : [symbol, ...],
+      risk_preference  : "conservative" | "balanced" | "aggressive"
+    }
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body = request.json or {}
+        result = _pme.run_portfolio_recommendation(
+            account_value   = float(body.get("account_value", 0) or 0),
+            current_cash    = float(body.get("current_cash",  0) or 0),
+            holdings        = body.get("holdings",   []) or [],
+            watchlist       = body.get("watchlist",  []) or [],
+            risk_preference = str(body.get("risk_preference", "balanced") or "balanced"),
+            ohlcv_fn        = _get_ohlcv_norm,
+        )
+        _portfolio_cache["result"] = result
+        _portfolio_cache["ts"]     = _time.time()
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/portfolio-manager/latest")
+def api_portfolio_latest():
+    """Return the most recent portfolio recommendation (from in-memory cache)."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    if not _portfolio_cache.get("result"):
+        return jsonify({"ok": False, "error": "尚無組合分析結果，請先呼叫 POST /api/portfolio-manager/recommendation"}), 404
+    age = round(_time.time() - _portfolio_cache["ts"])
+    return jsonify({"ok": True, "cached_seconds_ago": age, **_portfolio_cache["result"]})
+
+
+# ── Phase 13C: Macro Risk ─────────────────────────────────────────────────────
+
+@app.route("/api/macro-risk")
+def api_macro_risk():
+    """Macro-level risk score across equity, bonds, defensive rotation, and volatility."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        result = _mre13.run_macro_risk(_get_ohlcv_norm)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
