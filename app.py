@@ -4131,6 +4131,11 @@ def api_position_size():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# Alias used in user docs / external references
+app.add_url_rule("/api/position-sizing", endpoint="api_position_sizing_alias",
+                 view_func=api_position_size, methods=["POST"])
+
+
 @app.route("/api/position-size/<symbol>")
 def api_position_size_get(symbol: str):
     """
