@@ -3988,6 +3988,32 @@ def _obs_auto_record_from_result(sym: str, result: dict, market_st: str = "") ->
         pass
 
 
+# ── Top-Tier Decision Engine — Phase 13 ──────────────────────────────────────
+import top_tier_engine as _tte
+
+
+@app.route("/api/top-tier-decision", methods=["POST"])
+def api_top_tier_decision():
+    """
+    Top-Tier Decision Mode: 10-dimension final decision layer.
+    Body: {
+      symbol, price, change_pct, momentum_score, volume_ratio,
+      pct_from_high, indicators, sector_data, ai_result,
+      watchlist, nasdaq_meta
+    }
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        body = request.json or {}
+        result = _tte.run_top_tier(body)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
