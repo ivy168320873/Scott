@@ -114,23 +114,38 @@ def _signal_status(
 
 
 def _action(total: float, risk_lvl: str, is_demo: bool) -> tuple[str, str, str]:
-    """Returns (action_code, action_label, action_detail)."""
-    if is_demo:
-        return ("WATCH", "觀望", "示範資料，請勿作為實際投資依據")
+    """Returns (action_code, action_label, action_detail).
+
+    Demo 模式不再強制 WATCH：依分數與風險等級計算真實建議，
+    但呼叫端可透過 is_demo=True 及 disclaimer 辨識這是測試資料。
+    """
     if risk_lvl == "EXTREME":
-        return ("EXIT", "出場", "風險極高，不建議進場")
-    if risk_lvl == "HIGH" and total < 55:
-        return ("TRIM", "減碼", "高風險且動能偏弱，建議降低持倉")
-    for threshold, code, label, detail in _ACTION_MAP:
-        if total >= threshold:
-            return (code, label, detail)
-    return ("EXIT", "出場", "不建議進場，風險過高")
+        code, label, detail = "EXIT", "出場", "風險極高，不建議進場"
+    elif risk_lvl == "HIGH" and total < 55:
+        code, label, detail = "TRIM", "減碼", "高風險且動能偏弱，建議降低持倉"
+    else:
+        code, label, detail = "EXIT", "出場", "不建議進場，風險過高"
+        for threshold, c, l, d in _ACTION_MAP:
+            if total >= threshold:
+                code, label, detail = c, l, d
+                break
+
+    # demo 模式：在說明文字末尾加上資料來源標注，但保留真實評估結果
+    if is_demo:
+        detail = f"{detail}（⚠️ Demo 資料，僅供模型邏輯測試）"
+    return (code, label, detail)
 
 
 def _position_sizing(total: float, risk_lvl: str, is_demo: bool) -> dict:
-    """建議倉位比例（佔可投資資金）。"""
-    if is_demo or risk_lvl == "EXTREME":
-        return {"pct": 0, "label": "不進場", "note": "風險過高或示範資料"}
+    """建議倉位比例（佔可投資資金）。
+
+    Demo 模式：pct 固定為 0，不提供實際建倉建議，
+    但以 estimated_label 顯示若為真實資料時的參考方向。
+    """
+    if risk_lvl == "EXTREME":
+        return {"pct": 0, "pct_range": [0, 0], "label": "不進場",
+                "note": "風險極高，不建議進場", "reason": "risk_level=EXTREME"}
+
     tbl = [
         # (min_score, risk_lvl_allow, pct_lo, pct_hi, label)
         (75, "LOW",    10, 15, "積極建倉"),
@@ -141,11 +156,25 @@ def _position_sizing(total: float, risk_lvl: str, is_demo: bool) -> dict:
         (40, "MEDIUM", 2,   3, "極輕倉試水"),
         (0,  "HIGH",   0,   2, "高風險僅極輕倉"),
     ]
+    matched = {"pct": 0, "pct_range": [0, 0], "label": "暫不建倉",
+               "note": "條件不符，等待更佳訊號"}
     for min_s, lvl, lo, hi, label in tbl:
         if total >= min_s and (risk_lvl == lvl or risk_lvl == "LOW"):
-            return {"pct": hi, "pct_range": [lo, hi], "label": label,
-                    "note": f"建議佔投資資金 {lo}~{hi}%"}
-    return {"pct": 0, "label": "暫不建倉", "note": "條件不符，等待更佳訊號"}
+            matched = {"pct": hi, "pct_range": [lo, hi], "label": label,
+                       "note": f"建議佔投資資金 {lo}~{hi}%"}
+            break
+
+    if is_demo:
+        # demo 模式：pct 固定 0，但保留 estimated_label 供參考
+        return {
+            "pct":             0,
+            "pct_range":       [0, 0],
+            "label":           "不提供（Demo 模式）",
+            "note":            "demo 模式不提供實際建倉比例",
+            "reason":          "is_demo=True，此為測試資料，不代表真實市場建議",
+            "estimated_label": matched["label"],   # 若為真實資料時的參考方向
+        }
+    return matched
 
 
 def _pick_confidence(
@@ -369,7 +398,8 @@ def compute(
         risk_warnings.append(f"系統警告：部分子模組發生錯誤（{len(errors)} 個），分數可能偏低")
 
     disclaimer = (
-        "本分析純屬量化模型輸出，不構成投資建議。示範資料僅供系統測試用途。"
+        "⚠️ 此為 demo/fallback 資料，僅用於測試模型邏輯，不代表真實市場建議。"
+        "本分析純屬量化模型輸出，不構成任何投資建議，請勿據此進行實際交易決策。"
         if is_demo else
         "本分析純屬量化模型輸出，不構成投資建議。投資人應自行評估風險。"
     )
