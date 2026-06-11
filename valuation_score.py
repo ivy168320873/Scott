@@ -330,15 +330,35 @@ def compute(ohlcv: dict, fundamentals: dict | None = None) -> dict:
     if ohlcv.get("is_demo"):
         confidence = "LOW"
 
+    # ── label / warning（新增欄位，向後相容） ─────────────────────────────────
+    _s = round(score, 1)
+    _label = ("強勢" if _s >= 80 else "偏強" if _s >= 65 else
+              "中性" if _s >= 50 else "偏弱" if _s >= 35 else "弱勢")
+    _warning: list[str] = []
+    if not has_fund:
+        _warning.append("無基本面資料：估值以動能品質代理，精確度有限")
+    if has_fund:
+        _pe = fund.get("pe") or 0
+        if _pe > 50:
+            _warning.append(f"本益比偏高 (PE={_pe:.1f})，估值風險存在")
+        _de = fund.get("debt_to_equity") or 0
+        if _de > 1.5:
+            _warning.append(f"負債權益比偏高 ({_de:.1f}x)，財務槓桿風險")
+
+    _sig_val = {
+        "undervalued":   has_fund and sub_scores.get("pe", 12) >= 20,
+        "high_growth":   has_fund and sub_scores.get("growth", 15) >= 24,
+        "quality_trend": not has_fund and sub_scores.get("trend_consistency", 20) >= 28,
+    }
+
     return {
-        "score":            round(score, 1),
+        "score":   _s,
+        "label":   _label,
+        "warning": _warning,
         "sub_scores":       sub_scores,
-        "reasons":          all_reasons[:4],
-        "signals": {
-            "undervalued":    has_fund and sub_scores.get("pe", 12) >= 20,
-            "high_growth":    has_fund and sub_scores.get("growth", 15) >= 24,
-            "quality_trend":  not has_fund and sub_scores.get("trend_consistency", 20) >= 28,
-        },
+        "reason":  all_reasons[:4],   # alias for new interface
+        "reasons": all_reasons[:4],   # keep legacy key
+        "signals": _sig_val,
         "confidence":       confidence,
         "has_fundamentals": has_fund,
         "detail": {

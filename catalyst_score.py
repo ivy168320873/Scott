@@ -267,21 +267,35 @@ def compute(
     if ohlcv.get("is_demo"):
         confidence = "LOW"
 
+    # ── label / warning（新增欄位，向後相容） ─────────────────────────────────
+    _s = round(score, 1)
+    _label = ("強勢" if _s >= 80 else "偏強" if _s >= 65 else
+              "中性" if _s >= 50 else "偏弱" if _s >= 35 else "弱勢")
+    _warning: list[str] = []
+    if gap_pts <= 2.0 and gap_pts != 12.0:   # 跳空下跌懲罰觸發
+        _warning.append("偵測到跳空下跌，負面催化訊號")
+    if not has_news:
+        _warning.append("無新聞資料：催化分數以價格行為代理，可信度較低")
+
     return {
-        "score": round(score, 1),
+        "score":   _s,
+        "label":   _label,
+        "warning": _warning,
         "sub_scores": {
             "price_acceleration": round(accel_pts, 1),
             "gap_signal":         round(gap_pts, 1),
             "news_sentiment":     round(news_pts, 1),
             "volume_spike":       round(spike_pts, 1),
         },
-        "reasons": all_reasons[:5],
+        "reason":  all_reasons[:5],   # alias for new interface
+        "reasons": all_reasons[:5],   # keep legacy key
         "signals": {
-            "accelerating":       accel_pts >= 22,
-            "gap_up_detected":    gap_pts >= 18,
-            "positive_news":      news_pts >= 22 if has_news else False,
-            "has_news_data":      has_news,
-            "volume_spike":       spike_pts >= 10,
+            "accelerating":    accel_pts >= 22,
+            "gap_up_detected": gap_pts >= 18,
+            "gap_down_risk":   gap_pts <= 2.0 and gap_pts != 12.0,
+            "positive_news":   news_pts >= 22 if has_news else False,
+            "has_news_data":   has_news,
+            "volume_spike":    spike_pts >= 10,
         },
         "confidence": confidence,
         "detail": {

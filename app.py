@@ -4468,6 +4468,144 @@ def api_investment_committee_post():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# ── Phase 16: 7-Module Momentum Score ────────────────────────────────────────
+try:
+    import final_decision_engine as _fde
+    _HAS_FDE = True
+except ImportError:
+    _HAS_FDE = False
+
+_momentum_score_cache: dict = {}   # symbol -> {result, ts}
+_MOMENTUM_SCORE_TTL = 300          # 5 min
+
+
+@app.route("/api/momentum-score/<symbol>")
+def api_momentum_score(symbol: str):
+    """
+    7-module institutional momentum score.
+
+    Returns
+    -------
+    {
+      ok, symbol, final_score, grade, signal_status,
+      action_code, action_label, action,
+      stop_loss, target_range, invalidation,
+      position_sizing_suggestion,
+      component_scores, weighted_scores,
+      reasons, risk_warnings,
+      confidence, is_demo, disclaimer,
+      detail: {risk_level, distribution, has_news, gate_notes}
+    }
+
+    Query params:
+      bench   : benchmark symbol (default QQQ)
+      profile : risk_profile conservative|balanced|aggressive (default balanced)
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    if not _HAS_FDE:
+        return jsonify({"ok": False, "error": "final_decision_engine 模組未載入"}), 503
+
+    sym = symbol.upper().strip()
+    if not sym:
+        return jsonify({"ok": False, "error": "symbol required"}), 400
+
+    bench_sym    = (request.args.get("bench") or "QQQ").upper().strip()
+    risk_profile = (request.args.get("profile") or "balanced").lower().strip()
+
+    # cache check
+    cache_key = f"{sym}:{bench_sym}:{risk_profile}"
+    cached = _momentum_score_cache.get(cache_key)
+    if cached and _time.time() - cached["ts"] < _MOMENTUM_SCORE_TTL:
+        return jsonify({"ok": True, "cached": True, **cached["result"]})
+
+    try:
+        ohlcv = _get_ohlcv_norm(sym)
+        if not ohlcv:
+            return jsonify({"ok": False, "error": f"無法取得 {sym} 的 K 線資料"}), 404
+
+        bench_ohlcv = None
+        if bench_sym and bench_sym != sym:
+            try:
+                bench_ohlcv = _get_ohlcv_norm(bench_sym)
+            except Exception:
+                bench_ohlcv = None
+
+        result = _fde.compute(
+            ohlcv,
+            bench_ohlcv=bench_ohlcv,
+            news_items=None,       # 可由呼叫端 POST 傳入，GET 版本不含新聞
+            fundamentals=None,
+            risk_profile=risk_profile,
+        )
+
+        _momentum_score_cache[cache_key] = {"result": result, "ts": _time.time()}
+        return jsonify({"ok": True, "symbol": sym, "cached": False, **result})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/momentum-score", methods=["POST"])
+def api_momentum_score_post():
+    """
+    POST version — supports news_items and fundamentals.
+
+    Body
+    ----
+    {
+      symbol       : str,
+      bench        : str (optional, default QQQ),
+      profile      : str (optional, default balanced),
+      news_items   : [{sentiment, headline}, ...] (optional),
+      fundamentals : {pe, pb, revenue_growth_yoy, ...} (optional)
+    }
+    """
+    auth = _require_auth()
+    if auth:
+        return auth
+    if not _HAS_FDE:
+        return jsonify({"ok": False, "error": "final_decision_engine 模組未載入"}), 503
+
+    try:
+        body         = request.json or {}
+        sym          = str(body.get("symbol") or "").upper().strip()
+        bench_sym    = str(body.get("bench") or "QQQ").upper().strip()
+        risk_profile = str(body.get("profile") or "balanced").lower().strip()
+        news_items   = body.get("news_items") or None
+        fundamentals = body.get("fundamentals") or None
+
+        if not sym:
+            return jsonify({"ok": False, "error": "symbol required"}), 400
+
+        ohlcv = _get_ohlcv_norm(sym)
+        if not ohlcv:
+            return jsonify({"ok": False, "error": f"無法取得 {sym} 的 K 線資料"}), 404
+
+        bench_ohlcv = None
+        if bench_sym and bench_sym != sym:
+            try:
+                bench_ohlcv = _get_ohlcv_norm(bench_sym)
+            except Exception:
+                bench_ohlcv = None
+
+        result = _fde.compute(
+            ohlcv,
+            bench_ohlcv=bench_ohlcv,
+            news_items=news_items,
+            fundamentals=fundamentals,
+            risk_profile=risk_profile,
+        )
+
+        return jsonify({"ok": True, "symbol": sym, "cached": False, **result})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Phase 14: Portfolio Optimizer ────────────────────────────────────────────
 import portfolio_optimizer as _poe
 
