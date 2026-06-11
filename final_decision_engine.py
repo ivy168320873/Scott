@@ -64,13 +64,13 @@ _SIGNAL_MAP = [
     (0,  False, False, "空頭結構"),
 ]
 
-# 行動建議對照
+# 行動建議對照（score閾值, action_code, action_label, 說明）
 _ACTION_MAP = [
-    (80, "可追，設停損後積極建倉"),
-    (68, "突破確認後可買入，等回測更佳"),
-    (55, "僅觀察，不建議主動追價"),
-    (42, "等待更強訊號，暫不進場"),
-    (0,  "不建議進場，風險過高"),
+    (80, "BUY",   "買進", "可追，設停損後積極建倉"),
+    (68, "BUY",   "買進", "突破確認後可買入，等回測更佳"),
+    (55, "WATCH", "觀望", "僅觀察，不建議主動追價"),
+    (42, "WATCH", "觀望", "等待更強訊號，暫不進場"),
+    (0,  "EXIT",  "出場", "不建議進場，風險過高"),
 ]
 
 
@@ -113,15 +113,39 @@ def _signal_status(
     return "空頭結構"
 
 
-def _action(total: float, risk_lvl: str, is_demo: bool) -> str:
+def _action(total: float, risk_lvl: str, is_demo: bool) -> tuple[str, str, str]:
+    """Returns (action_code, action_label, action_detail)."""
     if is_demo:
-        return "示範資料，請勿作為實際投資依據"
+        return ("WATCH", "觀望", "示範資料，請勿作為實際投資依據")
     if risk_lvl == "EXTREME":
-        return "風險極高，不建議進場"
-    for threshold, label in _ACTION_MAP:
+        return ("EXIT", "出場", "風險極高，不建議進場")
+    if risk_lvl == "HIGH" and total < 55:
+        return ("TRIM", "減碼", "高風險且動能偏弱，建議降低持倉")
+    for threshold, code, label, detail in _ACTION_MAP:
         if total >= threshold:
-            return label
-    return "不建議進場，風險過高"
+            return (code, label, detail)
+    return ("EXIT", "出場", "不建議進場，風險過高")
+
+
+def _position_sizing(total: float, risk_lvl: str, is_demo: bool) -> dict:
+    """建議倉位比例（佔可投資資金）。"""
+    if is_demo or risk_lvl == "EXTREME":
+        return {"pct": 0, "label": "不進場", "note": "風險過高或示範資料"}
+    tbl = [
+        # (min_score, risk_lvl_allow, pct_lo, pct_hi, label)
+        (75, "LOW",    10, 15, "積極建倉"),
+        (65, "LOW",    7,  10, "標準建倉"),
+        (55, "LOW",    5,   7, "試探性建倉"),
+        (65, "MEDIUM", 5,   8, "適量建倉"),
+        (50, "MEDIUM", 3,   5, "輕倉觀察"),
+        (40, "MEDIUM", 2,   3, "極輕倉試水"),
+        (0,  "HIGH",   0,   2, "高風險僅極輕倉"),
+    ]
+    for min_s, lvl, lo, hi, label in tbl:
+        if total >= min_s and (risk_lvl == lvl or risk_lvl == "LOW"):
+            return {"pct": hi, "pct_range": [lo, hi], "label": label,
+                    "note": f"建議佔投資資金 {lo}~{hi}%"}
+    return {"pct": 0, "label": "暫不建倉", "note": "條件不符，等待更佳訊號"}
 
 
 def _pick_confidence(
@@ -327,44 +351,66 @@ def compute(
     )
 
     # ── 訊號 / 行動 ───────────────────────────────────────────────────────────
+    _risk_lvl  = risk_r.get("risk_level", "MEDIUM")
     sig_status = _signal_status(total_score, trend_r.get("signals", {}),
                                 volume_r.get("signals", {}), risk_r.get("signals", {}))
-    action_str = _action(total_score, risk_r.get("risk_level", "MEDIUM"), is_demo)
-    grade_str  = _grade(total_score)
+    action_code, action_label, action_detail = _action(total_score, _risk_lvl, is_demo)
+    grade_str   = _grade(total_score)
+    pos_sizing  = _position_sizing(total_score, _risk_lvl, is_demo)
 
-    # ── 風險警告 ──────────────────────────────────────────────────────────────
+    # ── 風險警告（合併子模組 warning） ────────────────────────────────────────
     risk_warnings = _build_risk_warnings(risk_r, volume_r, trend_r)
+    # 匯集子模組自帶的 warning 欄位
+    for mod_r in [trend_r, volume_r, rs_r, catalyst_r, val_r, risk_r]:
+        for w in mod_r.get("warning", []):
+            if w and w not in risk_warnings:
+                risk_warnings.append(w)
     if errors:
         risk_warnings.append(f"系統警告：部分子模組發生錯誤（{len(errors)} 個），分數可能偏低")
 
     disclaimer = (
-        "本分析純屬量化模型輸出，不構成投資建議。"
-        "示範資料僅供系統測試用途。"
+        "本分析純屬量化模型輸出，不構成投資建議。示範資料僅供系統測試用途。"
         if is_demo else
         "本分析純屬量化模型輸出，不構成投資建議。投資人應自行評估風險。"
     )
 
     return {
-        "total_score":      round(total_score, 1),
-        "grade":            grade_str,
-        "signal_status":    sig_status,
-        "action":           action_str,
-        "stop_loss":        stop_loss,
-        "target_range":     target_range,
-        "invalidation":     invalidation,
+        # ── 主要決策欄位 ─────────────────────────────────────────────────────
+        "total_score":   round(total_score, 1),
+        "final_score":   round(total_score, 1),   # alias，與 total_score 相同
+        "grade":         grade_str,
+        "signal_status": sig_status,
+
+        # action（新格式：code + label + detail；舊格式 action 保留為說明文字）
+        "action":        action_detail,            # 舊欄位保留（說明文字）
+        "action_code":   action_code,              # BUY / HOLD / WATCH / TRIM / EXIT
+        "action_label":  action_label,             # 買進 / 續抱 / 觀望 / 減碼 / 出場
+
+        # ── 風控欄位 ────────────────────────────────────────────────────────
+        "stop_loss":     stop_loss,
+        "target_range":  target_range,
+        "invalidation":  invalidation,
+        "position_sizing_suggestion": pos_sizing,
+
+        # ── 子模組分數 ──────────────────────────────────────────────────────
         "component_scores": component_scores,
         "weighted_scores":  wt,
-        "reasons":          all_reasons,
-        "risk_warnings":    risk_warnings,
-        "confidence":       confidence,
-        "is_demo":          is_demo,
-        "disclaimer":       disclaimer,
+
+        # ── 理由 / 警告 ─────────────────────────────────────────────────────
+        "reasons":       all_reasons,
+        "reason":        all_reasons,              # alias
+        "risk_warnings": risk_warnings,
+
+        # ── 後設資訊 ────────────────────────────────────────────────────────
+        "confidence":    confidence,
+        "is_demo":       is_demo,
+        "disclaimer":    disclaimer,
         "detail": {
-            "risk_level":      risk_r.get("risk_level", "UNKNOWN"),
-            "distribution":    volume_r.get("distribution", False),
-            "has_news":        catalyst_r.get("detail", {}).get("has_news", False),
+            "risk_level":       _risk_lvl,
+            "distribution":     volume_r.get("distribution", False),
+            "has_news":         catalyst_r.get("detail", {}).get("has_news", False),
             "has_fundamentals": val_r.get("has_fundamentals", False),
-            "gate_notes":      gate_notes,
-            "module_errors":   errors,
+            "gate_notes":       gate_notes,
+            "module_errors":    errors,
         },
     }

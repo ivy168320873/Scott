@@ -277,15 +277,28 @@ def compute(ohlcv: dict) -> dict:
     r5  = _vol_ratio(volumes, 5)
     r20 = _vol_ratio(volumes, 20)
 
+    # ── label / warning（新增欄位，向後相容） ─────────────────────────────────
+    _s = round(normalized, 1)
+    _label = ("強勢" if _s >= 80 else "偏強" if _s >= 65 else
+              "中性" if _s >= 50 else "偏弱" if _s >= 35 else "弱勢")
+    _warning: list[str] = []
+    if distribution_detected:
+        _warning.append("出貨訊號：偵測到爆量長上影或持續賣壓")
+    if trend_pts <= 4:
+        _warning.append("量能嚴重萎縮，市場失去動力")
+
     return {
-        "score": round(normalized, 1),
+        "score":      _s,
+        "label":      _label,
+        "warning":    _warning,
         "sub_scores": {
-            "strength":           round(strength_pts, 1),
-            "effective_breakout": round(breakout_pts, 1),
+            "strength":             round(strength_pts, 1),
+            "effective_breakout":   round(breakout_pts, 1),
             "distribution_penalty": round(dist_penalty, 1),
-            "volume_trend":       round(trend_pts, 1),
+            "volume_trend":         round(trend_pts, 1),
         },
-        "reasons": all_reasons[:6],
+        "reason":  all_reasons[:6],   # alias for new interface
+        "reasons": all_reasons[:6],   # keep legacy key
         "signals": {
             "high_volume_5d":       r5  is not None and r5  >= 1.5,
             "high_volume_20d":      r20 is not None and r20 >= 1.5,
@@ -293,7 +306,7 @@ def compute(ohlcv: dict) -> dict:
             "vol_expanding":        trend_pts >= 14,
             "vol_contracting":      trend_pts <= 4,
         },
-        "confidence": confidence,
+        "confidence":  confidence,
         "distribution": distribution_detected,
         "detail": {
             "current_volume": volumes[-1],

@@ -334,8 +334,28 @@ def compute(ohlcv: dict) -> dict:
 
     sr = _support_resistance(closes, highs, lows)
 
+    # ── kill_signal / crash_risk 邏輯 ────────────────────────────────────────
+    _kill_signal  = risk_score >= 75 and chase_pts >= 20
+    _crash_risk   = _max_drawdown(closes, 20) > 15.0    # 近20日回撤 >15% = 崩盤風險
+
+    # ── label / warning（新增欄位，向後相容，⚠️ risk 高分 = 高風險） ──────────
+    _s = round(risk_score, 1)
+    _label = ("極高風險" if _s >= 75 else "高風險" if _s >= 50 else
+              "中等風險" if _s >= 25 else "低風險")
+    _warning: list[str] = []
+    if _kill_signal:
+        _warning.append("⛔ Kill Signal：風險分數極高且追高過度，強烈建議迴避")
+    if _crash_risk:
+        _warning.append("🔴 崩盤風險：近20日回撤超過 15%，注意恐慌性賣壓")
+    if chase_pts >= 22:
+        _warning.append("🟡 追高風險過高：當前價格嚴重偏離均線")
+    if atr_pts >= 18:
+        _warning.append("⚠️ 高波動：ATR 超出正常水準，建議縮減倉位")
+
     return {
-        "score":       round(risk_score, 1),
+        "score":       _s,
+        "label":       _label,
+        "warning":     _warning,
         "risk_level":  risk_level,
         "stop_loss":   stop_loss,
         "entry_zone":  [entry_low, entry_high],
@@ -343,17 +363,20 @@ def compute(ohlcv: dict) -> dict:
         "target_zone": [target1, target2],
         "invalidation": invalidation,
         "sub_scores": {
-            "atr_risk":          round(atr_pts,   1),
-            "chase_risk":        round(chase_pts, 1),
-            "drawdown_risk":     round(dd_pts,    1),
-            "support_distance":  round(sup_pts,   1),
+            "atr_risk":         round(atr_pts,   1),
+            "chase_risk":       round(chase_pts, 1),
+            "drawdown_risk":    round(dd_pts,    1),
+            "support_distance": round(sup_pts,   1),
         },
-        "reasons":  all_reasons[:5],
+        "reason":  all_reasons[:5],   # alias for new interface
+        "reasons": all_reasons[:5],   # keep legacy key
         "signals": {
-            "extreme_chase":   chase_pts >= 22,
-            "high_volatility": atr_pts  >= 18,
-            "deep_drawdown":   dd_pts   >= 18,
-            "far_from_support": sup_pts >= 14,
+            "extreme_chase":    chase_pts  >= 22,
+            "high_atr_risk":    atr_pts    >= 18,
+            "deep_drawdown":    dd_pts     >= 18,
+            "far_from_support": sup_pts    >= 14,
+            "kill_signal":      _kill_signal,
+            "crash_risk":       _crash_risk,
         },
         "confidence": confidence,
         "detail": {
@@ -363,6 +386,7 @@ def compute(ohlcv: dict) -> dict:
             "ma20":        round(_sma(closes, 20) or 0, 4),
             "ma50":        round(ma50_val or 0, 4),
             "mdd_60d":     round(_max_drawdown(closes, 60), 1),
+            "mdd_20d":     round(_max_drawdown(closes, 20), 1),
             "rsi":         _rsi(closes),
             "supports":    sr["supports"],
             "resistances": sr["resistances"],

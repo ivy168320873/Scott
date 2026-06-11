@@ -225,8 +225,21 @@ def compute(ohlcv: dict, bench_ohlcv: dict | None = None) -> dict:
     if ohlcv.get("is_demo"):
         confidence = "LOW"
 
+    # ── label / warning（新增欄位，向後相容） ─────────────────────────────────
+    _s = round(score, 1)
+    _label = ("強勢" if _s >= 80 else "偏強" if _s >= 65 else
+              "中性" if _s >= 50 else "偏弱" if _s >= 35 else "弱勢")
+    _warning: list[str] = []
+    _under = excess_20d is not None and excess_20d < -3
+    if _under:
+        _warning.append(f"持續落後大盤（20日超額報酬 {excess_20d:.1f}%），相對弱勢")
+    if pct_pts == 0:
+        _warning.append("動能處於歷史底部分位，趨勢動能極弱")
+
     return {
-        "score": round(score, 1),
+        "score":   _s,
+        "label":   _label,
+        "warning": _warning,
         "sub_scores": {
             "ret_5d":   round(_ret(closes, 5)  or 0, 2),
             "ret_10d":  round(_ret(closes, 10) or 0, 2),
@@ -235,10 +248,11 @@ def compute(ohlcv: dict, bench_ohlcv: dict | None = None) -> dict:
             "momentum_percentile": round(pct_pts, 1),
             "risk_adjusted":       round(adj_pts_real, 1),
         },
-        "reasons":  all_reasons[:5],
+        "reason":  all_reasons[:5],   # alias for new interface
+        "reasons": all_reasons[:5],   # keep legacy key
         "signals": {
             "outperforming_20d":   excess_20d is not None and excess_20d > 3,
-            "underperforming_20d": excess_20d is not None and excess_20d < -3,
+            "underperforming_20d": _under,
             "positive_momentum":   (_ret(closes, 20) or 0) > 0,
             "strong_momentum":     pct_pts >= 15,
         },

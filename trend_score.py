@@ -254,24 +254,41 @@ def compute(ohlcv: dict) -> dict:
     if ohlcv.get("is_demo"):
         confidence = "LOW"
 
+    # ── label / warning（新增欄位，向後相容） ─────────────────────────────────
+    _sig_out = {
+        "above_ma20":    mas[20] is not None and price > (mas[20] or 0),
+        "above_ma50":    mas[50] is not None and price > (mas[50] or 0),
+        "above_ma200":   mas[200] is not None and price > (mas[200] or 0),
+        "new_high_20d":  _new_high(closes, 20),
+        "new_high_60d":  _new_high(closes, 60),
+        "new_high_120d": _new_high(closes, 120),
+        "bull_alignment": ma_ali_pts >= 16,
+        # 死叉：MA5 < MA20 且 MA20 存在
+        "death_cross": (mas[5] is not None and mas[20] is not None
+                        and (mas[5] or 0) < (mas[20] or 0)),
+    }
+    _s = round(score, 1)
+    _label = ("強勢" if _s >= 80 else "偏強" if _s >= 65 else
+              "中性" if _s >= 50 else "偏弱" if _s >= 35 else "弱勢")
+    _warning: list[str] = []
+    if _sig_out["death_cross"]:
+        _warning.append("死叉警告：MA5 已跌破 MA20")
+    if not _sig_out["above_ma20"]:
+        _warning.append("價格在 MA20 之下，趨勢偏空")
+
     return {
-        "score": round(score, 1),
+        "score":      _s,
+        "label":      _label,
+        "warning":    _warning,
         "sub_scores": {
             "ma_position":  round(ma_pos_pts, 1),
             "ma_alignment": round(ma_ali_pts, 1),
             "new_high":     round(new_hi_pts, 1),
             "breakout":     round(bkout_pts,  1),
         },
-        "reasons":  all_reasons[:6],
-        "signals": {
-            "above_ma20":    mas[20] is not None and price > (mas[20] or 0),
-            "above_ma50":    mas[50] is not None and price > (mas[50] or 0),
-            "above_ma200":   mas[200] is not None and price > (mas[200] or 0),
-            "new_high_20d":  _new_high(closes, 20),
-            "new_high_60d":  _new_high(closes, 60),
-            "new_high_120d": _new_high(closes, 120),
-            "bull_alignment": ma_ali_pts >= 16,
-        },
+        "reason":   all_reasons[:6],   # alias for new interface
+        "reasons":  all_reasons[:6],   # keep legacy key
+        "signals":  _sig_out,
         "confidence": confidence,
         "detail": {
             "price": round(price, 4),
