@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>AI 投資助理</title>
+<style>
+  :root { --bg:#0f1419; --panel:#1a212b; --user:#2563eb; --bot:#27313f; --text:#e6edf3; --muted:#8b98a5; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; }
+  body { display:flex; flex-direction:column; }
+  header { padding:12px 16px; background:var(--panel); font-weight:600; font-size:17px;
+    display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #000; }
+  header button { background:none; border:1px solid var(--muted); color:var(--muted);
+    border-radius:8px; padding:4px 10px; font-size:13px; }
+  #log { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:85%; padding:10px 13px; border-radius:14px; line-height:1.5;
+    white-space:pre-wrap; word-break:break-word; font-size:15px; }
+  .user { align-self:flex-end; background:var(--user); border-bottom-right-radius:4px; }
+  .bot  { align-self:flex-start; background:var(--bot); border-bottom-left-radius:4px; }
+  .hint { color:var(--muted); font-size:13px; text-align:center; margin:auto 0; padding:20px; }
+  form { display:flex; gap:8px; padding:10px; background:var(--panel); border-top:1px solid #000; }
+  textarea { flex:1; resize:none; border-radius:12px; border:none; padding:11px 13px;
+    font-size:16px; background:#0c0f14; color:var(--text); max-height:120px; }
+  button.send { background:var(--user); color:#fff; border:none; border-radius:12px;
+    padding:0 18px; font-size:16px; font-weight:600; }
+  button:disabled { opacity:.5; }
+  .typing { color:var(--muted); font-size:14px; }
+</style>
+</head>
+<body>
+  <header>
+    <span>📈 AI 投資助理</span>
+    <button onclick="clearChat()">清除</button>
+  </header>
+  <div id="log"></div>
+  <form id="f">
+    <textarea id="in" rows="1" placeholder="問我股價、技術面、回測…" autocomplete="off"></textarea>
+    <button class="send" id="send" type="submit">送出</button>
+  </form>
+
+<script>
+const KEY = "agent_history_v1";
+let messages = JSON.parse(localStorage.getItem(KEY) || "[]");
+const log = document.getElementById("log");
+const input = document.getElementById("in");
+const sendBtn = document.getElementById("send");
+
+function textOf(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content))
+    return content.filter(b => b.type === "text").map(b => b.text).join("");
+  return "";
+}
+
+function render() {
+  log.innerHTML = "";
+  let shown = 0;
+  for (const m of messages) {
+    if (m.role === "user" && typeof m.content === "string") {
+      addBubble(m.content, "user"); shown++;
+    } else if (m.role === "assistant") {
+      const t = textOf(m.content).trim();
+      if (t) { addBubble(t, "bot"); shown++; }
+    }
+  }
+  if (!shown) {
+    const h = document.createElement("div");
+    h.className = "hint";
+    h.textContent = "試試看：\n「NVDA 現在多少錢？」\n「分析 2330.TW 的技術面」\n「幫台積電跑 decision_core 回測」";
+    log.appendChild(h);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function addBubble(text, cls) {
+  const d = document.createElement("div");
+  d.className = "msg " + cls;
+  d.textContent = text;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearChat() {
+  messages = [];
+  localStorage.removeItem(KEY);
+  render();
+}
+
+input.addEventListener("input", () => {
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 120) + "px";
+});
+
+document.getElementById("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = ""; input.style.height = "auto";
+  addBubble(text, "user");
+  sendBtn.disabled = true;
+
+  const typing = document.createElement("div");
+  typing.className = "msg bot typing";
+  typing.textContent = "思考中…";
+  log.appendChild(typing);
+  log.scrollTop = log.scrollHeight;
+
+  try {
+    const res = await fetch("/api/agent-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, message: text }),
+    });
+    if (res.status === 401) { location.href = "/login?next=/agent"; return; }
+    const data = await res.json();
+    typing.remove();
+    if (data.ok) {
+      messages = data.messages;
+      localStorage.setItem(KEY, JSON.stringify(messages));
+      render();
+    } else {
+      addBubble("⚠️ " + (data.error || "發生錯誤"), "bot");
+    }
+  } catch (err) {
+    typing.remove();
+    addBubble("⚠️ 連線失敗：" + err.message, "bot");
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+});
+
+render();
+</script>
+</body>
+</html>
