@@ -19,6 +19,15 @@ import trader as _trader
 import risk_manager as _rm
 import scheduler as _sched
 import monitor as _mon
+import sys as _sys
+
+# 讓 app 能 import cli_agent 子目錄裡的 web_agent（手機版聊天）。
+_sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli_agent"))
+try:
+    import web_agent as _web_agent
+except Exception as _e:  # noqa: BLE001 — 匯入失敗不影響主程式其他功能
+    _web_agent = None
+    print(f"[agent] web_agent 不可用：{_e}", flush=True)
 
 app = Flask(__name__)
 
@@ -4660,6 +4669,34 @@ def api_portfolio_optimize_latest():
     return jsonify({"ok": True, "cached_seconds_ago": age, **_optimizer_cache["result"]})
 
 
+# ── Mobile AI agent chat ────────────────────────────────────────────────────────
+
+@app.route("/agent")
+def agent_page():
+    """手機/網頁版 AI 助理聊天頁（受登入保護，沿用全域 before_request）。"""
+    return render_template("agent.html")
+
+
+@app.route("/api/agent-chat", methods=["POST"])
+def api_agent_chat():
+    """跑一輪 Agent 對話（含工具迴圈），回傳助理回覆與更新後的歷史。"""
+    if _web_agent is None:
+        return jsonify({"ok": False, "error": "Agent 模組未載入"}), 500
+    if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"}), 400
+    try:
+        payload = request.json or {}
+        history = payload.get("messages") or []
+        message = (payload.get("message") or "").strip()
+        if not message:
+            return jsonify({"ok": False, "error": "訊息不可為空"}), 400
+        result = _web_agent.run_turn(history, message)
+        return jsonify({"ok": True, **result})
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── Main page ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -4673,4 +4710,4 @@ def index():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(debug=False, host="0.0.0.0", port=port)
+    app.run(debug=False, host="0.0.0.0", port=port, threaded=True)
