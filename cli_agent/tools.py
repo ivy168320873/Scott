@@ -13,8 +13,10 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from stock_tools import STOCK_TOOL_FUNCTIONS, STOCK_TOOL_SCHEMAS
+
 # 給 Claude 看的工具定義。描述要明確說明「何時」該用這個工具。
-TOOL_SCHEMAS = [
+_CORE_TOOL_SCHEMAS = [
     {
         "name": "read_file",
         "description": (
@@ -119,12 +121,16 @@ def run_shell(command: str, timeout: int = 60) -> str:
     return "\n".join(parts)
 
 
-# 工具名稱 -> 實作函式。
-TOOL_FUNCTIONS = {
+# 工具名稱 -> 實作函式（核心工具）。
+_CORE_TOOL_FUNCTIONS = {
     "read_file": read_file,
     "write_file": write_file,
     "run_shell": run_shell,
 }
+
+# 對外公開：核心工具 + 股票工具。
+TOOL_SCHEMAS = _CORE_TOOL_SCHEMAS + STOCK_TOOL_SCHEMAS
+TOOL_FUNCTIONS = {**_CORE_TOOL_FUNCTIONS, **STOCK_TOOL_FUNCTIONS}
 
 
 def execute_tool(name: str, tool_input: dict) -> str:

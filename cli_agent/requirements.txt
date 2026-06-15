@@ -1,2 +1,8 @@
+# 核心相依（一定要裝）
 anthropic>=0.40
 python-dotenv>=1.0
+
+# 股票工具（get_stock_price / get_market_state / backtest_strategy）需要上層
+# Scott 專案的套件（pandas、numpy、yfinance 等）。要啟用這些功能，請另外執行：
+#     pip3 install -r ../requirements.txt
+# 沒裝也不影響核心功能；股票工具會回傳提示訊息。
