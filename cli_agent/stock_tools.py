@@ -218,30 +218,22 @@ def backtest_strategy(
     )
 
 
-def analyze_signals(symbol: str, period: str = "6mo") -> str:
-    """計算技術指標(RSI/MACD/布林/均線)並研判進出場訊號。"""
-    mods = _load()
-    if mods is None:
-        return _IMPORT_HINT
-    dp, bt, demo = mods
-    try:
-        import signals
-    except ImportError:
-        return _IMPORT_HINT
-
+def _signal_for(symbol: str, period: str, dp, bt, demo, signals) -> dict:
+    """計算單一股票的指標與訊號,回傳結構化 dict(失敗時帶 error)。"""
     s = _fetch_series(symbol, period, dp, demo)
     if not s or not s.get("closes"):
-        return f"錯誤：無法取得 {symbol} 的資料。"
+        return {"symbol": symbol.upper(), "error": "無法取得資料"}
 
     closes = s["closes"]
     if len(closes) < 60:
-        return f"錯誤：{symbol} 的資料太少（{len(closes)} 筆），無法計算指標。"
+        return {"symbol": symbol.upper(), "error": f"資料太少（{len(closes)} 筆）"}
 
-    # 用 backtest 既有的指標計算函式。
     rsi = bt._rsi(closes)
     macd_line, macd_sig, macd_hist = bt._macd(closes)
     bb_upper, bb_mid, bb_lower, bb_pct = bt._bb(closes)
     price = closes[-1]
+    prev = closes[-2] if len(closes) > 1 else price
+    change = (price / prev - 1) * 100 if prev else 0.0
 
     ma_analysis = []
     for label, period_n in (("MA20", 20), ("MA60", 60), ("MA200", 200)):
@@ -275,14 +267,55 @@ def analyze_signals(symbol: str, period: str = "6mo") -> str:
     try:
         r = signals.detect(payload)
     except Exception as e:  # noqa: BLE001
-        return f"錯誤：訊號計算失敗：{e}"
+        return {"symbol": symbol.upper(), "error": f"訊號計算失敗：{e}"}
 
+    return {
+        "symbol": symbol.upper(),
+        "price": price,
+        "change": change,
+        "rsi": _last(rsi),
+        "macd_hist": _last(macd_hist),
+        "detect": r,
+        "is_demo": bool(s.get("is_demo")),
+    }
+
+
+def _normalize_symbols(symbols, limit: int = 10) -> list[str]:
+    """把代號參數正規化成字串陣列(容忍逗號字串),並去重、限量。"""
+    if isinstance(symbols, str):
+        symbols = symbols.replace(",", " ").split()
+    out, seen = [], set()
+    for s in symbols or []:
+        sym = str(s).strip().upper()
+        if sym and sym not in seen:
+            seen.add(sym)
+            out.append(sym)
+    return out[:limit]
+
+
+def analyze_signals(symbol: str, period: str = "6mo") -> str:
+    """計算技術指標(RSI/MACD/布林/均線)並研判進出場訊號。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, bt, demo = mods
+    try:
+        import signals
+    except ImportError:
+        return _IMPORT_HINT
+
+    info = _signal_for(symbol, period, dp, bt, demo, signals)
+    if info.get("error"):
+        return f"錯誤：{symbol.upper()} {info['error']}。"
+
+    r = info["detect"]
     lv = r.get("levels", {})
-    demo_note = "（示範資料，非即時）" if s.get("is_demo") else ""
+    demo_note = "（示範資料，非即時）" if info["is_demo"] else ""
     lines = [
-        f"{symbol.upper()} ｜ 技術訊號：{r.get('signal', '?')}"
+        f"{info['symbol']} ｜ 技術訊號：{r.get('signal', '?')}"
         f"（匯流分數 {r.get('confluence', 0)}/100）{demo_note}".rstrip(),
-        f"收盤：{price:.2f}　RSI：{_fmt(_last(rsi))}　MACD柱：{_fmt(_last(macd_hist), 4)}",
+        f"收盤：{info['price']:.2f}　RSI：{_fmt(info['rsi'])}"
+        f"　MACD柱：{_fmt(info['macd_hist'], 4)}",
     ]
     if r.get("reasons_bull"):
         lines.append("偏多理由：")
@@ -300,6 +333,94 @@ def analyze_signals(symbol: str, period: str = "6mo") -> str:
             f"（風險約 {lv.get('risk_pct', 0)}%）"
         )
     return "\n".join(lines)
+
+
+def compare_stocks(symbols, period: str = "6mo") -> str:
+    """同時比較多檔股票的價格、漲跌、RSI 與技術訊號(一行一檔)。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, bt, demo = mods
+    try:
+        import signals
+    except ImportError:
+        return _IMPORT_HINT
+
+    syms = _normalize_symbols(symbols)
+    if not syms:
+        return "錯誤：請提供至少一檔股票代號。"
+
+    lines, demo_seen = [], False
+    for sym in syms:
+        info = _signal_for(sym, period, dp, bt, demo, signals)
+        if info.get("error"):
+            lines.append(f"{sym}：{info['error']}")
+            continue
+        demo_seen = demo_seen or info["is_demo"]
+        r = info["detect"]
+        lines.append(
+            f"{info['symbol']}｜{info['price']:.2f}（{info['change']:+.2f}%）"
+            f"｜RSI {_fmt(info['rsi'])}｜{r.get('signal', '?')}"
+            f"(匯流{r.get('confluence', 0)})"
+        )
+    header = "多檔比較" + ("（示範資料，非即時）" if demo_seen else "") + "："
+    return header + "\n" + "\n".join(lines)
+
+
+def scan_stocks(symbols, period: str = "6mo") -> str:
+    """掃描一份清單,挑出偏多訊號、偏空/觀望與超賣(RSI<30)的標的。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, bt, demo = mods
+    try:
+        import signals
+    except ImportError:
+        return _IMPORT_HINT
+
+    syms = _normalize_symbols(symbols)
+    if not syms:
+        return "錯誤：請提供至少一檔股票代號。"
+
+    bullish, bearish, oversold, failed = [], [], [], []
+    demo_seen = False
+    for sym in syms:
+        info = _signal_for(sym, period, dp, bt, demo, signals)
+        if info.get("error"):
+            failed.append(f"{sym}（{info['error']}）")
+            continue
+        demo_seen = demo_seen or info["is_demo"]
+        r = info["detect"]
+        conf = r.get("confluence", 0)
+        entry = (
+            conf,
+            f"{info['symbol']} {r.get('signal', '?')}(匯流{conf})"
+            f"｜RSI {_fmt(info['rsi'])}",
+        )
+        if r.get("is_bullish"):
+            bullish.append(entry)
+        else:
+            bearish.append(entry)
+        rsi = info["rsi"]
+        if rsi is not None and rsi < 30:
+            oversold.append(f"{info['symbol']}（RSI {rsi:.1f}）")
+
+    bullish.sort(reverse=True)
+    bearish.sort(reverse=True)
+
+    out = [f"掃描結果（共 {len(syms)} 檔）" + ("（示範資料）" if demo_seen else "") + "："]
+    if bullish:
+        out.append("🔥 偏多訊號（依匯流分數排序）：")
+        out += [f"  ・{t}" for _, t in bullish]
+    if bearish:
+        out.append("⚠️ 偏空／觀望：")
+        out += [f"  ・{t}" for _, t in bearish]
+    if oversold:
+        out.append("📉 超賣可留意（RSI<30）：" + "、".join(oversold))
+    if failed:
+        out.append("（無法分析：" + "、".join(failed) + "）")
+    return "\n".join(out)
+
 
 
 def _fmt(value, digits: int = 1) -> str:
@@ -359,6 +480,50 @@ STOCK_TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "compare_stocks",
+        "description": (
+            "同時比較多檔股票，列出各自的收盤價、漲跌幅、RSI 與技術訊號。"
+            "當使用者想一次看好幾檔、做比較、或問「哪一檔比較強」時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "股票代號清單，例如 ['NVDA','AAPL','2330.TW']（最多 10 檔）。",
+                },
+                "period": {
+                    "type": "string",
+                    "description": "資料期間，預設 '6mo'。",
+                },
+            },
+            "required": ["symbols"],
+        },
+    },
+    {
+        "name": "scan_stocks",
+        "description": (
+            "掃描一份股票清單，挑出偏多訊號、偏空/觀望、以及超賣（RSI<30）的標的，"
+            "並依匯流分數排序。當使用者想從一籃子股票中找出值得注意的標的時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "要掃描的股票代號清單（最多 10 檔）。",
+                },
+                "period": {
+                    "type": "string",
+                    "description": "資料期間，預設 '6mo'。",
+                },
+            },
+            "required": ["symbols"],
+        },
+    },
+    {
         "name": "backtest_strategy",
         "description": (
             "對某檔股票用指定策略跑歷史回測，回傳總報酬、年化、勝率、"
@@ -391,5 +556,7 @@ STOCK_TOOL_FUNCTIONS = {
     "get_stock_price": get_stock_price,
     "get_market_state": get_market_state,
     "analyze_signals": analyze_signals,
+    "compare_stocks": compare_stocks,
+    "scan_stocks": scan_stocks,
     "backtest_strategy": backtest_strategy,
 }
