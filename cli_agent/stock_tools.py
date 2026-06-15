@@ -113,6 +113,36 @@ def _build_ohlcv(symbol: str, period: str, dp, demo) -> list[dict]:
         return []
 
 
+def _fetch_series(symbol: str, period: str, dp, demo) -> dict | None:
+    """取得收盤/高/低/量序列：先試真實/降級資料,再退回示範資料。"""
+    try:
+        d = dp.get_ohlcv(symbol.upper(), period)
+    except Exception:  # noqa: BLE001
+        d = None
+    if d and d.get("closes"):
+        return d
+    try:
+        hist = demo.generate(symbol.upper())
+        return {
+            "closes": [float(x) for x in hist["Close"].tolist()],
+            "highs": [float(x) for x in hist["High"].tolist()],
+            "lows": [float(x) for x in hist["Low"].tolist()],
+            "volumes": [int(x) for x in hist["Volume"].tolist()],
+            "is_demo": True,
+            "source": "demo",
+        }
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _last(arr) -> float | None:
+    """回傳序列中最後一個非 None 的值（指標前段常為 None）。"""
+    for v in reversed(arr):
+        if v is not None:
+            return v
+    return None
+
+
 def get_stock_price(symbol: str) -> str:
     """查某檔股票最新收盤價、漲跌幅與區間高低。"""
     mods = _load()
@@ -188,6 +218,97 @@ def backtest_strategy(
     )
 
 
+def analyze_signals(symbol: str, period: str = "6mo") -> str:
+    """計算技術指標(RSI/MACD/布林/均線)並研判進出場訊號。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, bt, demo = mods
+    try:
+        import signals
+    except ImportError:
+        return _IMPORT_HINT
+
+    s = _fetch_series(symbol, period, dp, demo)
+    if not s or not s.get("closes"):
+        return f"錯誤：無法取得 {symbol} 的資料。"
+
+    closes = s["closes"]
+    if len(closes) < 60:
+        return f"錯誤：{symbol} 的資料太少（{len(closes)} 筆），無法計算指標。"
+
+    # 用 backtest 既有的指標計算函式。
+    rsi = bt._rsi(closes)
+    macd_line, macd_sig, macd_hist = bt._macd(closes)
+    bb_upper, bb_mid, bb_lower, bb_pct = bt._bb(closes)
+    price = closes[-1]
+
+    ma_analysis = []
+    for label, period_n in (("MA20", 20), ("MA60", 60), ("MA200", 200)):
+        v = _last(bt._sma(closes, period_n))
+        if v is not None:
+            ma_analysis.append({"label": label, "value": v})
+
+    vols = s.get("volumes") or []
+    vol_ratio = 1.0
+    if len(vols) >= 21:
+        avg = sum(vols[-21:-1]) / 20
+        vol_ratio = vols[-1] / avg if avg else 1.0
+
+    payload = {
+        "symbol": symbol.upper(),
+        "price": price,
+        "volume_ratio": vol_ratio,
+        "indicators": {
+            "rsi": _last(rsi),
+            "macd": _last(macd_line),
+            "macd_signal": _last(macd_sig),
+            "macd_hist": _last(macd_hist),
+            "bb_upper": _last(bb_upper),
+            "bb_lower": _last(bb_lower),
+            "bb_mid": _last(bb_mid),
+            "bb_pct_b": _last(bb_pct),
+        },
+        "ma_analysis": ma_analysis,
+    }
+
+    try:
+        r = signals.detect(payload)
+    except Exception as e:  # noqa: BLE001
+        return f"錯誤：訊號計算失敗：{e}"
+
+    lv = r.get("levels", {})
+    demo_note = "（示範資料，非即時）" if s.get("is_demo") else ""
+    lines = [
+        f"{symbol.upper()} ｜ 技術訊號：{r.get('signal', '?')}"
+        f"（匯流分數 {r.get('confluence', 0)}/100）{demo_note}".rstrip(),
+        f"收盤：{price:.2f}　RSI：{_fmt(_last(rsi))}　MACD柱：{_fmt(_last(macd_hist), 4)}",
+    ]
+    if r.get("reasons_bull"):
+        lines.append("偏多理由：")
+        lines += [f"  ・{x}" for x in r["reasons_bull"]]
+    if r.get("reasons_bear"):
+        lines.append("偏空理由：")
+        lines += [f"  ・{x}" for x in r["reasons_bear"]]
+    if lv:
+        supports = "、".join(str(x) for x in lv.get("supports", [])) or "—"
+        resistances = "、".join(str(x) for x in lv.get("resistances", [])) or "—"
+        tp = "、".join(str(x) for x in lv.get("take_profit", [])) or "—"
+        lines.append(f"支撐：{supports}　壓力：{resistances}")
+        lines.append(
+            f"建議停損：{lv.get('stop_loss', '—')}　目標：{tp}"
+            f"（風險約 {lv.get('risk_pct', 0)}%）"
+        )
+    return "\n".join(lines)
+
+
+def _fmt(value, digits: int = 1) -> str:
+    """把可能為 None 的數值格式化成字串。"""
+    if value is None:
+        return "—"
+    return f"{value:.{digits}f}"
+
+
 STOCK_TOOL_SCHEMAS = [
     {
         "name": "get_stock_price",
@@ -214,6 +335,28 @@ STOCK_TOOL_SCHEMAS = [
             "當使用者問到大盤、市場氣氛、現在適不適合進場時使用。"
         ),
         "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "analyze_signals",
+        "description": (
+            "計算某檔股票的技術指標（RSI、MACD、布林通道、均線），研判目前"
+            "是偏多還偏空，並給出偏多/偏空理由與關鍵價位（支撐、壓力、停損、目標）。"
+            "當使用者問到某檔股票的技術面、進出場時機、該不該買/賣時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代號，例如 'NVDA'、'2330.TW'。",
+                },
+                "period": {
+                    "type": "string",
+                    "description": "資料期間，例如 '3mo'、'6mo'、'1y'，預設 '6mo'。",
+                },
+            },
+            "required": ["symbol"],
+        },
     },
     {
         "name": "backtest_strategy",
@@ -247,5 +390,6 @@ STOCK_TOOL_SCHEMAS = [
 STOCK_TOOL_FUNCTIONS = {
     "get_stock_price": get_stock_price,
     "get_market_state": get_market_state,
+    "analyze_signals": analyze_signals,
     "backtest_strategy": backtest_strategy,
 }

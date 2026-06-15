@@ -9,7 +9,7 @@
 | `main.py` | CLI 入口，接收使用者輸入、處理指令（`/exit`、`/clear`、`/help`） |
 | `agent.py` | 呼叫 Claude API，處理對話與工具 (agentic) 迴圈，串流輸出 |
 | `tools.py` | 核心工具集：`read_file`、`write_file`、`run_shell` |
-| `stock_tools.py` | 股票工具：`get_stock_price`、`get_market_state`、`backtest_strategy`（接上層 Scott 投資分析系統） |
+| `stock_tools.py` | 股票工具：`get_stock_price`、`get_market_state`、`analyze_signals`、`backtest_strategy`（接上層 Scott 投資分析系統） |
 | `memory.py` | 對話記憶，持久化到 JSON |
 | `.env` | 存放 `ANTHROPIC_API_KEY`（由 `.env.example` 複製而來，已被 git 忽略） |
 
@@ -38,6 +38,7 @@ python main.py "列出目前目錄下的 Python 檔案並統計行數"
 
 # 投資分析範例
 python main.py "NVDA 現在多少錢？大盤偏多還偏弱？"
+python main.py "分析 2330.TW 的技術面，現在適合進場嗎？"
 python main.py "幫 2330.TW 用 decision_core 策略跑回測"
 ```
 
