@@ -910,6 +910,75 @@ def institutional_score(
     return "\n".join(lines)
 
 
+_COMMITTEE_NAMES = {
+    "technical": "技術",
+    "risk": "風險",
+    "market": "市場",
+    "institutional": "機構資金流",
+    "portfolio": "投組",
+}
+_VOTE_LABEL = {"BUY": "買進", "HOLD": "續抱", "WATCH": "觀望", "SELL": "賣出"}
+
+
+def committee_vote(symbol: str, risk_profile: str = "balanced") -> str:
+    """AI 投資委員會：5 個委員會（技術/風險/市場/機構資金流/投組）各自投票後彙整。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, _, _ = mods
+    try:
+        import investment_committee_engine as ice
+    except ImportError:
+        return _IMPORT_HINT
+
+    if risk_profile not in ("conservative", "balanced", "aggressive"):
+        risk_profile = "balanced"
+
+    try:
+        r = ice.run_investment_committee(
+            symbol.upper(), dp.get_ohlcv, risk_profile=risk_profile
+        )
+    except Exception as e:  # noqa: BLE001
+        return f"錯誤：投資委員會分析失敗：{e}"
+    if not r.get("ok", True) and r.get("error"):
+        return f"錯誤：{r['error']}"
+
+    votes = r.get("committee_votes", {})
+    final = r.get("final_decision", "?")
+    final_label = _VOTE_LABEL.get(final, final)
+    demo_note = "（示範資料，非即時）" if r.get("is_demo") else ""
+
+    lines = [
+        f"🗳️ AI 投資委員會 — {symbol.upper()}（風險偏好：{risk_profile}）{demo_note}".rstrip(),
+        f"最終決議：{final_label}"
+        f"（共識分數 {r.get('committee_score', '?')}、信心 {r.get('confidence', '?')}）",
+        f"票數：買進 {r.get('buy_votes', 0)}　續抱 {r.get('hold_votes', 0)}"
+        f"　觀望 {r.get('watch_votes', 0)}　賣出 {r.get('sell_votes', 0)}",
+        "各委員會投票：",
+    ]
+    for key, name in _COMMITTEE_NAMES.items():
+        v = votes.get(key)
+        if not v:
+            continue
+        vote_label = _VOTE_LABEL.get(v.get("vote"), v.get("vote", "?"))
+        reason = (v.get("reasons") or [""])[0]
+        lines.append(
+            f"  ・{name}委員會：{vote_label}（信心 {v.get('confidence', '?')}）"
+            + (f" — {reason}" if reason else "")
+        )
+
+    maj = r.get("majority_reasons") or []
+    mino = r.get("minority_reasons") or []
+    if maj:
+        lines.append("多數理由：" + "；".join(str(x) for x in maj[:3]))
+    if mino:
+        lines.append("少數異見：" + "；".join(str(x) for x in mino[:2]))
+    if r.get("override_notes"):
+        lines.append("否決/調整：" + "；".join(str(x) for x in r["override_notes"][:2]))
+    lines.append("⚠️ 機械式彙整，僅供參考、不構成投資建議。")
+    return "\n".join(lines)
+
+
 STOCK_TOOL_SCHEMAS = [
     {
         "name": "get_stock_price",
@@ -1001,6 +1070,26 @@ STOCK_TOOL_SCHEMAS = [
                 },
             },
             "required": ["symbols"],
+        },
+    },
+    {
+        "name": "committee_vote",
+        "description": (
+            "AI 投資委員會：5 個獨立委員會（技術、風險、市場、機構資金流、投組）"
+            "各自對該股投票 買進/續抱/觀望/賣出，再彙整成最終決議，並列出各委員會"
+            "的票與理由。當使用者想看「不同角度怎麼看這檔」「委員會怎麼投」時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "股票代號，例如 'NVDA'、'2330.TW'。"},
+                "risk_profile": {
+                    "type": "string",
+                    "enum": ["conservative", "balanced", "aggressive"],
+                    "description": "風險偏好，預設 balanced。",
+                },
+            },
+            "required": ["symbol"],
         },
     },
     {
@@ -1152,6 +1241,7 @@ STOCK_TOOL_FUNCTIONS = {
     "analyze_signals": analyze_signals,
     "compare_stocks": compare_stocks,
     "scan_stocks": scan_stocks,
+    "committee_vote": committee_vote,
     "institutional_score": institutional_score,
     "momentum_analysis": momentum_analysis,
     "regime_strategy": regime_strategy,
