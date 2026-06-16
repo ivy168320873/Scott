@@ -636,6 +636,96 @@ def trade_plan(
     return "\n".join(lines)
 
 
+# 大盤盤勢 → (適合的候選策略, 操作方向說明)
+_REGIME_PLAN = {
+    "bull": (
+        ["ma_cross", "decision_core", "decision_core_v2", "decision_core_v3", "combined"],
+        "趨勢偏多，順勢操作；趨勢／動能策略較有利。",
+    ),
+    "risk_on": (
+        ["macd", "decision_core", "decision_core_v2", "decision_core_v3"],
+        "波動／風險升高，動能策略較合適，但要控管部位。",
+    ),
+    "sideways": (
+        ["rsi", "bollinger"],
+        "區間盤整，均值回歸（低買高賣）較合適。",
+    ),
+    "bear": (
+        ["rsi", "bollinger"],
+        "空頭／偏弱，以防禦為主——降低部位、嚴設停損，避免追多。",
+    ),
+}
+
+
+def regime_strategy(symbol: str, period: str = "1y") -> str:
+    """先判斷大盤多空，自動選用適合該盤勢的策略，並在該股挑出最佳、附上目前訊號。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, bt, demo = mods
+    try:
+        import signals
+    except ImportError:
+        return _IMPORT_HINT
+
+    try:
+        ms = dp.market_state()
+    except Exception as e:  # noqa: BLE001
+        return f"錯誤：取得大盤狀態失敗：{e}"
+
+    regime = ms.get("regime", "sideways")
+    overall = ms.get("overall", "?")
+    candidates, direction = _REGIME_PLAN.get(regime, (list(_STRATEGIES), "盤勢中性。"))
+
+    ohlcv = _build_ohlcv(symbol, period, dp, demo, demo_n=252)
+    if not ohlcv:
+        return f"錯誤：無法取得 {symbol} 的歷史資料。"
+
+    ranked = []
+    for strat in candidates:
+        try:
+            r = bt.run(ohlcv, strat, {})
+        except Exception:  # noqa: BLE001
+            continue
+        ranked.append((strat, r))
+    ranked.sort(
+        key=lambda x: (x[1].get("sharpe", 0) or 0, x[1].get("total_return", 0) or 0),
+        reverse=True,
+    )
+
+    demo_seen = bool(ms.get("is_demo"))
+    info = _signal_for(symbol, "6mo", dp, bt, demo, signals)
+    if not info.get("error"):
+        demo_seen = demo_seen or info["is_demo"]
+
+    lines = [
+        f"🧭 依大盤切換策略 — {symbol.upper()}" + ("（示範資料）" if demo_seen else ""),
+        f"大盤狀態：{overall}（{regime}）",
+        f"策略方向：{direction}",
+    ]
+    if ranked:
+        b, r = ranked[0]
+        lines.append(
+            f"推薦策略：{b}（此股 {period} 回測：報酬 {r.get('total_return', 0):+.1f}%"
+            f"、勝率 {r.get('win_rate', 0):.0f}%、夏普 {r.get('sharpe', 0)}"
+            f"、回檔 {r.get('max_drawdown', 0):.1f}%）"
+        )
+    else:
+        lines.append("推薦策略：（此盤勢下候選策略皆無有效回測結果）")
+
+    if not info.get("error"):
+        rr = info["detect"]
+        lines.append(
+            f"目前個股訊號：{rr.get('signal', '?')}（匯流 {rr.get('confluence', 0)}/100）"
+            f"｜RSI {_fmt(info['rsi'])}"
+        )
+
+    if regime == "bear":
+        lines.append("※ 空頭格局：寧可錯過、不要做錯，部位放小並嚴守停損。")
+    lines.append("⚠️ 機械式彙整，僅供參考、不構成投資建議。")
+    return "\n".join(lines)
+
+
 STOCK_TOOL_SCHEMAS = [
     {
         "name": "get_stock_price",
@@ -727,6 +817,22 @@ STOCK_TOOL_SCHEMAS = [
                 },
             },
             "required": ["symbols"],
+        },
+    },
+    {
+        "name": "regime_strategy",
+        "description": (
+            "先判斷目前大盤是多是空，自動選用適合該盤勢的策略類型（多頭用趨勢/動能、"
+            "盤整與空頭用均值回歸/防禦），在該股挑出最佳策略並附上目前訊號。"
+            "當使用者問「現在這盤勢該用什麼策略操作這檔」時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "股票代號，例如 'NVDA'、'2330.TW'。"},
+                "period": {"type": "string", "description": "資料期間，預設 '1y'。"},
+            },
+            "required": ["symbol"],
         },
     },
     {
@@ -823,6 +929,7 @@ STOCK_TOOL_FUNCTIONS = {
     "analyze_signals": analyze_signals,
     "compare_stocks": compare_stocks,
     "scan_stocks": scan_stocks,
+    "regime_strategy": regime_strategy,
     "compare_strategies": compare_strategies,
     "validate_strategy": validate_strategy,
     "trade_plan": trade_plan,
