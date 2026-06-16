@@ -67,14 +67,19 @@ def _fmt_date(ts) -> str:
     return str(ts)[:10]
 
 
-def _build_ohlcv(symbol: str, period: str, dp, demo) -> list[dict]:
-    """組出 backtest.run 需要的 OHLCV 串列：先試真實/降級資料，再退回示範資料。"""
+def _build_ohlcv(symbol: str, period: str, dp, demo, demo_n: int = 252) -> list[dict]:
+    """組出 backtest.run 需要的 OHLCV 串列：先試真實/降級資料，再退回示範資料。
+
+    demo_n：示範資料退回時要產生的天數（walk-forward 等需要較長歷史）。
+    """
     try:
         d = dp.get_ohlcv(symbol.upper(), period)
     except Exception:  # noqa: BLE001 — 任何取數失敗都退回示範資料
         d = None
 
-    if d and d.get("closes"):
+    # 真實資料就直接用；但若是「示範資料且長度不足」，改產生足夠長的示範資料。
+    short_demo = d and d.get("is_demo") and len(d.get("closes", [])) < demo_n
+    if d and d.get("closes") and not short_demo:
         closes = d["closes"]
         opens = d.get("opens", closes)
         highs = d.get("highs", closes)
@@ -97,7 +102,7 @@ def _build_ohlcv(symbol: str, period: str, dp, demo) -> list[dict]:
 
     # 退而求其次：本機示範資料（無需網路）。
     try:
-        hist = demo.generate(symbol.upper())
+        hist = demo.generate(symbol.upper(), n=demo_n)
         return [
             {
                 "date": row.Index.strftime("%Y-%m-%d"),
@@ -430,6 +435,207 @@ def _fmt(value, digits: int = 1) -> str:
     return f"{value:.{digits}f}"
 
 
+def _rank_strategies(ohlcv: list, bt) -> list[tuple[str, dict]]:
+    """對所有策略跑回測，依風險調整後（夏普→報酬）排序，回傳 [(策略, 結果)]。"""
+    results = []
+    for strat in _STRATEGIES:
+        try:
+            r = bt.run(ohlcv, strat, {})
+        except Exception:  # noqa: BLE001
+            continue
+        results.append((strat, r))
+    results.sort(
+        key=lambda x: (x[1].get("sharpe", 0) or 0, x[1].get("total_return", 0) or 0),
+        reverse=True,
+    )
+    return results
+
+
+def compare_strategies(symbol: str, period: str = "2y") -> str:
+    """對一檔股票跑遍所有策略並排名，找出歷史上表現最好的（風險調整後）。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, bt, demo = mods
+
+    ohlcv = _build_ohlcv(symbol, period, dp, demo, demo_n=504)
+    if not ohlcv:
+        return f"錯誤：無法取得 {symbol} 的歷史資料。"
+
+    ranked = _rank_strategies(ohlcv, bt)
+    if not ranked:
+        return f"錯誤：{symbol} 沒有任何策略可回測。"
+
+    bh = ranked[0][1].get("bh_return", 0)
+    lines = [
+        f"{symbol.upper()} 策略比較（{len(ohlcv)} 根K棒，依風險調整後排序）"
+        f"｜買進持有對照 {bh:+.1f}%：",
+    ]
+    for i, (strat, r) in enumerate(ranked, 1):
+        flag = "" if r.get("num_trades", 0) >= 3 else "（交易過少，參考性低）"
+        lines.append(
+            f"{i}. {strat}｜報酬 {r.get('total_return', 0):+.1f}%"
+            f" 年化 {r.get('annual_return', 0):+.1f}%"
+            f" 勝率 {r.get('win_rate', 0):.0f}%"
+            f" 交易 {r.get('num_trades', 0)}"
+            f" 夏普 {r.get('sharpe', 0)}"
+            f" 回檔 {r.get('max_drawdown', 0):.1f}%{flag}"
+        )
+    best = ranked[0]
+    beats = "贏過" if best[1].get("total_return", 0) > bh else "輸給"
+    lines.append(
+        f"➡️ 風險調整後最佳：{best[0]}（{beats}買進持有）。"
+        "夏普越高代表報酬相對波動越穩；數據為歷史回測，不保證未來。"
+    )
+    return "\n".join(lines)
+
+
+def validate_strategy(
+    symbol: str, strategy: str = "decision_core_v3", period: str = "5y"
+) -> str:
+    """用 walk-forward + 蒙地卡羅驗證策略是否穩健（而非只是過去剛好有效）。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, bt, demo = mods
+    try:
+        import optimizer
+    except ImportError:
+        return _IMPORT_HINT
+
+    if strategy not in _STRATEGIES:
+        return f"錯誤：未知策略 '{strategy}'。可用：{', '.join(_STRATEGIES)}"
+
+    # walk-forward 需要較長歷史（至少約 315 根K棒）。
+    ohlcv = _build_ohlcv(symbol, period, dp, demo, demo_n=1260)
+    if not ohlcv:
+        return f"錯誤：無法取得 {symbol} 的歷史資料。"
+
+    lines = [f"{symbol.upper()} ｜ 策略穩健度驗證：{strategy}（{len(ohlcv)} 根K棒）"]
+
+    try:
+        wf = optimizer.rolling_walk_forward(ohlcv, strategy)
+    except Exception as e:  # noqa: BLE001
+        wf = {"error": str(e)}
+    if wf.get("error"):
+        lines.append(f"・前進測試：{wf['error']}")
+    else:
+        lines.append(
+            "【前進測試 Walk-Forward】（拿過去訓練、未見過的資料測試）\n"
+            f"  結論：{wf.get('verdict', '?')}\n"
+            f"  樣本外平均報酬：{wf.get('avg_oos_return', 0):+.1f}%"
+            f"　樣本外勝率：{wf.get('avg_oos_win_rate', 0):.0f}%\n"
+            f"  過擬合落差：{wf.get('overfit_gap', 0)}（越小越好）"
+            f"　穩定度：{wf.get('stability_pct', 0)}%"
+        )
+
+    try:
+        r = bt.run(ohlcv, strategy, {})
+        mc = optimizer.monte_carlo(r.get("trades", []))
+    except Exception as e:  # noqa: BLE001
+        mc = {"error": str(e)}
+    if mc.get("error"):
+        lines.append(f"・蒙地卡羅：{mc['error']}")
+    else:
+        ret = mc.get("return", {})
+        dd = mc.get("drawdown", {})
+        lines.append(
+            "【蒙地卡羅模擬】（打亂歷史交易、模擬數千種未來）\n"
+            f"  獲利機率：{mc.get('prob_profit', 0)}%\n"
+            f"  未來報酬區間：悲觀(p5) {ret.get('p5', 0):+.1f}%"
+            f"／中位(p50) {ret.get('p50', 0):+.1f}%"
+            f"／樂觀(p95) {ret.get('p95', 0):+.1f}%\n"
+            f"  可能最大回檔(p95)：{dd.get('p95', 0):.1f}%"
+        )
+
+    lines.append("⚠️ 驗證能降低（但無法消除）過擬合風險；歷史不保證未來，請控管部位。")
+    return "\n".join(lines)
+
+
+def trade_plan(
+    symbol: str, account_size: float = 100000, risk_pct: float = 1.0, period: str = "6mo"
+) -> str:
+    """整合大盤、個股技術訊號、最佳策略與部位大小，給一份完整進出場建議。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, bt, demo = mods
+    try:
+        import signals
+    except ImportError:
+        return _IMPORT_HINT
+
+    info = _signal_for(symbol, period, dp, bt, demo, signals)
+    if info.get("error"):
+        return f"錯誤：{symbol.upper()} {info['error']}。"
+
+    r = info["detect"]
+    lv = r.get("levels", {})
+    price = info["price"]
+    stop = lv.get("stop_loss")
+    targets = lv.get("take_profit", [])
+    demo_note = "（示範資料，非即時）" if info["is_demo"] else ""
+
+    # 大盤背景
+    try:
+        ms = dp.market_state()
+        market = f"{ms.get('overall', '?')}（{ms.get('regime', '?')}）"
+    except Exception:  # noqa: BLE001
+        market = "未知"
+
+    # 最佳策略（用 1 年資料快速比一輪）
+    best_line = ""
+    try:
+        ohlcv = _build_ohlcv(symbol, "1y", dp, demo, demo_n=252)
+        ranked = _rank_strategies(ohlcv, bt) if ohlcv else []
+        if ranked:
+            b = ranked[0]
+            best_line = (
+                f"歷史最佳策略：{b[0]}（報酬 {b[1].get('total_return', 0):+.1f}%、"
+                f"勝率 {b[1].get('win_rate', 0):.0f}%、夏普 {b[1].get('sharpe', 0)}）"
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 部位大小：每筆風險 = 本金 × risk_pct%，股數 = 風險金額 / 每股停損距離
+    sizing = ""
+    if stop and price > stop:
+        risk_amount = account_size * risk_pct / 100
+        per_share = price - stop
+        shares = int(risk_amount / per_share) if per_share > 0 else 0
+        cost = shares * price
+        sizing = (
+            f"部位試算（本金 {account_size:,.0f}、單筆風險 {risk_pct}%）：\n"
+            f"  建議股數約 {shares} 股（約 {cost:,.0f} 成本），"
+            f"觸及停損約虧 {risk_amount:,.0f}"
+        )
+
+    lines = [
+        f"📋 {symbol.upper()} 進出場建議{demo_note}",
+        f"大盤背景：{market}",
+        f"技術訊號：{r.get('signal', '?')}（匯流 {r.get('confluence', 0)}/100）"
+        f"｜RSI {_fmt(info['rsi'])}",
+    ]
+    if best_line:
+        lines.append(best_line)
+    lines.append(
+        f"參考進場：{price:.2f}　停損：{stop if stop else '—'}　"
+        f"目標：{('、'.join(str(t) for t in targets)) if targets else '—'}"
+        f"（風險約 {lv.get('risk_pct', 0)}%）"
+    )
+    if sizing:
+        lines.append(sizing)
+    if r.get("reasons_bull"):
+        lines.append("偏多：" + "；".join(r["reasons_bull"][:3]))
+    if r.get("reasons_bear"):
+        lines.append("偏空：" + "；".join(r["reasons_bear"][:3]))
+    lines.append(
+        "⚠️ 以上為機械式訊號彙整，僅供參考、不構成投資建議；"
+        "請自行核對並嚴守停損。"
+    )
+    return "\n".join(lines)
+
+
 STOCK_TOOL_SCHEMAS = [
     {
         "name": "get_stock_price",
@@ -524,6 +730,65 @@ STOCK_TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "compare_strategies",
+        "description": (
+            "對一檔股票跑遍全部 8 種策略並排名（依風險調整後報酬），"
+            "找出歷史上表現最好的策略。當使用者問「哪個策略最會賺/最適合這檔」時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "股票代號，例如 'NVDA'、'2330.TW'。"},
+                "period": {"type": "string", "description": "資料期間，預設 '2y'。"},
+            },
+            "required": ["symbol"],
+        },
+    },
+    {
+        "name": "validate_strategy",
+        "description": (
+            "用 walk-forward 前進測試 + 蒙地卡羅模擬驗證某策略是否穩健（避免過擬合、"
+            "判斷是不是只是過去剛好有效）。當使用者想確認一個策略可不可靠、會不會賺時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "股票代號。"},
+                "strategy": {
+                    "type": "string",
+                    "enum": _STRATEGIES,
+                    "description": "要驗證的策略，預設 decision_core_v3。",
+                },
+                "period": {"type": "string", "description": "資料期間，預設 '5y'（驗證需長歷史）。"},
+            },
+            "required": ["symbol"],
+        },
+    },
+    {
+        "name": "trade_plan",
+        "description": (
+            "整合大盤狀態、個股技術訊號、歷史最佳策略與部位大小，給一份完整的"
+            "進出場建議（進場價、停損、目標、建議股數）。當使用者問「這檔該怎麼操作/"
+            "該買多少/完整建議」時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "股票代號。"},
+                "account_size": {
+                    "type": "number",
+                    "description": "帳戶本金，用來算部位大小，預設 100000。",
+                },
+                "risk_pct": {
+                    "type": "number",
+                    "description": "單筆交易願意承受的風險百分比，預設 1（即 1%）。",
+                },
+                "period": {"type": "string", "description": "資料期間，預設 '6mo'。"},
+            },
+            "required": ["symbol"],
+        },
+    },
+    {
         "name": "backtest_strategy",
         "description": (
             "對某檔股票用指定策略跑歷史回測，回傳總報酬、年化、勝率、"
@@ -558,5 +823,8 @@ STOCK_TOOL_FUNCTIONS = {
     "analyze_signals": analyze_signals,
     "compare_stocks": compare_stocks,
     "scan_stocks": scan_stocks,
+    "compare_strategies": compare_strategies,
+    "validate_strategy": validate_strategy,
+    "trade_plan": trade_plan,
     "backtest_strategy": backtest_strategy,
 }
