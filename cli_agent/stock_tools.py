@@ -726,6 +726,98 @@ def regime_strategy(symbol: str, period: str = "1y") -> str:
     return "\n".join(lines)
 
 
+def _momentum_label(score: float) -> str:
+    if score >= 75:
+        return "強勁動能"
+    if score >= 60:
+        return "偏多動能"
+    if score >= 40:
+        return "中性"
+    if score >= 25:
+        return "偏弱"
+    return "弱勢"
+
+
+def momentum_analysis(symbol: str, period: str = "6mo") -> str:
+    """整合趨勢、相對強度（對大盤）、量能三大引擎，給一份動能分析。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, _, _ = mods
+    try:
+        import relative_strength_score as rss
+        import trend_score
+        import volume_score
+    except ImportError:
+        return _IMPORT_HINT
+
+    try:
+        ohlcv = dp.get_ohlcv(symbol.upper(), period)
+    except Exception as e:  # noqa: BLE001
+        return f"錯誤：取得 {symbol} 資料失敗：{e}"
+    if not ohlcv or not ohlcv.get("closes"):
+        return f"錯誤：找不到 {symbol} 的資料。"
+
+    # 相對強度需要大盤基準（SPY）。
+    try:
+        bench = dp.get_ohlcv("SPY", period)
+    except Exception:  # noqa: BLE001
+        bench = None
+
+    try:
+        trend = trend_score.compute(ohlcv)
+        rs = rss.compute(ohlcv, bench)
+        vol = volume_score.compute(ohlcv)
+    except Exception as e:  # noqa: BLE001
+        return f"錯誤：動能計算失敗：{e}"
+
+    composite = round((trend.get("score", 40) + rs.get("score", 40) + vol.get("score", 40)) / 3)
+    demo_note = "（示範資料，非即時）" if ohlcv.get("is_demo") else ""
+
+    rs_detail = rs.get("detail", {})
+    rs_sub = rs.get("sub_scores", {})
+    vol_detail = vol.get("detail", {})
+
+    lines = [
+        f"🚀 動能分析 — {symbol.upper()}{demo_note}",
+        f"綜合動能：{_momentum_label(composite)}（{composite}/100）",
+        f"・趨勢：{trend.get('label', '?')}（{trend.get('score', '?')}）",
+        f"・相對大盤：{rs.get('label', '?')}（{rs.get('score', '?')}）"
+        f"｜近20日 {_fmt(rs_detail.get('ret_20d_pct'))}%"
+        f"、超越SPY {_fmt(rs_detail.get('excess_20d'))}%"
+        f"、動能百分位 {_fmt(rs_sub.get('momentum_percentile'))}%",
+        f"・量能：{vol.get('label', '?')}（{vol.get('score', '?')}）"
+        f"｜近5日量比 {_fmt(vol_detail.get('vol_ratio_5d'), 2)}",
+    ]
+
+    flags = []
+    rsig = rs.get("signals", {})
+    vsig = vol.get("signals", {})
+    if rsig.get("strong_momentum"):
+        flags.append("✅強勁動能")
+    elif rsig.get("positive_momentum"):
+        flags.append("✅正動能")
+    if rsig.get("outperforming_20d"):
+        flags.append("✅強於大盤")
+    if rsig.get("underperforming_20d"):
+        flags.append("⚠️弱於大盤")
+    if vsig.get("high_volume_5d"):
+        flags.append("✅近期爆量")
+    if vsig.get("vol_expanding"):
+        flags.append("✅量能擴張")
+    if vsig.get("distribution_warning"):
+        flags.append("⚠️出貨警示")
+    if flags:
+        lines.append("動能訊號：" + " ".join(flags))
+
+    reasons = (trend.get("reasons") or [])[:2] + (rs.get("reasons") or [])[:2]
+    if reasons:
+        lines.append("重點：" + "；".join(reasons))
+
+    lines.append("⚠️ 機械式彙整，僅供參考、不構成投資建議。")
+    return "\n".join(lines)
+
+
 STOCK_TOOL_SCHEMAS = [
     {
         "name": "get_stock_price",
@@ -817,6 +909,22 @@ STOCK_TOOL_SCHEMAS = [
                 },
             },
             "required": ["symbols"],
+        },
+    },
+    {
+        "name": "momentum_analysis",
+        "description": (
+            "整合趨勢、相對強度（對大盤 SPY 比較）、量能三大引擎，給一份動能分析："
+            "綜合動能分數、是否強於大盤、動能百分位、是否爆量等。"
+            "當使用者問某檔的動能、強弱、有沒有領先大盤、是不是強勢股時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "股票代號，例如 'NVDA'、'2330.TW'。"},
+                "period": {"type": "string", "description": "資料期間，預設 '6mo'。"},
+            },
+            "required": ["symbol"],
         },
     },
     {
@@ -929,6 +1037,7 @@ STOCK_TOOL_FUNCTIONS = {
     "analyze_signals": analyze_signals,
     "compare_stocks": compare_stocks,
     "scan_stocks": scan_stocks,
+    "momentum_analysis": momentum_analysis,
     "regime_strategy": regime_strategy,
     "compare_strategies": compare_strategies,
     "validate_strategy": validate_strategy,
