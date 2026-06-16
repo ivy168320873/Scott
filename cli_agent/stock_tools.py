@@ -910,6 +910,120 @@ def institutional_score(
     return "\n".join(lines)
 
 
+def full_analysis(
+    symbol: str, risk_profile: str = "balanced", period: str = "1y"
+) -> str:
+    """共識決策：彙整大盤、機構總評、投資委員會、相對強度四個獨立視角，
+
+    只有當多數一致時才給高信念訊號（更全面、提高勝率的核心：寧缺勿濫）。
+    """
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, _, _ = mods
+    try:
+        import final_decision_engine as fde
+        import investment_committee_engine as ice
+        import relative_strength_score as rss
+    except ImportError:
+        return _IMPORT_HINT
+
+    if risk_profile not in ("conservative", "balanced", "aggressive"):
+        risk_profile = "balanced"
+    sym = symbol.upper()
+
+    try:
+        ohlcv = dp.get_ohlcv(sym, period)
+    except Exception as e:  # noqa: BLE001
+        return f"錯誤：取得 {sym} 資料失敗：{e}"
+    if not ohlcv or not ohlcv.get("closes"):
+        return f"錯誤：找不到 {sym} 的資料。"
+    try:
+        bench = dp.get_ohlcv("QQQ", period)
+    except Exception:  # noqa: BLE001
+        bench = None
+
+    bull = bear = 0
+    rows = []
+    demo_seen = bool(ohlcv.get("is_demo"))
+
+    # 1) 大盤背景
+    try:
+        ms = dp.market_state()
+        regime = ms.get("regime", "sideways")
+        d = "多" if regime == "bull" else "空" if regime == "bear" else "中"
+        bull += d == "多"
+        bear += d == "空"
+        rows.append(f"大盤：{ms.get('overall', '?')}（{regime}）→ {d}")
+    except Exception:  # noqa: BLE001
+        rows.append("大盤：取得失敗 → 中")
+
+    # 2) 機構動能總評
+    try:
+        fr = fde.compute(ohlcv, bench_ohlcv=bench, risk_profile=risk_profile)
+        code = fr.get("action_code", "WATCH")
+        d = "多" if code == "BUY" else "空" if code in ("TRIM", "EXIT", "SELL") else "中"
+        bull += d == "多"
+        bear += d == "空"
+        rows.append(
+            f"機構總評：{_fmt(fr.get('total_score'))}（{fr.get('grade', '?')}）"
+            f"／{fr.get('action_label', code)} → {d}"
+        )
+    except Exception:  # noqa: BLE001
+        rows.append("機構總評：計算失敗 → 中")
+
+    # 3) AI 投資委員會
+    try:
+        cr = ice.run_investment_committee(sym, dp.get_ohlcv, risk_profile=risk_profile)
+        fd = cr.get("final_decision", "WATCH")
+        d = "多" if fd == "BUY" else "空" if fd in ("SELL", "EXIT") else "中"
+        bull += d == "多"
+        bear += d == "空"
+        rows.append(
+            f"投資委員會：{_VOTE_LABEL.get(fd, fd)}"
+            f"（買{cr.get('buy_votes', 0)}/賣{cr.get('sell_votes', 0)}）→ {d}"
+        )
+    except Exception:  # noqa: BLE001
+        rows.append("投資委員會：計算失敗 → 中")
+
+    # 4) 相對強度（對大盤）
+    try:
+        rr = rss.compute(ohlcv, bench)
+        sc = rr.get("score", 50)
+        d = "多" if sc >= 65 else "空" if sc <= 40 else "中"
+        bull += d == "多"
+        bear += d == "空"
+        rows.append(f"相對強度：{rr.get('label', '?')}（{_fmt(sc)}）→ {d}")
+    except Exception:  # noqa: BLE001
+        rows.append("相對強度：計算失敗 → 中")
+
+    # 共識研判
+    if bull >= 3 and bear == 0:
+        verdict = "🟢 高信念偏多（多數一致看多）"
+    elif bear >= 3 and bull == 0:
+        verdict = "🔴 高信念偏空（多數一致看空）"
+    elif bull > bear:
+        verdict = "🟡 偏多但有分歧（把握度中等）"
+    elif bear > bull:
+        verdict = "🟡 偏空但有分歧（把握度中等）"
+    else:
+        verdict = "⚪ 分歧／訊號不明（建議觀望）"
+
+    lines = [
+        f"🎯 共識決策 — {sym}" + ("（示範資料，非即時）" if demo_seen else ""),
+        f"結論：{verdict}　（看多 {bull}／看空 {bear}／共 4 個視角）",
+        *[f"  ・{r}" for r in rows],
+    ]
+    # 逆風提醒
+    if "偏多" in verdict and any("空" in r and r.startswith("大盤") for r in rows):
+        lines.append("⚠️ 大盤逆風：個股偏多但大盤偏空，宜減碼或等回檔再進。")
+    lines.append(
+        "💡 提高勝率的關鍵：只在「高信念」時出手，分歧時寧可空手；"
+        "並嚴守停損。機械式彙整，不構成投資建議。"
+    )
+    return "\n".join(lines)
+
+
 _COMMITTEE_NAMES = {
     "technical": "技術",
     "risk": "風險",
@@ -1070,6 +1184,26 @@ STOCK_TOOL_SCHEMAS = [
                 },
             },
             "required": ["symbols"],
+        },
+    },
+    {
+        "name": "full_analysis",
+        "description": (
+            "共識決策：一次彙整大盤、機構動能總評、AI 投資委員會、相對強度四個獨立"
+            "視角，只有多數一致時才給高信念訊號。這是最全面的一鍵總結——當使用者問"
+            "「綜合來看該不該買」「給我最全面的判斷」「現在進場勝算高嗎」時，優先用這個。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "股票代號，例如 'NVDA'、'2330.TW'。"},
+                "risk_profile": {
+                    "type": "string",
+                    "enum": ["conservative", "balanced", "aggressive"],
+                    "description": "風險偏好，預設 balanced。",
+                },
+            },
+            "required": ["symbol"],
         },
     },
     {
@@ -1241,6 +1375,7 @@ STOCK_TOOL_FUNCTIONS = {
     "analyze_signals": analyze_signals,
     "compare_stocks": compare_stocks,
     "scan_stocks": scan_stocks,
+    "full_analysis": full_analysis,
     "committee_vote": committee_vote,
     "institutional_score": institutional_score,
     "momentum_analysis": momentum_analysis,

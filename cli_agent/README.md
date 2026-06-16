@@ -9,7 +9,7 @@
 | `main.py` | CLI 入口，接收使用者輸入、處理指令（`/exit`、`/clear`、`/help`） |
 | `agent.py` | 呼叫 Claude API，處理對話與工具 (agentic) 迴圈，串流輸出 |
 | `tools.py` | 核心工具集：`read_file`、`write_file`、`run_shell` |
-| `stock_tools.py` | 股票工具：`get_stock_price`、`get_market_state`、`analyze_signals`、`compare_stocks`、`scan_stocks`、`momentum_analysis`、`institutional_score`、`committee_vote`、`regime_strategy`、`compare_strategies`、`validate_strategy`、`trade_plan`、`backtest_strategy`（接上層 Scott 投資分析系統） |
+| `stock_tools.py` | 股票工具：`get_stock_price`、`get_market_state`、`analyze_signals`、`compare_stocks`、`scan_stocks`、`momentum_analysis`、`institutional_score`、`committee_vote`、`full_analysis`（共識決策）、`regime_strategy`、`compare_strategies`、`validate_strategy`、`trade_plan`、`backtest_strategy`（接上層 Scott 投資分析系統） |
 | `web_agent.py` | 網頁/手機版的非串流工具迴圈（給 `app.py` 的 `/agent` 用） |
 | `memory.py` | 對話記憶，持久化到 JSON |
 | `.env` | 存放 `ANTHROPIC_API_KEY`（由 `.env.example` 複製而來，已被 git 忽略） |
