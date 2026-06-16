@@ -818,6 +818,98 @@ def momentum_analysis(symbol: str, period: str = "6mo") -> str:
     return "\n".join(lines)
 
 
+def _as_range(tr) -> str:
+    """把 target_range（可能是 list / dict / str / None）轉成可讀字串。"""
+    if not tr:
+        return "—"
+    if isinstance(tr, dict):
+        lo = tr.get("low", tr.get("min"))
+        hi = tr.get("high", tr.get("max"))
+        if lo is not None and hi is not None:
+            return f"{lo}~{hi}"
+        return "、".join(f"{k}:{v}" for k, v in tr.items())
+    if isinstance(tr, (list, tuple)):
+        return "~".join(str(x) for x in tr)
+    return str(tr)
+
+
+def institutional_score(
+    symbol: str, risk_profile: str = "balanced", period: str = "1y"
+) -> str:
+    """7 模組機構動能總評（趨勢/量能/相對強度/催化/估值/風險），給評級與決策。
+
+    這是 Scott 系統 Phase 16 的統一決策引擎（與網頁版 /api/momentum-score 同源）。
+    """
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, _, _ = mods
+    try:
+        import final_decision_engine as fde
+    except ImportError:
+        return _IMPORT_HINT
+
+    if risk_profile not in ("conservative", "balanced", "aggressive"):
+        risk_profile = "balanced"
+
+    try:
+        ohlcv = dp.get_ohlcv(symbol.upper(), period)
+    except Exception as e:  # noqa: BLE001
+        return f"錯誤：取得 {symbol} 資料失敗：{e}"
+    if not ohlcv or not ohlcv.get("closes"):
+        return f"錯誤：找不到 {symbol} 的資料。"
+
+    try:
+        bench = dp.get_ohlcv("QQQ", period)
+    except Exception:  # noqa: BLE001
+        bench = None
+
+    try:
+        r = fde.compute(ohlcv, bench_ohlcv=bench, risk_profile=risk_profile)
+    except Exception as e:  # noqa: BLE001
+        return f"錯誤：機構評分計算失敗：{e}"
+
+    cs = r.get("component_scores", {})
+    demo_note = "（示範資料，非即時）" if r.get("is_demo") else ""
+    lines = [
+        f"🏛️ 機構動能總評 — {symbol.upper()}（風險偏好：{risk_profile}）{demo_note}".rstrip(),
+        f"總分：{_fmt(r.get('total_score'))}（{r.get('grade', '?')}）"
+        f"｜訊號：{r.get('signal_status', '?')}"
+        f"｜行動：{r.get('action_label', '?')}（{r.get('action_code', '?')}）",
+        f"各模組分數：趨勢 {_fmt(cs.get('trend'))}　量能 {_fmt(cs.get('volume'))}"
+        f"　相對強度 {_fmt(cs.get('rs'))}　催化 {_fmt(cs.get('catalyst'))}"
+        f"　估值 {_fmt(cs.get('valuation'))}　風險 {_fmt(cs.get('risk'))}(越高越危險)",
+        f"停損：{r.get('stop_loss') if r.get('stop_loss') is not None else '—'}"
+        f"　目標：{_as_range(r.get('target_range'))}"
+        f"　失效點：{r.get('invalidation') if r.get('invalidation') is not None else '—'}",
+    ]
+    pos = r.get("position_sizing_suggestion")
+    if isinstance(pos, dict):
+        label = pos.get("label") or ""
+        est = pos.get("estimated_label")
+        pct = pos.get("pct")
+        txt = label
+        if pct is not None and pct != 0:
+            txt += f"（{pct}%）"
+        if est and est != label:
+            txt += f"｜預估 {est}"
+        if txt:
+            lines.append(f"建議部位：{txt}")
+    elif pos:
+        lines.append(f"建議部位：{pos}")
+    reasons = r.get("reasons") or []
+    if reasons:
+        lines.append("重點：" + "；".join(str(x) for x in reasons[:4]))
+    warnings = r.get("risk_warnings") or []
+    if warnings:
+        lines.append("⚠️ 風險警示：" + "；".join(str(x) for x in warnings[:3]))
+    gate = (r.get("detail") or {}).get("gate_notes") or []
+    if gate:
+        lines.append("（閘門：" + "；".join(str(x) for x in gate) + "）")
+    lines.append("⚠️ 機械式彙整，僅供參考、不構成投資建議。")
+    return "\n".join(lines)
+
+
 STOCK_TOOL_SCHEMAS = [
     {
         "name": "get_stock_price",
@@ -909,6 +1001,29 @@ STOCK_TOOL_SCHEMAS = [
                 },
             },
             "required": ["symbols"],
+        },
+    },
+    {
+        "name": "institutional_score",
+        "description": (
+            "7 模組機構級動能總評（趨勢、量能、相對強度、催化、估值、風險），"
+            "加權算出總分與評級(A+~D)、訊號狀態、明確行動(買進/續抱/觀望/減碼/出場)、"
+            "停損、目標區、部位建議。這是 Scott 系統最完整的決策引擎"
+            "（與網頁版 /api/momentum-score 同源）。當使用者想要某檔的「綜合總評/"
+            "最終判斷/該買該賣」時，優先用這個。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "股票代號，例如 'NVDA'、'2330.TW'。"},
+                "risk_profile": {
+                    "type": "string",
+                    "enum": ["conservative", "balanced", "aggressive"],
+                    "description": "風險偏好，預設 balanced。",
+                },
+                "period": {"type": "string", "description": "資料期間，預設 '1y'。"},
+            },
+            "required": ["symbol"],
         },
     },
     {
@@ -1037,6 +1152,7 @@ STOCK_TOOL_FUNCTIONS = {
     "analyze_signals": analyze_signals,
     "compare_stocks": compare_stocks,
     "scan_stocks": scan_stocks,
+    "institutional_score": institutional_score,
     "momentum_analysis": momentum_analysis,
     "regime_strategy": regime_strategy,
     "compare_strategies": compare_strategies,
