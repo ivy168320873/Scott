@@ -1,8 +1,11 @@
 """股票工具：把上層 Scott 投資分析系統的功能接給 CLI Agent。
 
-對外提供三個工具：
+對外提供的工具：
   - get_stock_price：查某檔股票最新價與區間高低
   - get_market_state：研判大盤多空
+  - analyze_signals：技術指標訊號與關鍵價位
+  - compare_stocks / scan_stocks：多檔比較與掃描
+  - montecarlo_forecast：蒙地卡羅模擬未來價格的機率區間
   - backtest_strategy：對某檔股票跑策略回測
 
 這些功能需要上層專案的相依套件（pandas、numpy 等）。若未安裝，
@@ -423,6 +426,94 @@ def scan_stocks(symbols, period: str = "6mo") -> str:
 
 
 
+def _parse_horizons(horizons, default=(5, 21, 63)) -> list[int]:
+    """把預測天期參數正規化成正整數陣列（容忍逗號字串），去重並限量。"""
+    if horizons is None or horizons == "":
+        return list(default)
+    if isinstance(horizons, str):
+        horizons = horizons.replace(",", " ").split()
+    out, seen = [], set()
+    for h in horizons:
+        try:
+            n = int(h)
+        except (TypeError, ValueError):
+            continue
+        if 0 < n <= 504 and n not in seen:  # 上限約兩年交易日
+            seen.add(n)
+            out.append(n)
+    return out[:6] or list(default)
+
+
+_HORIZON_LABELS = {5: "1 週後", 21: "1 個月後", 63: "3 個月後", 126: "半年後", 252: "1 年後"}
+
+
+def montecarlo_forecast(
+    symbol: str,
+    period: str = "6mo",
+    horizons="5,21,63",
+    simulations: int = 50000,
+) -> str:
+    """用蒙地卡羅（GBM）模擬某檔股票未來價格的機率區間，而非單一預測值。
+
+    刻意把漂移率設為 0（隨機漫步假設），不預設漲跌方向；輸出各天期的
+    P5/P25/P50/P75/P95 百分位與「高於現價的機率」，重點在量化不確定性。
+    """
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, _, demo = mods
+    try:
+        import numpy as np
+    except ImportError:
+        return _IMPORT_HINT
+
+    s = _fetch_series(symbol, period, dp, demo)
+    if not s or not s.get("closes"):
+        return f"錯誤：無法取得 {symbol.upper()} 的資料。"
+
+    closes = np.asarray([float(x) for x in s["closes"]], dtype=float)
+    closes = closes[closes > 0]
+    if len(closes) < 5:
+        return f"錯誤：{symbol.upper()} 價格資料太少（{len(closes)} 筆），無法估計波動率。"
+
+    logret = np.diff(np.log(closes))
+    sigma = float(logret.std(ddof=1))
+    if not np.isfinite(sigma) or sigma <= 0:
+        return f"錯誤：{symbol.upper()} 波動率估計無效。"
+
+    s0 = float(closes[-1])
+    n_sims = max(1000, min(int(simulations), 500000))
+    rng = np.random.default_rng(42)
+    horizon_list = sorted(_parse_horizons(horizons))
+
+    demo_note = "（示範資料，非即時）" if s.get("is_demo") else ""
+    lines = [
+        f"{symbol.upper()} ｜ 蒙地卡羅預測（GBM，{n_sims:,} 條路徑）{demo_note}".rstrip(),
+        f"現價：{s0:.2f}　估計每日波動率 σ≈{sigma:.2%}"
+        f"（年化≈{sigma * (252 ** 0.5):.0%}）　漂移μ=0（隨機漫步）",
+        "─" * 36,
+    ]
+    for h in horizon_list:
+        # 漂移 0 的 GBM：ln(S_T/S_0) ~ N(-0.5σ²·T, σ²·T)
+        drift = -0.5 * sigma**2 * h
+        shock = sigma * (h**0.5) * rng.standard_normal(n_sims)
+        st = s0 * np.exp(drift + shock)
+        p5, p25, p50, p75, p95 = np.percentile(st, [5, 25, 50, 75, 95])
+        p_up = float((st > s0).mean())
+        label = _HORIZON_LABELS.get(h, f"T+{h} 日")
+        lines.append(
+            f"{label}（T+{h}）：中位 {p50:.2f}　"
+            f"區間 P5–P95 {p5:.2f}~{p95:.2f}　"
+            f"P25–P75 {p25:.2f}~{p75:.2f}　上漲機率 {p_up:.0%}"
+        )
+    lines.append("─" * 36)
+    lines.append(
+        "註：此為機率分佈而非價格保證；模型未納入解禁、財報等事件風險，"
+        "波動率越高代表不確定性越大，請搭配風險控管使用。"
+    )
+    return "\n".join(lines)
+
+
 def _fmt(value, digits: int = 1) -> str:
     """把可能為 None 的數值格式化成字串。"""
     if value is None:
@@ -524,6 +615,37 @@ STOCK_TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "montecarlo_forecast",
+        "description": (
+            "用蒙地卡羅（GBM）模擬某檔股票未來價格的機率區間，輸出各天期的"
+            "P5/P25/P50/P75/P95 百分位與上漲機率。漂移率設為 0（隨機漫步），"
+            "不預設方向，重點在量化不確定性。當使用者要求『預測走勢』、未來價格、"
+            "目標價或上漲機率時使用——以機率分佈回應，而非單一保證值。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代號，例如 'SPCX'、'NVDA'、'2330.TW'。",
+                },
+                "period": {
+                    "type": "string",
+                    "description": "估計波動率所用的歷史期間，例如 '3mo'、'6mo'、'1y'，預設 '6mo'。",
+                },
+                "horizons": {
+                    "type": "string",
+                    "description": "預測天期（交易日），逗號分隔，例如 '5,21,63'，預設 '5,21,63'。",
+                },
+                "simulations": {
+                    "type": "integer",
+                    "description": "模擬路徑數，預設 50000（範圍 1000–500000）。",
+                },
+            },
+            "required": ["symbol"],
+        },
+    },
+    {
         "name": "backtest_strategy",
         "description": (
             "對某檔股票用指定策略跑歷史回測，回傳總報酬、年化、勝率、"
@@ -558,5 +680,6 @@ STOCK_TOOL_FUNCTIONS = {
     "analyze_signals": analyze_signals,
     "compare_stocks": compare_stocks,
     "scan_stocks": scan_stocks,
+    "montecarlo_forecast": montecarlo_forecast,
     "backtest_strategy": backtest_strategy,
 }
