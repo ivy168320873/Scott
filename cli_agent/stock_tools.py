@@ -452,11 +452,19 @@ def montecarlo_forecast(
     period: str = "6mo",
     horizons="5,21,63",
     simulations: int = 50000,
+    event_day: int = 0,
+    event_drop_pct: float = 0.0,
+    event_prob: float = 0.0,
 ) -> str:
-    """用蒙地卡羅（GBM）模擬某檔股票未來價格的機率區間，而非單一預測值。
+    """用蒙地卡羅模擬某檔股票未來價格的機率區間，而非單一預測值。
 
-    刻意把漂移率設為 0（隨機漫步假設），不預設漲跌方向；輸出各天期的
+    基礎模型為漂移 0 的 GBM（隨機漫步假設），不預設漲跌方向，輸出各天期的
     P5/P25/P50/P75/P95 百分位與「高於現價的機率」，重點在量化不確定性。
+
+    可選的事件風險（跳躍擴散）：當設定 event_day（事件落在第幾個交易日）、
+    event_drop_pct（事件預期衝擊，如 -0.15 代表平均 -15%）與 event_prob
+    （事件發生機率 0~1）時，凡天期涵蓋到該日的路徑，會以該機率疊加一次性
+    跳躍——用來模擬 IPO 解禁賣壓、財報等已知催化事件造成的肥尾下檔風險。
     """
     mods = _load()
     if mods is None:
@@ -486,31 +494,55 @@ def montecarlo_forecast(
     rng = np.random.default_rng(42)
     horizon_list = sorted(_parse_horizons(horizons))
 
+    # 事件風險參數正規化：三者齊備且合理時才啟用。
+    ev_day = int(event_day) if event_day else 0
+    ev_prob = min(max(float(event_prob), 0.0), 1.0)
+    ev_drop = float(event_drop_pct)
+    event_on = ev_day > 0 and ev_prob > 0 and ev_drop != 0.0
+    # 跳躍幅度的對數常態參數：期望衝擊 ev_drop，散佈取其半幅（下限 3%）。
+    ev_mu = np.log1p(ev_drop) if event_on else 0.0
+    ev_sigma = max(abs(ev_drop) * 0.5, 0.03) if event_on else 0.0
+
     demo_note = "（示範資料，非即時）" if s.get("is_demo") else ""
+    model_name = "GBM+跳躍" if event_on else "GBM"
     lines = [
-        f"{symbol.upper()} ｜ 蒙地卡羅預測（GBM，{n_sims:,} 條路徑）{demo_note}".rstrip(),
+        f"{symbol.upper()} ｜ 蒙地卡羅預測（{model_name}，{n_sims:,} 條路徑）{demo_note}".rstrip(),
         f"現價：{s0:.2f}　估計每日波動率 σ≈{sigma:.2%}"
         f"（年化≈{sigma * (252 ** 0.5):.0%}）　漂移μ=0（隨機漫步）",
-        "─" * 36,
     ]
+    if event_on:
+        lines.append(
+            f"事件風險：第 T+{ev_day} 日 以 {ev_prob:.0%} 機率發生，"
+            f"平均衝擊 {ev_drop:+.0%}（模擬解禁／財報等催化）"
+        )
+    lines.append("─" * 36)
+
     for h in horizon_list:
         # 漂移 0 的 GBM：ln(S_T/S_0) ~ N(-0.5σ²·T, σ²·T)
         drift = -0.5 * sigma**2 * h
         shock = sigma * (h**0.5) * rng.standard_normal(n_sims)
         st = s0 * np.exp(drift + shock)
+        # 若此天期已涵蓋事件日，對中籤路徑疊加一次性跳躍。
+        if event_on and h >= ev_day:
+            hit = rng.random(n_sims) < ev_prob
+            jump = np.exp(ev_mu + ev_sigma * rng.standard_normal(n_sims))
+            st = np.where(hit, st * jump, st)
         p5, p25, p50, p75, p95 = np.percentile(st, [5, 25, 50, 75, 95])
         p_up = float((st > s0).mean())
         label = _HORIZON_LABELS.get(h, f"T+{h} 日")
+        flag = " ⚠含事件" if event_on and h >= ev_day else ""
         lines.append(
-            f"{label}（T+{h}）：中位 {p50:.2f}　"
+            f"{label}（T+{h}）{flag}：中位 {p50:.2f}　"
             f"區間 P5–P95 {p5:.2f}~{p95:.2f}　"
             f"P25–P75 {p25:.2f}~{p75:.2f}　上漲機率 {p_up:.0%}"
         )
     lines.append("─" * 36)
-    lines.append(
-        "註：此為機率分佈而非價格保證；模型未納入解禁、財報等事件風險，"
-        "波動率越高代表不確定性越大，請搭配風險控管使用。"
+    tail = (
+        "註：此為機率分佈而非價格保證；"
+        + ("已納入上述事件風險，" if event_on else "未納入解禁、財報等事件風險，")
+        + "波動率越高代表不確定性越大，請搭配風險控管使用。"
     )
+    lines.append(tail)
     return "\n".join(lines)
 
 
@@ -617,10 +649,11 @@ STOCK_TOOL_SCHEMAS = [
     {
         "name": "montecarlo_forecast",
         "description": (
-            "用蒙地卡羅（GBM）模擬某檔股票未來價格的機率區間，輸出各天期的"
-            "P5/P25/P50/P75/P95 百分位與上漲機率。漂移率設為 0（隨機漫步），"
-            "不預設方向，重點在量化不確定性。當使用者要求『預測走勢』、未來價格、"
-            "目標價或上漲機率時使用——以機率分佈回應，而非單一保證值。"
+            "用蒙地卡羅模擬某檔股票未來價格的機率區間，輸出各天期的"
+            "P5/P25/P50/P75/P95 百分位與上漲機率。基礎為漂移 0 的 GBM（隨機漫步），"
+            "不預設方向，重點在量化不確定性。可選擇加入事件風險（解禁、財報等）"
+            "模擬肥尾下檔。當使用者要求『預測走勢』、未來價格、目標價或上漲機率時"
+            "使用——以機率分佈回應，而非單一保證值。"
         ),
         "input_schema": {
             "type": "object",
@@ -640,6 +673,25 @@ STOCK_TOOL_SCHEMAS = [
                 "simulations": {
                     "type": "integer",
                     "description": "模擬路徑數，預設 50000（範圍 1000–500000）。",
+                },
+                "event_day": {
+                    "type": "integer",
+                    "description": (
+                        "（選用）已知催化事件落在第幾個交易日，例如解禁日 90、"
+                        "財報日 21。預設 0 表示不模擬事件。需與 event_drop_pct、"
+                        "event_prob 一起設定才生效。"
+                    ),
+                },
+                "event_drop_pct": {
+                    "type": "number",
+                    "description": (
+                        "（選用）事件的平均價格衝擊，小數表示，例如 -0.15 代表平均 -15%"
+                        "（解禁賣壓常為負）。預設 0。"
+                    ),
+                },
+                "event_prob": {
+                    "type": "number",
+                    "description": "（選用）事件發生機率，0~1，例如 0.6。預設 0。",
                 },
             },
             "required": ["symbol"],
