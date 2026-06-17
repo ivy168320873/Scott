@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import sys
 from typing import Callable
 
 import anthropic
