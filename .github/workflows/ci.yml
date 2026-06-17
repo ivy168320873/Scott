@@ -28,4 +28,6 @@ jobs:
         run: ruff check cli_agent tests
 
       - name: Run unit tests
-        run: pytest -q
+        # 僅跑本套件維護的測試（tests/）。其他子專案（如 polymarket_bot）
+        # 有各自的測試與打包設定，不在此 workflow 範圍內。
+        run: pytest -q tests
