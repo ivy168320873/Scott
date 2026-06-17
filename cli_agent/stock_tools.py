@@ -2,6 +2,7 @@
 
 對外提供的工具：
   - get_stock_price：查某檔股票最新價與區間高低
+  - get_fundamentals：查基本面（市值、本益比、EPS、營收、利潤率、估值）
   - get_market_state：研判大盤多空
   - analyze_signals：技術指標訊號與關鍵價位
   - compare_stocks / scan_stocks：多檔比較與掃描
@@ -553,6 +554,146 @@ def _fmt(value, digits: int = 1) -> str:
     return f"{value:.{digits}f}"
 
 
+def _fmt_big(value) -> str:
+    """把大數字格式化成兆/億/百萬（B/M）字串。"""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if v == 0:
+        return "—"
+    a = abs(v)
+    if a >= 1e12:
+        return f"{v / 1e12:.2f}兆"
+    if a >= 1e8:
+        return f"{v / 1e8:.2f}億"
+    if a >= 1e6:
+        return f"{v / 1e6:.1f}百萬"
+    return f"{v:,.0f}"
+
+
+def _fmt_pct(value, already_pct: bool = False) -> str:
+    """把比率格式化成百分比字串；already_pct=True 表示傳入值本身就是百分數。"""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{v if already_pct else v * 100:.2f}%"
+
+
+def _to_float(value):
+    """容忍字串/None 的浮點轉換，失敗或非數字回傳 None。"""
+    if value in (None, "", "None", "-", "N/A"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fundamentals_yfinance(symbol: str) -> dict | None:
+    """用 yfinance 抓基本面（Railway 等可連 Yahoo 的環境適用）。"""
+    try:
+        import yfinance as yf
+
+        info = yf.Ticker(symbol).get_info()
+    except Exception:  # noqa: BLE001 — 任何取數失敗都回 None，交給後備
+        return None
+    if not info or not isinstance(info, dict):
+        return None
+    if not (info.get("marketCap") or info.get("trailingPE") or info.get("totalRevenue")):
+        return None
+    return {
+        "name": info.get("longName") or info.get("shortName") or symbol.upper(),
+        "sector": info.get("sector"),
+        "industry": info.get("industry"),
+        "market_cap": _to_float(info.get("marketCap")),
+        "pe_trailing": _to_float(info.get("trailingPE")),
+        "pe_forward": _to_float(info.get("forwardPE")),
+        "eps": _to_float(info.get("trailingEps")),
+        "peg": _to_float(info.get("pegRatio") or info.get("trailingPegRatio")),
+        "ps": _to_float(info.get("priceToSalesTrailing12Months")),
+        "revenue": _to_float(info.get("totalRevenue")),
+        "profit_margin": _to_float(info.get("profitMargins")),  # 0~1 比率
+        "gross_margin": _to_float(info.get("grossMargins")),
+        "wk52_high": _to_float(info.get("fiftyTwoWeekHigh")),
+        "wk52_low": _to_float(info.get("fiftyTwoWeekLow")),
+        "dividend_yield": _to_float(info.get("dividendYield")),  # 0~1 比率
+        "source": "yfinance",
+        "margin_is_ratio": True,
+    }
+
+
+def _fundamentals_alpha_vantage(symbol: str) -> dict | None:
+    """用 Alpha Vantage OVERVIEW 抓基本面（需 ALPHA_VANTAGE_KEY）。"""
+    import os
+
+    key = os.environ.get("ALPHA_VANTAGE_KEY", "")
+    if not key:
+        return None
+    try:
+        import requests
+
+        r = requests.get(
+            "https://www.alphavantage.co/query",
+            params={"function": "OVERVIEW", "symbol": symbol.upper(), "apikey": key},
+            timeout=15,
+        )
+        d = r.json()
+    except Exception:  # noqa: BLE001
+        return None
+    if not d or not d.get("Symbol"):
+        return None
+    return {
+        "name": d.get("Name") or symbol.upper(),
+        "sector": d.get("Sector"),
+        "industry": d.get("Industry"),
+        "market_cap": _to_float(d.get("MarketCapitalization")),
+        "pe_trailing": _to_float(d.get("PERatio")),
+        "pe_forward": _to_float(d.get("ForwardPE")),
+        "eps": _to_float(d.get("EPS")),
+        "peg": _to_float(d.get("PEGRatio")),
+        "ps": _to_float(d.get("PriceToSalesRatioTTM")),
+        "revenue": _to_float(d.get("RevenueTTM")),
+        "profit_margin": _to_float(d.get("ProfitMargin")),  # 0~1 比率
+        "gross_margin": None,
+        "wk52_high": _to_float(d.get("52WeekHigh")),
+        "wk52_low": _to_float(d.get("52WeekLow")),
+        "dividend_yield": _to_float(d.get("DividendYield")),  # 0~1 比率
+        "source": "alpha_vantage",
+        "margin_is_ratio": True,
+    }
+
+
+def get_fundamentals(symbol: str) -> str:
+    """查某檔股票的基本面：市值、本益比、EPS、營收、利潤率、估值等。"""
+    f = _fundamentals_yfinance(symbol) or _fundamentals_alpha_vantage(symbol)
+    if not f:
+        return (
+            f"錯誤：無法取得 {symbol.upper()} 的基本面資料。"
+            "可能是代號有誤、該標的無財報資料，或資料源暫時無法連線"
+            "（可設定 ALPHA_VANTAGE_KEY 環境變數啟用備援來源）。"
+        )
+
+    ratio = f.get("margin_is_ratio", True)
+    sec = "／".join(x for x in (f.get("sector"), f.get("industry")) if x)
+    lines = [
+        f"{f['name']}（{symbol.upper()}）基本面｜來源：{f['source']}",
+        f"產業：{sec or '—'}",
+        f"市值：{_fmt_big(f.get('market_cap'))}　"
+        f"營收(TTM)：{_fmt_big(f.get('revenue'))}",
+        f"本益比 P/E：{_fmt(f.get('pe_trailing'), 1)}（預估 {_fmt(f.get('pe_forward'), 1)}）　"
+        f"EPS：{_fmt(f.get('eps'), 2)}",
+        f"PEG：{_fmt(f.get('peg'), 2)}　股價營收比 P/S：{_fmt(f.get('ps'), 1)}",
+        f"淨利率：{_fmt_pct(f.get('profit_margin'), already_pct=not ratio)}　"
+        f"毛利率：{_fmt_pct(f.get('gross_margin'), already_pct=not ratio)}",
+        f"52週高/低：{_fmt(f.get('wk52_high'), 2)} / {_fmt(f.get('wk52_low'), 2)}　"
+        f"股息殖利率：{_fmt_pct(f.get('dividend_yield'), already_pct=not ratio)}",
+    ]
+    lines.append("註：基本面數據僅供參考，不構成投資建議。")
+    return "\n".join(lines)
+
+
 STOCK_TOOL_SCHEMAS = [
     {
         "name": "get_stock_price",
@@ -567,6 +708,25 @@ STOCK_TOOL_SCHEMAS = [
                 "symbol": {
                     "type": "string",
                     "description": "股票代號，例如 'AAPL'、'NVDA'、'2330.TW'。",
+                }
+            },
+            "required": ["symbol"],
+        },
+    },
+    {
+        "name": "get_fundamentals",
+        "description": (
+            "查詢某檔股票的基本面數據：市值、本益比（P/E）、預估本益比、EPS、"
+            "PEG、股價營收比（P/S）、營收、淨利率、毛利率、52週高低與股息殖利率。"
+            "當使用者問到某檔股票『貴不貴』、估值、合理價、財報、基本面、"
+            "本益比、EPS、營收、利潤率等時使用。支援美股；台股與部分標的視資料源而定。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代號，例如 'SPCX'、'NVDA'、'AAPL'。",
                 }
             },
             "required": ["symbol"],
@@ -728,6 +888,7 @@ STOCK_TOOL_SCHEMAS = [
 
 STOCK_TOOL_FUNCTIONS = {
     "get_stock_price": get_stock_price,
+    "get_fundamentals": get_fundamentals,
     "get_market_state": get_market_state,
     "analyze_signals": analyze_signals,
     "compare_stocks": compare_stocks,
