@@ -313,7 +313,45 @@ def admin_dashboard():
         alert_settings=_alert_schedule_settings,
         log_count=len(_LOGIN_LOG),
     )
+@app.route("/momentum")
+def momentum_rank():
+    df = get_twse_stock_day_all()
 
+    # 轉數字
+    for col in ["TradeVolume", "TradeValue", "OpeningPrice", "HighestPrice", "LowestPrice", "ClosingPrice"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce")
+
+    # 過濾沒有價格的資料
+    df = df.dropna(subset=["OpeningPrice", "ClosingPrice", "TradeValue"])
+
+    # 計算日內漲幅
+    df["IntradayChangePct"] = ((df["ClosingPrice"] - df["OpeningPrice"]) / df["OpeningPrice"]) * 100
+
+    # 簡單動能分數：成交金額排名 + 漲幅排名
+    df["value_rank"] = df["TradeValue"].rank(pct=True)
+    df["change_rank"] = df["IntradayChangePct"].rank(pct=True)
+
+    df["MomentumScore"] = (
+        df["value_rank"] * 50 +
+        df["change_rank"] * 50
+    )
+
+    result = df.sort_values("MomentumScore", ascending=False).head(30)
+
+    return result[[
+        "Date",
+        "Code",
+        "Name",
+        "OpeningPrice",
+        "HighestPrice",
+        "LowestPrice",
+        "ClosingPrice",
+        "TradeVolume",
+        "TradeValue",
+        "IntradayChangePct",
+        "MomentumScore"
+    ]].to_json(orient="records", force_ascii=False)
 @app.route("/admin/logins")
 def admin_logins():
     """Login activity log — only accessible after authentication."""
