@@ -910,6 +910,135 @@ def institutional_score(
     return "\n".join(lines)
 
 
+def _sector_ohlcv(syms, dp, period):
+    """抓一組成分股的 OHLCV，回傳 {sym: ohlcv}（跳過抓不到的）。"""
+    out = {}
+    demo = False
+    for s in syms:
+        try:
+            o = dp.get_ohlcv(s, period)
+        except Exception:  # noqa: BLE001
+            o = None
+        if o and o.get("closes"):
+            out[s] = o
+            demo = demo or bool(o.get("is_demo"))
+    return out, demo
+
+
+def sector_rotation(period: str = "6mo") -> str:
+    """產業輪動：算各產業的領導力（廣度），排出資金正流入 vs 流出的產業。"""
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, _, _ = mods
+    try:
+        import sector_engine
+        import sector_map
+    except ImportError:
+        return _IMPORT_HINT
+
+    ranked, demo_seen = [], False
+    for sector, syms in sector_map.SECTOR_SYMBOLS.items():
+        stocks, d = _sector_ohlcv(syms, dp, period)
+        if not stocks:
+            continue
+        demo_seen = demo_seen or d
+        try:
+            r = sector_engine.calc_sector_leadership(sector, stocks)
+        except Exception:  # noqa: BLE001
+            continue
+        ranked.append((sector, r))
+
+    if not ranked:
+        return "錯誤：無法取得任何產業資料。"
+    ranked.sort(key=lambda x: x[1].get("score", 0), reverse=True)
+
+    def _line(sector, r):
+        det = r.get("detail", {})
+        return (
+            f"{sector}｜領導力 {_fmt(r.get('score'))}（{r.get('level_label', '?')}）"
+            f"｜近20日均漲 {_fmt(det.get('avg_20d_gain_pct'))}%"
+            f"、創高比例 {_fmt(det.get('new_high_ratio_pct'))}%"
+            f"、放量比例 {_fmt(det.get('vol_expand_ratio_pct'))}%"
+        )
+
+    strong = [(s, r) for s, r in ranked if r.get("score", 0) >= 60]
+    weak = [(s, r) for s, r in ranked if r.get("score", 0) <= 40]
+    out = ["🔄 產業輪動（依領導力排序）" + ("（示範資料）" if demo_seen else "")]
+    if strong:
+        out.append("🔥 資金流入（強勢領先）：")
+        out += [f"  {i}. {_line(s, r)}" for i, (s, r) in enumerate(strong, 1)]
+    mid = [(s, r) for s, r in ranked if 40 < r.get("score", 0) < 60]
+    if mid:
+        out.append("➖ 中性：" + "、".join(f"{s}({_fmt(r.get('score'))})" for s, r in mid))
+    if weak:
+        out.append("❄️ 資金流出（轉弱、避開）：")
+        out += [f"  ・{_line(s, r)}" for s, r in weak]
+    out.append(
+        "💡 由上而下：在「資金流入」的產業裡挑領頭羊（用 sector_leaders），"
+        "勝率比亂槍打鳥高。機械式彙整，不構成投資建議。"
+    )
+    return "\n".join(out)
+
+
+def sector_leaders(sector: str, period: str = "6mo") -> str:
+    """強勢產業內挑領頭羊：對某產業成分股依相對強度排序，找出領先/落後者。
+
+    sector 可填產業名稱，或填一檔股票代號（自動找它所屬產業）。
+    """
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, _, _ = mods
+    try:
+        import relative_strength_score as rss
+        import sector_map
+    except ImportError:
+        return _IMPORT_HINT
+
+    name = sector.strip()
+    syms = sector_map.get_sector_symbols(name)
+    if not syms:
+        # 當作股票代號，找它所屬產業
+        resolved = sector_map.get_sector(name)
+        if resolved:
+            name, syms = resolved, sector_map.get_sector_symbols(resolved)
+    if not syms:
+        avail = "、".join(sector_map.SECTOR_SYMBOLS.keys())
+        return f"錯誤：找不到產業 '{sector}'。可用產業：{avail}"
+
+    try:
+        bench = dp.get_ohlcv("QQQ", period)
+    except Exception:  # noqa: BLE001
+        bench = None
+
+    rows, demo_seen = [], False
+    for s in syms:
+        try:
+            o = dp.get_ohlcv(s, period)
+        except Exception:  # noqa: BLE001
+            o = None
+        if not o or not o.get("closes"):
+            continue
+        demo_seen = demo_seen or bool(o.get("is_demo"))
+        try:
+            r = rss.compute(o, bench)
+        except Exception:  # noqa: BLE001
+            continue
+        rows.append((s, r.get("score", 50), r.get("label", "?"),
+                     (r.get("detail") or {}).get("ret_20d_pct")))
+
+    if not rows:
+        return f"錯誤：{name} 無成分股資料。"
+    rows.sort(key=lambda x: x[1], reverse=True)
+
+    out = [f"🏅 {name} 領頭羊（依相對強度排序）" + ("（示範資料）" if demo_seen else "")]
+    for i, (s, sc, lab, ret20) in enumerate(rows, 1):
+        out.append(f"  {i}. {s}｜相對強度 {lab}（{_fmt(sc)}）｜近20日 {_fmt(ret20)}%")
+    out.append("💡 強勢產業＋領頭羊，再用 full_analysis 確認共識後進場。不構成投資建議。")
+    return "\n".join(out)
+
+
 _VERDICT = {
     "high_bull": "🟢 高信念偏多（多數一致看多）",
     "high_bear": "🔴 高信念偏空（多數一致看空）",
@@ -1312,6 +1441,39 @@ STOCK_TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "sector_rotation",
+        "description": (
+            "產業輪動分析：計算各產業的領導力（成分股的創新高比例、放量比例、均漲幅等"
+            "廣度指標），排出資金正流入（強勢）vs 流出（轉弱）的產業。當使用者問"
+            "「現在哪個產業最強」「資金流向哪」「產業輪動」「該佈局哪個族群」時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "period": {"type": "string", "description": "資料期間，預設 '6mo'。"},
+            },
+        },
+    },
+    {
+        "name": "sector_leaders",
+        "description": (
+            "找出某產業內的領頭羊：對該產業成分股依相對強度排序，列出領先與落後者。"
+            "sector 可填產業名稱，或填一檔股票代號（自動找它所屬產業）。"
+            "當使用者鎖定某產業、想知道「這族群裡哪幾檔最強」時使用。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sector": {
+                    "type": "string",
+                    "description": "產業名稱（如 '半導體AI晶片'）或一檔代號（如 'NVDA'）。",
+                },
+                "period": {"type": "string", "description": "資料期間，預設 '6mo'。"},
+            },
+            "required": ["sector"],
+        },
+    },
+    {
         "name": "pick_stocks",
         "description": (
             "自動選股：對一籃子股票（最多 8 檔）逐一跑共識決策，挑出「高信念偏多」"
@@ -1524,6 +1686,8 @@ STOCK_TOOL_FUNCTIONS = {
     "analyze_signals": analyze_signals,
     "compare_stocks": compare_stocks,
     "scan_stocks": scan_stocks,
+    "sector_rotation": sector_rotation,
+    "sector_leaders": sector_leaders,
     "pick_stocks": pick_stocks,
     "full_analysis": full_analysis,
     "committee_vote": committee_vote,
