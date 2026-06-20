@@ -351,7 +351,7 @@ def momentum_rank():
         "TradeValue",
         "IntradayChangePct",
         "MomentumScore"
-    ]].to_json(orient="records", force_ascii=False)
+    ]].to_html(index=False)
 @app.route("/admin/logins")
 def admin_logins():
     """Login activity log — only accessible after authentication."""
