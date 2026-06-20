@@ -9,7 +9,7 @@
 | `main.py` | CLI 入口，接收使用者輸入、處理指令（`/exit`、`/clear`、`/help`） |
 | `agent.py` | 呼叫 Claude API，處理對話與工具 (agentic) 迴圈，串流輸出 |
 | `tools.py` | 核心工具集：`read_file`、`write_file`、`run_shell` |
-| `stock_tools.py` | 股票工具：`get_stock_price`、`get_market_state`、`analyze_signals`、`compare_stocks`、`scan_stocks`、`momentum_analysis`、`institutional_score`、`committee_vote`、`full_analysis`（共識決策）、`pick_stocks`（自動選股）、`sector_rotation`（產業輪動）、`sector_leaders`（產業領頭羊）、`regime_strategy`、`compare_strategies`、`validate_strategy`、`trade_plan`、`backtest_strategy`（接上層 Scott 投資分析系統） |
+| `stock_tools.py` | 股票工具：`get_stock_price`、`get_fundamentals`（基本面/估值）、`get_market_state`、`analyze_signals`、`compare_stocks`、`scan_stocks`、`momentum_analysis`、`institutional_score`、`committee_vote`、`full_analysis`（共識決策）、`pick_stocks`（自動選股）、`sector_rotation`（產業輪動）、`sector_leaders`（產業領頭羊）、`regime_strategy`、`compare_strategies`、`validate_strategy`、`montecarlo_forecast`（蒙地卡羅預測）、`trade_plan`、`backtest_strategy`（接上層 Scott 投資分析系統） |
 | `tw_chips.py` | 台股真實籌碼：`tw_institutional`（三大法人買賣超）、`tw_margin`（融資融券），抓 TWSE 開放資料 |
 | `web_agent.py` | 網頁/手機版的非串流工具迴圈（給 `app.py` 的 `/agent` 用） |
 | `memory.py` | 對話記憶，持久化到 JSON |

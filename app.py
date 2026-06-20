@@ -20,7 +20,13 @@ import risk_manager as _rm
 import scheduler as _sched
 import monitor as _mon
 import sys as _sys
-
+def get_twse_stock_day_all():
+    url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+    response = _req.get(url, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+    df = pd.DataFrame(data)
+    return df
 # 讓 app 能 import cli_agent 子目錄裡的 web_agent（手機版聊天）。
 _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli_agent"))
 try:
@@ -307,7 +313,6 @@ def admin_dashboard():
         alert_settings=_alert_schedule_settings,
         log_count=len(_LOGIN_LOG),
     )
-
 @app.route("/admin/logins")
 def admin_logins():
     """Login activity log — only accessible after authentication."""
@@ -328,7 +333,10 @@ def api_admin_clear_cache():
     _daily_report_cache["report"] = None
     _daily_report_cache["ts"] = 0
     return jsonify(ok=True, message="每日報告快取已清空")
-
+@app.route("/twse")
+def twse_api_test():
+    df = get_twse_stock_day_all()
+    return df.head(20).to_json(orient="records", force_ascii=False)
 @app.route("/api/admin/test-connections")
 def api_admin_test_connections():
     """Test external API connectivity — shows in admin dashboard."""
@@ -4671,21 +4679,6 @@ def api_portfolio_optimize_latest():
 
 # ── 台股動能排行榜 (/momentum) ────────────────────────────────────────────────
 
-def get_twse_stock_day_all():
-    """抓 TWSE OpenAPI 上市每日收盤行情 (STOCK_DAY_ALL)，回傳原始 list[dict]。"""
-    try:
-        r = _req.get(
-            "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-            headers={"User-Agent": "Mozilla/5.0 (compatible; Scott/1.0)"},
-            timeout=15,
-        )
-        if r.status_code == 200:
-            return r.json()
-    except Exception:
-        traceback.print_exc()
-    return []
-
-
 def _mom_num(s):
     """安全轉數值：處理 '--'、空字串、逗號；無法轉換回傳 None。"""
     try:
@@ -4714,7 +4707,9 @@ def _mom_pct_rank(vals):
 @app.route("/momentum")
 def momentum_ranking():
     """台股強勢股動能排行榜（HTML 表格，手機友善）。"""
-    items = get_twse_stock_day_all()
+    data = get_twse_stock_day_all()
+    # get_twse_stock_day_all() 回傳 pandas DataFrame；轉成 list[dict] 方便逐檔處理。
+    items = data.to_dict("records") if hasattr(data, "to_dict") else (data or [])
 
     rows = []
     for it in items:

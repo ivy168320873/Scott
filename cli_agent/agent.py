@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import sys
 from typing import Callable
 
 import anthropic
@@ -23,7 +22,10 @@ SYSTEM_PROMPT = (
     "做動能分析（趨勢/相對強度/量能）、機構動能總評（7模組綜合決策）、"
     "AI投資委員會投票（5委員會）、共識決策（綜合4視角）、自動選股（從清單挑高信念）、"
     "產業輪動分析、強勢產業挑領頭羊、比較策略找最佳、"
-    "驗證策略穩健度、依大盤切換策略、給完整進出場建議來協助投資分析。"
+    "驗證策略穩健度、依大盤切換策略、給完整進出場建議來協助投資分析；"
+    "還能查基本面（get_fundamentals）與蒙地卡羅模擬未來價格機率（montecarlo_forecast，"
+    "可納入解禁/財報事件風險）。問估值/本益比/EPS/營收用 get_fundamentals；"
+    "問未來走勢/目標價/上漲機率用 montecarlo_forecast，以機率分佈回應、不保證單一價格。"
     "做綜合判斷時優先用共識決策（full_analysis）；只在多數視角一致的高信念訊號時"
     "才偏向建議進場，視角分歧時建議觀望，並提醒嚴守停損。"
     "資料誠實原則：台股可用 tw_institutional / tw_margin 查『真實』三大法人與融資融券"

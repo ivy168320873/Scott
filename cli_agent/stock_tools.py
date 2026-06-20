@@ -1348,7 +1348,344 @@ def committee_vote(symbol: str, risk_profile: str = "balanced") -> str:
     return "\n".join(lines)
 
 
+def _parse_horizons(horizons, default=(5, 21, 63)) -> list[int]:
+    """把預測天期參數正規化成正整數陣列（容忍逗號字串），去重並限量。"""
+    if horizons is None or horizons == "":
+        return list(default)
+    if isinstance(horizons, str):
+        horizons = horizons.replace(",", " ").split()
+    out, seen = [], set()
+    for h in horizons:
+        try:
+            n = int(h)
+        except (TypeError, ValueError):
+            continue
+        if 0 < n <= 504 and n not in seen:  # 上限約兩年交易日
+            seen.add(n)
+            out.append(n)
+    return out[:6] or list(default)
+
+
+_HORIZON_LABELS = {5: "1 週後", 21: "1 個月後", 63: "3 個月後", 126: "半年後", 252: "1 年後"}
+
+
+def montecarlo_forecast(
+    symbol: str,
+    period: str = "6mo",
+    horizons="5,21,63",
+    simulations: int = 50000,
+    event_day: int = 0,
+    event_drop_pct: float = 0.0,
+    event_prob: float = 0.0,
+) -> str:
+    """用蒙地卡羅模擬某檔股票未來價格的機率區間，而非單一預測值。
+
+    基礎模型為漂移 0 的 GBM（隨機漫步假設），不預設漲跌方向，輸出各天期的
+    P5/P25/P50/P75/P95 百分位與「高於現價的機率」，重點在量化不確定性。
+
+    可選的事件風險（跳躍擴散）：當設定 event_day（事件落在第幾個交易日）、
+    event_drop_pct（事件預期衝擊，如 -0.15 代表平均 -15%）與 event_prob
+    （事件發生機率 0~1）時，凡天期涵蓋到該日的路徑，會以該機率疊加一次性
+    跳躍——用來模擬 IPO 解禁賣壓、財報等已知催化事件造成的肥尾下檔風險。
+    """
+    mods = _load()
+    if mods is None:
+        return _IMPORT_HINT
+    dp, _, demo = mods
+    try:
+        import numpy as np
+    except ImportError:
+        return _IMPORT_HINT
+
+    s = _fetch_series(symbol, period, dp, demo)
+    if not s or not s.get("closes"):
+        return f"錯誤：無法取得 {symbol.upper()} 的資料。"
+
+    closes = np.asarray([float(x) for x in s["closes"]], dtype=float)
+    closes = closes[closes > 0]
+    if len(closes) < 5:
+        return f"錯誤：{symbol.upper()} 價格資料太少（{len(closes)} 筆），無法估計波動率。"
+
+    logret = np.diff(np.log(closes))
+    sigma = float(logret.std(ddof=1))
+    if not np.isfinite(sigma) or sigma <= 0:
+        return f"錯誤：{symbol.upper()} 波動率估計無效。"
+
+    s0 = float(closes[-1])
+    n_sims = max(1000, min(int(simulations), 500000))
+    rng = np.random.default_rng(42)
+    horizon_list = sorted(_parse_horizons(horizons))
+
+    # 事件風險參數正規化：三者齊備且合理時才啟用。
+    ev_day = int(event_day) if event_day else 0
+    ev_prob = min(max(float(event_prob), 0.0), 1.0)
+    ev_drop = float(event_drop_pct)
+    event_on = ev_day > 0 and ev_prob > 0 and ev_drop != 0.0
+    # 跳躍幅度的對數常態參數：期望衝擊 ev_drop，散佈取其半幅（下限 3%）。
+    ev_mu = np.log1p(ev_drop) if event_on else 0.0
+    ev_sigma = max(abs(ev_drop) * 0.5, 0.03) if event_on else 0.0
+
+    demo_note = "（示範資料，非即時）" if s.get("is_demo") else ""
+    model_name = "GBM+跳躍" if event_on else "GBM"
+    lines = [
+        f"{symbol.upper()} ｜ 蒙地卡羅預測（{model_name}，{n_sims:,} 條路徑）{demo_note}".rstrip(),
+        f"現價：{s0:.2f}　估計每日波動率 σ≈{sigma:.2%}"
+        f"（年化≈{sigma * (252 ** 0.5):.0%}）　漂移μ=0（隨機漫步）",
+    ]
+    if event_on:
+        lines.append(
+            f"事件風險：第 T+{ev_day} 日 以 {ev_prob:.0%} 機率發生，"
+            f"平均衝擊 {ev_drop:+.0%}（模擬解禁／財報等催化）"
+        )
+    lines.append("─" * 36)
+
+    for h in horizon_list:
+        # 漂移 0 的 GBM：ln(S_T/S_0) ~ N(-0.5σ²·T, σ²·T)
+        drift = -0.5 * sigma**2 * h
+        shock = sigma * (h**0.5) * rng.standard_normal(n_sims)
+        st = s0 * np.exp(drift + shock)
+        # 若此天期已涵蓋事件日，對中籤路徑疊加一次性跳躍。
+        if event_on and h >= ev_day:
+            hit = rng.random(n_sims) < ev_prob
+            jump = np.exp(ev_mu + ev_sigma * rng.standard_normal(n_sims))
+            st = np.where(hit, st * jump, st)
+        p5, p25, p50, p75, p95 = np.percentile(st, [5, 25, 50, 75, 95])
+        p_up = float((st > s0).mean())
+        label = _HORIZON_LABELS.get(h, f"T+{h} 日")
+        flag = " ⚠含事件" if event_on and h >= ev_day else ""
+        lines.append(
+            f"{label}（T+{h}）{flag}：中位 {p50:.2f}　"
+            f"區間 P5–P95 {p5:.2f}~{p95:.2f}　"
+            f"P25–P75 {p25:.2f}~{p75:.2f}　上漲機率 {p_up:.0%}"
+        )
+    lines.append("─" * 36)
+    tail = (
+        "註：此為機率分佈而非價格保證；"
+        + ("已納入上述事件風險，" if event_on else "未納入解禁、財報等事件風險，")
+        + "波動率越高代表不確定性越大，請搭配風險控管使用。"
+    )
+    lines.append(tail)
+    return "\n".join(lines)
+
+
+def _fmt(value, digits: int = 1) -> str:
+    """把可能為 None 的數值格式化成字串。"""
+    if value is None:
+        return "—"
+    return f"{value:.{digits}f}"
+
+
+def _fmt_big(value) -> str:
+    """把大數字格式化成兆/億/百萬（B/M）字串。"""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if v == 0:
+        return "—"
+    a = abs(v)
+    if a >= 1e12:
+        return f"{v / 1e12:.2f}兆"
+    if a >= 1e8:
+        return f"{v / 1e8:.2f}億"
+    if a >= 1e6:
+        return f"{v / 1e6:.1f}百萬"
+    return f"{v:,.0f}"
+
+
+def _fmt_pct(value, already_pct: bool = False) -> str:
+    """把比率格式化成百分比字串；already_pct=True 表示傳入值本身就是百分數。"""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{v if already_pct else v * 100:.2f}%"
+
+
+def _to_float(value):
+    """容忍字串/None 的浮點轉換，失敗或非數字回傳 None。"""
+    if value in (None, "", "None", "-", "N/A"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fundamentals_yfinance(symbol: str) -> dict | None:
+    """用 yfinance 抓基本面（Railway 等可連 Yahoo 的環境適用）。"""
+    try:
+        import yfinance as yf
+
+        info = yf.Ticker(symbol).get_info()
+    except Exception:  # noqa: BLE001 — 任何取數失敗都回 None，交給後備
+        return None
+    if not info or not isinstance(info, dict):
+        return None
+    if not (info.get("marketCap") or info.get("trailingPE") or info.get("totalRevenue")):
+        return None
+    return {
+        "name": info.get("longName") or info.get("shortName") or symbol.upper(),
+        "sector": info.get("sector"),
+        "industry": info.get("industry"),
+        "market_cap": _to_float(info.get("marketCap")),
+        "pe_trailing": _to_float(info.get("trailingPE")),
+        "pe_forward": _to_float(info.get("forwardPE")),
+        "eps": _to_float(info.get("trailingEps")),
+        "peg": _to_float(info.get("pegRatio") or info.get("trailingPegRatio")),
+        "ps": _to_float(info.get("priceToSalesTrailing12Months")),
+        "revenue": _to_float(info.get("totalRevenue")),
+        "profit_margin": _to_float(info.get("profitMargins")),  # 0~1 比率
+        "gross_margin": _to_float(info.get("grossMargins")),
+        "wk52_high": _to_float(info.get("fiftyTwoWeekHigh")),
+        "wk52_low": _to_float(info.get("fiftyTwoWeekLow")),
+        "dividend_yield": _to_float(info.get("dividendYield")),  # 0~1 比率
+        "source": "yfinance",
+        "margin_is_ratio": True,
+    }
+
+
+def _fundamentals_alpha_vantage(symbol: str) -> dict | None:
+    """用 Alpha Vantage OVERVIEW 抓基本面（需 ALPHA_VANTAGE_KEY）。"""
+    import os
+
+    key = os.environ.get("ALPHA_VANTAGE_KEY", "")
+    if not key:
+        return None
+    try:
+        import requests
+
+        r = requests.get(
+            "https://www.alphavantage.co/query",
+            params={"function": "OVERVIEW", "symbol": symbol.upper(), "apikey": key},
+            timeout=15,
+        )
+        d = r.json()
+    except Exception:  # noqa: BLE001
+        return None
+    if not d or not d.get("Symbol"):
+        return None
+    return {
+        "name": d.get("Name") or symbol.upper(),
+        "sector": d.get("Sector"),
+        "industry": d.get("Industry"),
+        "market_cap": _to_float(d.get("MarketCapitalization")),
+        "pe_trailing": _to_float(d.get("PERatio")),
+        "pe_forward": _to_float(d.get("ForwardPE")),
+        "eps": _to_float(d.get("EPS")),
+        "peg": _to_float(d.get("PEGRatio")),
+        "ps": _to_float(d.get("PriceToSalesRatioTTM")),
+        "revenue": _to_float(d.get("RevenueTTM")),
+        "profit_margin": _to_float(d.get("ProfitMargin")),  # 0~1 比率
+        "gross_margin": None,
+        "wk52_high": _to_float(d.get("52WeekHigh")),
+        "wk52_low": _to_float(d.get("52WeekLow")),
+        "dividend_yield": _to_float(d.get("DividendYield")),  # 0~1 比率
+        "source": "alpha_vantage",
+        "margin_is_ratio": True,
+    }
+
+
+def get_fundamentals(symbol: str) -> str:
+    """查某檔股票的基本面：市值、本益比、EPS、營收、利潤率、估值等。"""
+    f = _fundamentals_yfinance(symbol) or _fundamentals_alpha_vantage(symbol)
+    if not f:
+        return (
+            f"錯誤：無法取得 {symbol.upper()} 的基本面資料。"
+            "可能是代號有誤、該標的無財報資料，或資料源暫時無法連線"
+            "（可設定 ALPHA_VANTAGE_KEY 環境變數啟用備援來源）。"
+        )
+
+    ratio = f.get("margin_is_ratio", True)
+    sec = "／".join(x for x in (f.get("sector"), f.get("industry")) if x)
+    lines = [
+        f"{f['name']}（{symbol.upper()}）基本面｜來源：{f['source']}",
+        f"產業：{sec or '—'}",
+        f"市值：{_fmt_big(f.get('market_cap'))}　"
+        f"營收(TTM)：{_fmt_big(f.get('revenue'))}",
+        f"本益比 P/E：{_fmt(f.get('pe_trailing'), 1)}（預估 {_fmt(f.get('pe_forward'), 1)}）　"
+        f"EPS：{_fmt(f.get('eps'), 2)}",
+        f"PEG：{_fmt(f.get('peg'), 2)}　股價營收比 P/S：{_fmt(f.get('ps'), 1)}",
+        f"淨利率：{_fmt_pct(f.get('profit_margin'), already_pct=not ratio)}　"
+        f"毛利率：{_fmt_pct(f.get('gross_margin'), already_pct=not ratio)}",
+        f"52週高/低：{_fmt(f.get('wk52_high'), 2)} / {_fmt(f.get('wk52_low'), 2)}　"
+        f"股息殖利率：{_fmt_pct(f.get('dividend_yield'), already_pct=not ratio)}",
+    ]
+    lines.append("註：基本面數據僅供參考，不構成投資建議。")
+    return "\n".join(lines)
+
+
 STOCK_TOOL_SCHEMAS = [
+    {
+        "name": "get_fundamentals",
+        "description": (
+            "查詢某檔股票的基本面數據：市值、本益比（P/E）、預估本益比、EPS、"
+            "PEG、股價營收比（P/S）、營收、淨利率、毛利率、52週高低與股息殖利率。"
+            "當使用者問到某檔股票『貴不貴』、估值、合理價、財報、基本面、"
+            "本益比、EPS、營收、利潤率等時使用。支援美股；台股與部分標的視資料源而定。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代號，例如 'SPCX'、'NVDA'、'AAPL'。",
+                }
+            },
+            "required": ["symbol"],
+        },
+    },
+    {
+        "name": "montecarlo_forecast",
+        "description": (
+            "用蒙地卡羅模擬某檔股票未來價格的機率區間，輸出各天期的"
+            "P5/P25/P50/P75/P95 百分位與上漲機率。基礎為漂移 0 的 GBM（隨機漫步），"
+            "不預設方向，重點在量化不確定性。可選擇加入事件風險（解禁、財報等）"
+            "模擬肥尾下檔。當使用者要求『預測走勢』、未來價格、目標價或上漲機率時"
+            "使用——以機率分佈回應，而非單一保證值。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代號，例如 'SPCX'、'NVDA'、'2330.TW'。",
+                },
+                "period": {
+                    "type": "string",
+                    "description": "估計波動率所用的歷史期間，例如 '3mo'、'6mo'、'1y'，預設 '6mo'。",
+                },
+                "horizons": {
+                    "type": "string",
+                    "description": "預測天期（交易日），逗號分隔，例如 '5,21,63'，預設 '5,21,63'。",
+                },
+                "simulations": {
+                    "type": "integer",
+                    "description": "模擬路徑數，預設 50000（範圍 1000–500000）。",
+                },
+                "event_day": {
+                    "type": "integer",
+                    "description": (
+                        "（選用）已知催化事件落在第幾個交易日，例如解禁日 90、"
+                        "財報日 21。預設 0 表示不模擬事件。需與 event_drop_pct、"
+                        "event_prob 一起設定才生效。"
+                    ),
+                },
+                "event_drop_pct": {
+                    "type": "number",
+                    "description": (
+                        "（選用）事件的平均價格衝擊，小數表示，例如 -0.15 代表平均 -15%"
+                        "（解禁賣壓常為負）。預設 0。"
+                    ),
+                },
+                "event_prob": {
+                    "type": "number",
+                    "description": "（選用）事件發生機率，0~1，例如 0.6。",
+                },
+            },
+            "required": ["symbol"],
+        },
+    },
     {
         "name": "get_stock_price",
         "description": (
@@ -1682,6 +2019,8 @@ STOCK_TOOL_SCHEMAS = [
 ]
 
 STOCK_TOOL_FUNCTIONS = {
+    "get_fundamentals": get_fundamentals,
+    "montecarlo_forecast": montecarlo_forecast,
     "get_stock_price": get_stock_price,
     "get_market_state": get_market_state,
     "analyze_signals": analyze_signals,
