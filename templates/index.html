@@ -7115,14 +7115,77 @@ function calc10xScore(d) {
   };
 }
 
+// 隔日追高風險判斷：依漲幅、是否追在高點、過熱、量能爆衝算出「追高風險分數」，
+// 標記型態（高動能高風險／突破強勢）、給隔日觀察策略與適合操作型態，
+// 並算出排行榜用的「最終分數」= 動能分 − 追高風險 + 主力加權 + 族群共振加權。
+function calcChaseRisk(d, t) {
+  const f = t.factors;
+  if (!f) return {};
+  const chg = d.changePct ?? 0;
+  const rsi = d.indicators.rsi ?? 50;
+  const vr  = d.volumeRatio ?? 1;
+
+  // 追高風險分數（0~100，越高越不該裸追）
+  let risk = 0;
+  if (chg > 9) risk += 45; else if (chg > 7) risk += 35;
+  else if (chg > 4) risk += 18; else if (chg > 2) risk += 7;
+  if (f.highS >= 100) risk += 25; else if (f.highS >= 85) risk += 12;   // 追在高點
+  if (rsi > 80) risk += 18; else if (rsi > 72) risk += 9;               // 過熱
+  if (vr > 4) risk += 12; else if (vr > 2.5) risk += 6;                 // 量能爆衝＝一日行情風險
+  const chaseRisk = Math.min(Math.round(risk), 100);
+
+  // 型態標記
+  const tags = [];
+  let warning = '';
+  if (chg > 7 && t.score > 88) tags.push('高動能高風險');
+  if (f.volS >= 100 && f.rsS >= 100 && f.smS > 90 && f.highS >= 100) {
+    tags.push('突破強勢');
+    warning = '不可直接追高，需等回測或分時承接';
+  }
+
+  // 隔日觀察策略（開盤後判讀準則）
+  const nextDayStrategy =
+    '開高後30分不破開盤價→強勢續攻可接；開高爆量跌破開盤價→出貨風險快走；' +
+    '平開量縮不破昨收→健康整理可續抱；低開後快速翻紅→洗盤轉強可留意。';
+
+  // 適合操作型態：隔日沖／波段／觀察
+  let tradeType;
+  if (chaseRisk >= 60) tradeType = '觀察';
+  else if (tags.includes('突破強勢')) tradeType = '隔日沖';
+  else if (chaseRisk < 45 && t.score >= 70 && f.smS >= 60) tradeType = '波段';
+  else tradeType = '觀察';
+
+  const finalScore = Math.round(t.score - chaseRisk + f.smS * 0.2 + f.rsS * 0.2);
+
+  // 追高風險等級（低／中／高）
+  const riskLevel = chaseRisk >= 60 ? '高' : chaseRisk >= 35 ? '中' : '低';
+
+  // 隔日策略短標籤
+  let nextDayLabel;
+  if (tags.includes('突破強勢') || tags.includes('高動能高風險') || chaseRisk >= 60) {
+    nextDayLabel = '等待回測';
+  } else if (vr >= 3) {
+    nextDayLabel = '爆量跌破開盤價需避開';
+  } else {
+    nextDayLabel = '開高不破可續抱';
+  }
+
+  return { chaseRisk, riskLevel, tags, warning, nextDayStrategy, nextDayLabel, tradeType, finalScore };
+}
+
 function render10xSection(scored) {
   const el = document.getElementById('ar-10x');
   if (!el) return;
 
   const candidates = scored
-    .map(d => ({ ...d, _tenX: calc10xScore(d) }))
+    .map(d => {
+      const t = calc10xScore(d);
+      if (t.factors) Object.assign(t, calcChaseRisk(d, t));  // 加上隔日追高風險判斷
+      return { ...d, _tenX: t };
+    })
     .filter(d => d._tenX.score >= 65 && d.price >= 5)
-    .sort((a, b) => b._tenX.score - a._tenX.score)
+    // 排行榜用「最終分數」而非只看動能分
+    .sort((a, b) => (b._tenX.finalScore ?? b._tenX.score) - (a._tenX.finalScore ?? a._tenX.score))
     .slice(0, 8);
 
   const cntEl = document.getElementById('ar-10x-count');
@@ -7149,7 +7212,15 @@ function render10xSection(scored) {
     ${candidates.map((d, idx) => {
       const t = d._tenX;
       const chg = d.changePct;
-      const scoreColor = t.score >= 80 ? '#ff3535' : t.score >= 70 ? '#ff6b35' : '#e3b341';
+      const fin = t.finalScore ?? t.score;
+      const risk = t.chaseRisk ?? 0;
+      const riskColor = risk >= 60 ? '#ff3535' : risk >= 35 ? '#e3b341' : 'var(--bull)';
+      const tradeColor = t.tradeType === '波段' ? 'var(--bull)' : t.tradeType === '隔日沖' ? '#e3b341' : 'var(--muted)';
+      const tagHtml = (t.tags || []).map(tg => {
+        const c = tg === '突破強勢' ? '#ff6b35' : '#ff3535';
+        return `<span style="font-size:.55rem;padding:1px 6px;border-radius:3px;background:${c}22;color:${c};border:1px solid ${c};margin-right:4px">${tg}</span>`;
+      }).join('');
+      const scoreColor = fin >= 80 ? '#ff3535' : fin >= 70 ? '#ff6b35' : '#e3b341';
       const barColor = t.score >= 80 ? 'linear-gradient(90deg,#ff3535,#ff6b35)' :
                        t.score >= 70 ? 'linear-gradient(90deg,#ff6b35,#e3b341)' :
                        'linear-gradient(90deg,#e3b341,#58a6ff)';
@@ -7182,14 +7253,25 @@ function render10xSection(scored) {
             <div class="arc-price">$${fmt(d.price)} <span class="${pC(chg)}">${sgn(chg)}${fmt(chg)}%</span></div>
           </div>
           <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:1.7rem;font-weight:900;color:${scoreColor};line-height:1">${t.score}</div>
-            <div style="font-size:.58rem;color:var(--muted)">動能分</div>
+            <div style="font-size:1.7rem;font-weight:900;color:${scoreColor};line-height:1">${fin}</div>
+            <div style="font-size:.58rem;color:var(--muted)">最終分</div>
+            <div style="font-size:.54rem;color:var(--muted)">動能 ${t.score}</div>
           </div>
         </div>
         <div style="height:4px;background:var(--surface2);border-radius:2px;overflow:hidden;margin-bottom:8px">
           <div style="height:100%;width:${t.score}%;background:${barColor};border-radius:2px"></div>
         </div>
         ${factorBars}
+        <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px">
+          <div style="display:flex;justify-content:space-between;font-size:.6rem;margin-bottom:4px">
+            <span style="color:var(--muted)">追高風險：<b style="color:${riskColor}">${t.riskLevel || '—'}</b><span style="opacity:.6">（${risk}）</span></span>
+            <span style="color:var(--muted)">操作型態：<b style="color:${tradeColor}">${t.tradeType || '—'}</b></span>
+          </div>
+          <div style="font-size:.6rem;color:var(--muted);margin-bottom:4px">隔日策略：<b style="color:#58a6ff">${t.nextDayLabel || '—'}</b></div>
+          ${tagHtml ? `<div style="margin-bottom:4px">${tagHtml}</div>` : ''}
+          ${t.warning ? `<div style="font-size:.58rem;color:#ff3535;margin-bottom:3px">⚠️ ${t.warning}</div>` : ''}
+          <div style="font-size:.55rem;color:var(--muted);line-height:1.5;opacity:.85">📋 ${t.nextDayStrategy || ''}</div>
+        </div>
       </div>`;
     }).join('')}
     </div>`;
