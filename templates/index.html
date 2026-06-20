@@ -1454,7 +1454,7 @@ body{padding-bottom:52px}
       <div class="opp-tab-nav" id="opp-tab-nav">
         <button class="opp-tab-btn active" data-tab="buy-now" onclick="switchOppTab('buy-now')">✅ 可立即買</button>
         <button class="opp-tab-btn" data-tab="coiling" onclick="switchOppTab('coiling')">👀 蓄勢待發</button>
-        <button class="opp-tab-btn" data-tab="tenx" onclick="switchOppTab('tenx')">🚀 十倍股</button>
+        <button class="opp-tab-btn" data-tab="tenx" onclick="switchOppTab('tenx')">🚀 動能爆發</button>
         <button class="opp-tab-btn" data-tab="fourd" onclick="switchOppTab('fourd')">🎯 四維齊全</button>
         <button class="opp-tab-btn" data-tab="ai-rec" onclick="switchOppTab('ai-rec')">🤖 AI推薦</button>
         <button class="opp-tab-btn" data-tab="news" onclick="switchOppTab('news')">📰 新聞催化</button>
@@ -1505,7 +1505,7 @@ body{padding-bottom:52px}
       <!-- 10x Candidates Section -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="ar-sec-lbl" style="margin:0;cursor:pointer;user-select:none" onclick="toggleSection('ar-10x-wrap','ar-10x-ti')">
-          🚀 十倍股候選 <span id="ar-10x-count" style="font-weight:400;font-size:.72rem;color:var(--muted)"></span>
+          🚀 動能爆發候選 <span id="ar-10x-count" style="font-weight:400;font-size:.72rem;color:var(--muted)"></span>
           <span id="ar-10x-ti" style="font-size:.75rem;margin-left:3px;opacity:.6">▾</span>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
@@ -3250,7 +3250,7 @@ body{padding-bottom:52px}
         </label>
         <label style="display:flex;align-items:center;gap:8px;font-size:.8rem;cursor:pointer;margin-bottom:6px">
           <input id="alert-trig-10x" type="checkbox" checked style="accent-color:var(--accent)">
-          十倍股新候選
+          動能爆發新候選
         </label>
         <label style="display:flex;align-items:center;gap:8px;font-size:.8rem;cursor:pointer">
           <input id="alert-trig-daily" type="checkbox" checked style="accent-color:var(--accent)">
@@ -7059,96 +7059,58 @@ function calcInvestmentRating(d, preBreakScore) {
 }
 
 // ══════════════════════════════════════════════════════
-// 十倍股候選評分
+// 動能爆發候選評分（動能 + 量能）
 // ══════════════════════════════════════════════════════
 function calc10xScore(d) {
+  // 動能 + 量能篩選（取代原「十倍股」）：只挑「動能強且量能放大」的股票，
+  // 並用硬性門檻清掉雜訊（低價股、量能未放大、動能不足、過熱者直接淘汰）。
   const price = d.price ?? 0;
   const vr    = d.volumeRatio ?? 1;
   const rsi   = d.indicators.rsi ?? 50;
-  const sm    = d.indicators.smartMoney   ?? 0;
-  const rs    = d.indicators.resonance    ?? 0;
-  const bp    = d.indicators.bearPressure ?? 50;
-  const mon   = d.monsterScore ?? 0;
-  const score = d.score ?? 50;
+  const sm    = d.indicators.smartMoney ?? 0;
+  const rs    = d.indicators.resonance  ?? 0;
+  const mom   = d.score ?? 50;
+  const chg   = d.changePct ?? 0;
   const pctFH = d.pctFromHigh ?? -50;
-  const pctFL = d.pctFromLow  ?? 0;
-  const chg   = d.changePct   ?? 0;
 
-  if (price <= 0) return { score: 0 };
+  if (price < 5)  return { score: 0 };   // 排除低價/雞蛋水餃股
+  if (vr   < 1.2) return { score: 0 };   // 量能沒放大就不算
+  if (mom  < 55)  return { score: 0 };   // 動能不足就不算
+  if (rsi  > 82)  return { score: 0 };   // 過熱不追高
 
-  // ── 0. Market cap score (primary size filter) ───────────────────────────────
-  const mc = d.marketCap ?? 0;
-  const mcapS = mc > 0 ? (
-    mc < 3e8  ? 95 :   // < $300M micro-cap: highest potential
-    mc < 1e9  ? 88 :   // < $1B small-cap: great
-    mc < 3e9  ? 75 :   // < $3B small-mid: good
-    mc < 10e9 ? 50 :   // < $10B mid-cap: ok
-    mc < 50e9 ? 30 :   // < $50B large: hard to 10x
-    15                  // mega-cap: very hard
-  ) : 55;  // unknown: neutral
-
-  // ── 1. Price sweet spot: $1-$50 small-cap room to grow (floor only) ─────────
-  const priceS = price < 1   ? 0  :
-                 price <= 3   ? 70 :
-                 price <= 10  ? 95 :
-                 price <= 25  ? 88 :
-                 price <= 50  ? 72 :
-                 price <= 100 ? 48 :
-                 price <= 200 ? 28 : 10;
-
-  // ── 2. Volume explosion: big money accumulating ──────────────────────────
-  const volS = Math.min(Math.round(vr * 28), 100);
-
-  // ── 3. Momentum: broad composite score ──────────────────────────────────
-  const momS = Math.min(score, 100);
-
-  // ── 4. Smart money flow ─────────────────────────────────────────────────
-  const smS = sm;
-
-  // ── 5. Multi-timeframe resonance ────────────────────────────────────────
-  const rsS = rs;
-
-  // ── 6. Monster score (explosive move potential) ─────────────────────────
-  const monS = Math.min(Math.round(mon * 1.8), 100);
-
-  // ── 7. Position vs highs: near breakout >> oversold recovery ────────────
-  const highS = pctFH >= -2  ? 100 :
-                pctFH >= -8  ? 82  :
-                pctFH >= -15 ? 62  :
-                pctFH >= -30 ? 40  : 20;
-
-  // ── 8. Bear pressure low (sellers retreating) ───────────────────────────
-  const bpS = bp < 20 ? 90 : bp < 35 ? 70 : bp < 55 ? 50 : 25;
-
-  // ── 9. Day surge signal ──────────────────────────────────────────────────
-  const chgS = chg > 10 ? 95 : chg > 5 ? 80 : chg > 2 ? 65 : chg > 0 ? 50 : 30;
+  // 量能放大分：量比 1.2→~22、1.5→~36、2→~60、3→100
+  const volS  = Math.min(Math.round((vr - 1) * 47 + 13), 100);
+  // 動能分：綜合動能評分
+  const momS  = Math.min(mom, 100);
+  // 多週期共振（動能延續性）
+  const rsS   = rs;
+  // 主力買盤
+  const smS   = sm;
+  // 接近高點 ＝ 突破型動能（優於落後反彈）
+  const highS = pctFH >= -3 ? 100 : pctFH >= -8 ? 85 : pctFH >= -15 ? 60 : pctFH >= -25 ? 35 : 15;
+  // 當日續強
+  const chgS  = chg > 5 ? 90 : chg > 2 ? 72 : chg > 0 ? 55 : 38;
 
   const composite = Math.round(
-    mcapS  * 0.15 +
-    priceS * 0.03 +
-    volS   * 0.20 +
-    momS   * 0.12 +
-    smS    * 0.14 +
-    rsS    * 0.10 +
-    monS   * 0.12 +
-    highS  * 0.08 +
-    bpS    * 0.04 +
-    chgS   * 0.02
+    volS  * 0.32 +   // 量能放大（主角之一）
+    momS  * 0.30 +   // 動能強度（主角之一）
+    rsS   * 0.14 +   // 多週期共振
+    smS   * 0.10 +   // 主力買盤
+    highS * 0.10 +   // 接近高點
+    chgS  * 0.04     // 當日續強
   );
 
-  // Labels
-  const priceLabel = price <= 3   ? '超低價微型股' :
-                     price <= 10  ? '低價小型股'   :
-                     price <= 25  ? '中低價成長股' :
-                     price <= 50  ? '中價成長股'   : '中大型成長股';
+  const priceLabel = vr >= 2.5 ? '爆量突破' : vr >= 1.5 ? '明顯放量' : '溫和放量';
 
   return {
     score: Math.min(composite, 100),
     priceLabel,
-    mcapS,
     factors: {
-      priceS: Math.round(priceS), volS, momS: Math.round(momS),
-      smS: Math.round(smS), rsS: Math.round(rsS), monS: Math.round(monS),
+      volS,
+      momS: Math.round(momS),
+      rsS: Math.round(rsS),
+      smS: Math.round(smS),
+      highS,
     },
   };
 }
@@ -7159,9 +7121,9 @@ function render10xSection(scored) {
 
   const candidates = scored
     .map(d => ({ ...d, _tenX: calc10xScore(d) }))
-    .filter(d => d._tenX.score >= 58 && d.price >= 1)
+    .filter(d => d._tenX.score >= 65 && d.price >= 5)
     .sort((a, b) => b._tenX.score - a._tenX.score)
-    .slice(0, 10);
+    .slice(0, 8);
 
   const cntEl = document.getElementById('ar-10x-count');
   if (cntEl) cntEl.textContent = candidates.length ? `(${candidates.length} 支)` : '(目前無)';
@@ -7175,13 +7137,13 @@ function render10xSection(scored) {
   if (catPanel) catPanel.innerHTML = '';
 
   if (!candidates.length) {
-    el.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:6px 0">目前無符合十倍股特徵的候選，市場偏向保守</div>';
+    el.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:6px 0">目前無「動能+量能」同步轉強的標的，市場偏向保守——寧可空手等更好的機會</div>';
     return;
   }
 
   el.innerHTML = `
     <div style="font-size:.68rem;color:rgba(248,81,73,.8);background:rgba(248,81,73,.06);border:1px solid rgba(248,81,73,.2);border-radius:8px;padding:7px 10px;margin-bottom:10px">
-      ⚠️ 十倍股候選為高波動高風險標的，基於量化模型篩選，不構成投資建議。建議搭配基本面研究。
+      ⚠️ 動能爆發候選依「動能強度 + 量能放大」量化篩選，屬高波動標的，不構成投資建議。建議搭配基本面研究。
     </div>
     <div class="auto-rec-grid">
     ${candidates.map((d, idx) => {
@@ -7194,10 +7156,10 @@ function render10xSection(scored) {
 
       const factorBars = [
         { l: '量能', v: t.factors.volS },
-        { l: '主力', v: t.factors.smS },
         { l: '動能', v: t.factors.momS },
         { l: '共振', v: t.factors.rsS },
-        { l: '爆發', v: t.factors.monS },
+        { l: '主力', v: t.factors.smS },
+        { l: '高點', v: t.factors.highS },
       ].map(f => `<div style="display:flex;align-items:center;gap:3px;margin-bottom:2px">
           <div style="width:26px;font-size:.58rem;color:var(--muted);flex-shrink:0">${f.l}</div>
           <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
@@ -7221,7 +7183,7 @@ function render10xSection(scored) {
           </div>
           <div style="text-align:right;flex-shrink:0">
             <div style="font-size:1.7rem;font-weight:900;color:${scoreColor};line-height:1">${t.score}</div>
-            <div style="font-size:.58rem;color:var(--muted)">十倍分</div>
+            <div style="font-size:.58rem;color:var(--muted)">動能分</div>
           </div>
         </div>
         <div style="height:4px;background:var(--surface2);border-radius:2px;overflow:hidden;margin-bottom:8px">
@@ -7373,7 +7335,7 @@ function renderSignalHistory() {
     return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px">
       <div style="font-size:.64rem;color:var(--muted);margin-bottom:4px">${snap.date}</div>
       <div style="margin-bottom:3px"><span style="font-size:.62rem;color:var(--bull);font-weight:700;margin-right:6px">🎯 四維度</span>${d4}</div>
-      <div><span style="font-size:.62rem;color:#ff6b35;font-weight:700;margin-right:6px">🚀 十倍股</span>${tx}</div>
+      <div><span style="font-size:.62rem;color:#ff6b35;font-weight:700;margin-right:6px">🚀 動能爆發</span>${tx}</div>
     </div>`;
   }).join('');
 }
@@ -7587,7 +7549,7 @@ async function _checkAndSendAlerts(scored) {
     }).slice(0,5).forEach(d => signals.push({symbol:d.symbol, note:`四維度齊全 ${Math.round(d.score)}分`}));
     if (s.triggers?.tenx) scored.map(d=>({...d,_tx:calc10xScore(d)}))
       .filter(d=>d._tx.score>=72&&d.price>=1).slice(0,3)
-      .forEach(d=>signals.push({symbol:d.symbol, note:`十倍股候選 ${d._tx.score}分`}));
+      .forEach(d=>signals.push({symbol:d.symbol, note:`動能爆發候選 ${d._tx.score}分`}));
     if (!signals.length) return;
     await fetch('/api/alerts/send', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({signals, type:'both', email:s.email, lineToken:s.lineToken}) });
@@ -11151,7 +11113,7 @@ function renderSignalHistory() {
           <tr style="color:var(--muted);border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:4px 8px">日期</th>
             <th style="text-align:left;padding:4px 8px">四維度命中</th>
-            <th style="text-align:left;padding:4px 8px">十倍股命中</th>
+            <th style="text-align:left;padding:4px 8px">動能爆發命中</th>
           </tr>
         </thead>
         <tbody>
@@ -13005,6 +12967,7 @@ if ('serviceWorker' in navigator) {
     <div class="sdb-val" id="sdb-mood">—</div>
   </div>
   <div class="sdb-btns">
+    <button class="sdb-btn" onclick="location.href='/momentum'">🚀 動能榜</button>
     <button class="sdb-btn" onclick="switchOppTab('buy-now');document.getElementById('ar-cards')?.scrollIntoView({behavior:'smooth'})">✅ 買入機會</button>
     <button class="sdb-btn pri" id="sdb-analyze-btn" onclick="_sdbAnalyzeTop()">📊 分析</button>
   </div>

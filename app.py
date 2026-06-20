@@ -313,45 +313,6 @@ def admin_dashboard():
         alert_settings=_alert_schedule_settings,
         log_count=len(_LOGIN_LOG),
     )
-@app.route("/momentum")
-def momentum_rank():
-    df = get_twse_stock_day_all()
-
-    # 轉數字
-    for col in ["TradeVolume", "TradeValue", "OpeningPrice", "HighestPrice", "LowestPrice", "ClosingPrice"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce")
-
-    # 過濾沒有價格的資料
-    df = df.dropna(subset=["OpeningPrice", "ClosingPrice", "TradeValue"])
-
-    # 計算日內漲幅
-    df["IntradayChangePct"] = ((df["ClosingPrice"] - df["OpeningPrice"]) / df["OpeningPrice"]) * 100
-
-    # 簡單動能分數：成交金額排名 + 漲幅排名
-    df["value_rank"] = df["TradeValue"].rank(pct=True)
-    df["change_rank"] = df["IntradayChangePct"].rank(pct=True)
-
-    df["MomentumScore"] = (
-        df["value_rank"] * 50 +
-        df["change_rank"] * 50
-    )
-
-    result = df.sort_values("MomentumScore", ascending=False).head(30)
-
-    return result[[
-        "Date",
-        "Code",
-        "Name",
-        "OpeningPrice",
-        "HighestPrice",
-        "LowestPrice",
-        "ClosingPrice",
-        "TradeVolume",
-        "TradeValue",
-        "IntradayChangePct",
-        "MomentumScore"
-    ]].to_html(index=False)
 @app.route("/admin/logins")
 def admin_logins():
     """Login activity log — only accessible after authentication."""
@@ -4714,6 +4675,166 @@ def api_portfolio_optimize_latest():
         }), 404
     age = round(_time.time() - _optimizer_cache["ts"])
     return jsonify({"ok": True, "cached_seconds_ago": age, **_optimizer_cache["result"]})
+
+
+# ── 台股動能排行榜 (/momentum) ────────────────────────────────────────────────
+
+def _mom_num(s):
+    """安全轉數值：處理 '--'、空字串、逗號；無法轉換回傳 None。"""
+    try:
+        t = str(s).replace(",", "").strip()
+        if t in ("", "--", "---", "—", "X", "N/A", "null", "None"):
+            return None
+        return float(t)
+    except (ValueError, TypeError):
+        return None
+
+
+def _mom_pct_rank(vals):
+    """把一串數值轉成 0~100 的百分位排名（值越大分數越高）。"""
+    n = len(vals)
+    if n == 0:
+        return []
+    if n == 1:
+        return [100.0]
+    order = sorted(range(n), key=lambda i: vals[i])  # 由小到大
+    pct = [0.0] * n
+    for rank, i in enumerate(order):
+        pct[i] = rank / (n - 1) * 100.0
+    return pct
+
+
+@app.route("/momentum")
+def momentum_ranking():
+    """台股強勢股動能排行榜（HTML 表格，手機友善）。"""
+    data = get_twse_stock_day_all()
+    # get_twse_stock_day_all() 回傳 pandas DataFrame；轉成 list[dict] 方便逐檔處理。
+    items = data.to_dict("records") if hasattr(data, "to_dict") else (data or [])
+
+    rows = []
+    for it in items:
+        code = str(it.get("Code", "")).strip()
+        # 只保留 4 位數字股票代號；排除 ETF(00 開頭)、權證(非 4 碼)、特別股(含英文字母)
+        if not (code.isdigit() and len(code) == 4 and not code.startswith("00")):
+            continue
+        name = str(it.get("Name", "")).strip()
+        o = _mom_num(it.get("OpeningPrice"))
+        h = _mom_num(it.get("HighestPrice"))
+        lo = _mom_num(it.get("LowestPrice"))
+        c = _mom_num(it.get("ClosingPrice"))
+        tv = _mom_num(it.get("TradeValue"))
+        if None in (o, h, lo, c, tv) or o <= 0 or (h - lo) <= 0:
+            continue
+
+        intraday = (c - o) / o * 100.0            # 日內漲幅%
+        amplitude = (h - lo) / o * 100.0          # 振幅%
+        near_high = (c - lo) / (h - lo) * 100.0   # 收盤近高%
+        tv_yi = tv / 100000000.0                  # 成交金額（億）
+
+        rows.append({
+            "code": code, "name": name,
+            "open": o, "high": h, "low": lo, "close": c,
+            "intraday": intraday, "amplitude": amplitude,
+            "near_high": near_high, "tv_yi": tv_yi,
+        })
+
+    # ── 動能分數：成交金額35% + 日內漲幅35% + 收盤近高20% + 振幅10%（皆百分位排名）──
+    if rows:
+        p_val = _mom_pct_rank([r["tv_yi"] for r in rows])
+        p_int = _mom_pct_rank([r["intraday"] for r in rows])
+        p_nh = _mom_pct_rank([r["near_high"] for r in rows])
+        p_amp = _mom_pct_rank([r["amplitude"] for r in rows])
+        for i, r in enumerate(rows):
+            r["score"] = round(
+                p_val[i] * 0.35 + p_int[i] * 0.35 + p_nh[i] * 0.20 + p_amp[i] * 0.10, 1
+            )
+        rows.sort(key=lambda r: r["score"], reverse=True)
+    top = rows[:30]
+
+    data_date = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%d")
+
+    css = """
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0f1419;color:#1a1a1a;
+  font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:14px}
+.head{color:#e6edf3;margin-bottom:12px}
+.head h1{font-size:1.18rem;margin:0 0 4px}
+.head .sub{font-size:.78rem;color:#8b98a5;line-height:1.6}
+.card{background:#fff;border-radius:12px;padding:4px;
+  overflow-x:auto;-webkit-overflow-scrolling:touch;box-shadow:0 2px 10px rgba(0,0,0,.3)}
+table{border-collapse:collapse;width:100%;font-size:.8rem;min-width:820px}
+thead th{position:sticky;top:0;z-index:2;background:#1a212b;color:#fff;
+  padding:9px 10px;text-align:right;white-space:nowrap;font-weight:600}
+thead th:nth-child(-n+3){text-align:left}
+tbody td{padding:8px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid #eee}
+tbody td:nth-child(-n+3){text-align:left}
+tbody tr:nth-child(even){background:#fafafa}
+tbody tr.hot{background:#ffe0e0}
+.up{color:#d11418;font-weight:700}
+.down{color:#0a8f3c;font-weight:700}
+.score{font-weight:800;color:#c1121f}
+.rk{color:#8b98a5;font-weight:700}
+.empty{background:#fff;border-radius:12px;padding:24px;text-align:center;color:#666}
+</style>
+"""
+
+    head = (
+        '<div class="head">'
+        '<a href="/" style="color:#8b98a5;font-size:.8rem;text-decoration:none">← 返回首頁</a>'
+        '<h1>🚀 台股動能排行榜 Top 30</h1>'
+        '<div class="sub">資料來源：TWSE OpenAPI　｜　更新日期：' + data_date + "</div></div>"
+    )
+
+    if not top:
+        body = '<div class="empty">目前無法取得 TWSE 資料，請稍後再試。</div>'
+    else:
+        header_cells = "".join(
+            f"<th>{h}</th>" for h in [
+                "排名", "代號", "名稱", "開盤", "最高", "最低", "收盤",
+                "日內漲幅%", "振幅%", "收盤近高%", "成交金額億", "動能分數",
+            ]
+        )
+        body_rows = []
+        for i, r in enumerate(top, 1):
+            hot = " class=\"hot\"" if r["score"] >= 95 else ""
+            ic = "up" if r["intraday"] > 0 else "down" if r["intraday"] < 0 else ""
+            body_rows.append(
+                f"<tr{hot}>"
+                f'<td class="rk">{i}</td>'
+                f"<td>{r['code']}</td>"
+                f"<td>{r['name']}</td>"
+                f"<td>{r['open']:.2f}</td>"
+                f"<td>{r['high']:.2f}</td>"
+                f"<td>{r['low']:.2f}</td>"
+                f"<td>{r['close']:.2f}</td>"
+                f'<td class="{ic}">{r["intraday"]:+.2f}</td>'
+                f"<td>{r['amplitude']:.2f}</td>"
+                f"<td>{r['near_high']:.1f}</td>"
+                f"<td>{r['tv_yi']:.2f}</td>"
+                f'<td class="score">{r["score"]:.1f}</td>'
+                "</tr>"
+            )
+        body = (
+            '<div class="card"><table><thead><tr>'
+            + header_cells
+            + "</tr></thead><tbody>"
+            + "".join(body_rows)
+            + "</tbody></table></div>"
+        )
+
+    html = (
+        '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        "<title>台股動能排行榜 Top 30</title>"
+        + css
+        + '</head><body><div class="wrap">'
+        + head
+        + body
+        + "</div></body></html>"
+    )
+    return Response(html, mimetype="text/html")
 
 
 # ── Mobile AI agent chat ────────────────────────────────────────────────────────
