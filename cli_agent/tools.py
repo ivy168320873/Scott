@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 from stock_tools import STOCK_TOOL_FUNCTIONS, STOCK_TOOL_SCHEMAS
+from tw_chips import TW_TOOL_FUNCTIONS, TW_TOOL_SCHEMAS
 
 # 給 Claude 看的工具定義。描述要明確說明「何時」該用這個工具。
 _CORE_TOOL_SCHEMAS = [
@@ -128,9 +129,9 @@ _CORE_TOOL_FUNCTIONS = {
     "run_shell": run_shell,
 }
 
-# 對外公開：核心工具 + 股票工具。
-TOOL_SCHEMAS = _CORE_TOOL_SCHEMAS + STOCK_TOOL_SCHEMAS
-TOOL_FUNCTIONS = {**_CORE_TOOL_FUNCTIONS, **STOCK_TOOL_FUNCTIONS}
+# 對外公開：核心工具 + 股票工具 + 台股籌碼工具。
+TOOL_SCHEMAS = _CORE_TOOL_SCHEMAS + STOCK_TOOL_SCHEMAS + TW_TOOL_SCHEMAS
+TOOL_FUNCTIONS = {**_CORE_TOOL_FUNCTIONS, **STOCK_TOOL_FUNCTIONS, **TW_TOOL_FUNCTIONS}
 
 
 def execute_tool(name: str, tool_input: dict) -> str:
