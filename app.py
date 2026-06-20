@@ -20,7 +20,13 @@ import risk_manager as _rm
 import scheduler as _sched
 import monitor as _mon
 import sys as _sys
-
+def get_twse_stock_day_all():
+    url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+    response = _req.get(url, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+    df = pd.DataFrame(data)
+    return df
 # 讓 app 能 import cli_agent 子目錄裡的 web_agent（手機版聊天）。
 _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli_agent"))
 try:
