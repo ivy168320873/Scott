@@ -939,7 +939,8 @@ def sector_rotation(period: str = "6mo") -> str:
 
     ranked, demo_seen = [], False
     for sector, syms in sector_map.SECTOR_SYMBOLS.items():
-        stocks, d = _sector_ohlcv(syms, dp, period)
+        # 每個產業取前 6 檔代表性成分股做廣度抽樣，兼顧速度。
+        stocks, d = _sector_ohlcv(syms[:6], dp, period)
         if not stocks:
             continue
         demo_seen = demo_seen or d
