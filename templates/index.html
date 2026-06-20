@@ -7157,7 +7157,20 @@ function calcChaseRisk(d, t) {
 
   const finalScore = Math.round(t.score - chaseRisk + f.smS * 0.2 + f.rsS * 0.2);
 
-  return { chaseRisk, tags, warning, nextDayStrategy, tradeType, finalScore };
+  // 追高風險等級（低／中／高）
+  const riskLevel = chaseRisk >= 60 ? '高' : chaseRisk >= 35 ? '中' : '低';
+
+  // 隔日策略短標籤
+  let nextDayLabel;
+  if (tags.includes('突破強勢') || tags.includes('高動能高風險') || chaseRisk >= 60) {
+    nextDayLabel = '等待回測';
+  } else if (vr >= 3) {
+    nextDayLabel = '爆量跌破開盤價需避開';
+  } else {
+    nextDayLabel = '開高不破可續抱';
+  }
+
+  return { chaseRisk, riskLevel, tags, warning, nextDayStrategy, nextDayLabel, tradeType, finalScore };
 }
 
 function render10xSection(scored) {
@@ -7251,12 +7264,13 @@ function render10xSection(scored) {
         ${factorBars}
         <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px">
           <div style="display:flex;justify-content:space-between;font-size:.6rem;margin-bottom:4px">
-            <span style="color:var(--muted)">追高風險 <b style="color:${riskColor}">${risk}</b></span>
-            <span style="color:var(--muted)">操作型態 <b style="color:${tradeColor}">${t.tradeType || '—'}</b></span>
+            <span style="color:var(--muted)">追高風險：<b style="color:${riskColor}">${t.riskLevel || '—'}</b><span style="opacity:.6">（${risk}）</span></span>
+            <span style="color:var(--muted)">操作型態：<b style="color:${tradeColor}">${t.tradeType || '—'}</b></span>
           </div>
+          <div style="font-size:.6rem;color:var(--muted);margin-bottom:4px">隔日策略：<b style="color:#58a6ff">${t.nextDayLabel || '—'}</b></div>
           ${tagHtml ? `<div style="margin-bottom:4px">${tagHtml}</div>` : ''}
           ${t.warning ? `<div style="font-size:.58rem;color:#ff3535;margin-bottom:3px">⚠️ ${t.warning}</div>` : ''}
-          <div style="font-size:.56rem;color:var(--muted);line-height:1.55">📋 隔日：${t.nextDayStrategy || ''}</div>
+          <div style="font-size:.55rem;color:var(--muted);line-height:1.5;opacity:.85">📋 ${t.nextDayStrategy || ''}</div>
         </div>
       </div>`;
     }).join('')}
