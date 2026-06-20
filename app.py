@@ -334,7 +334,10 @@ def api_admin_clear_cache():
     _daily_report_cache["report"] = None
     _daily_report_cache["ts"] = 0
     return jsonify(ok=True, message="每日報告快取已清空")
-
+@app.route("/twse")
+def twse_api_test():
+    df = get_twse_stock_day_all()
+    return df.head(20).to_json(orient="records", force_ascii=False)
 @app.route("/api/admin/test-connections")
 def api_admin_test_connections():
     """Test external API connectivity — shows in admin dashboard."""
