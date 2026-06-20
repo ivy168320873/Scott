@@ -4786,7 +4786,9 @@ tbody tr.hot{background:#ffe0e0}
 """
 
     head = (
-        '<div class="head"><h1>🚀 台股動能排行榜 Top 30</h1>'
+        '<div class="head">'
+        '<a href="/" style="color:#8b98a5;font-size:.8rem;text-decoration:none">← 返回首頁</a>'
+        '<h1>🚀 台股動能排行榜 Top 30</h1>'
         '<div class="sub">資料來源：TWSE OpenAPI　｜　更新日期：' + data_date + "</div></div>"
     )
 
