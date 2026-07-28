@@ -9,12 +9,13 @@
 
 from __future__ import annotations
 
+import enum as _enum
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar
 
-from sqlalchemy import DateTime, event, func
+from sqlalchemy import DateTime, Enum, event, func
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -47,6 +48,40 @@ class TimestampMixin:
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+
+_EnumT = TypeVar("_EnumT", bound=_enum.Enum)
+
+
+def enum_column(enum_class: type[_EnumT], *, length: int = 32) -> Enum:
+    """建立以字串保存、但讀回時還原為列舉成員的欄位型別。
+
+    為什麼不直接用 `String`：
+    用 `String` 搭配 `Mapped[SomeEnum]` 註記會產生型別謊言 —— 讀回來的是 `str`，
+    於是 `task.status is TaskStatus.running` 永遠為 False，且不會有任何錯誤提示。
+
+    為什麼不用資料庫原生 ENUM：
+    `native_enum=False` 讓欄位在所有資料庫都是 VARCHAR + CHECK，SQLite 與
+    PostgreSQL 行為一致，新增列舉值也不需要 ALTER TYPE。
+
+    `values_callable` 讓資料庫存的是成員的 **值**（例如 `"pending"`）而非
+    成員名稱，資料內容因此可直接閱讀，也與 API 對外的字串一致。
+
+    Args:
+        enum_class: 列舉類別。
+        length: 欄位長度，需足以容納最長的值。
+
+    Returns:
+        可直接傳給 `mapped_column()` 的 SQLAlchemy 型別。
+    """
+
+    return Enum(
+        enum_class,
+        native_enum=False,
+        length=length,
+        values_callable=lambda members: [member.value for member in members],
+        validate_strings=True,
     )
 
 
