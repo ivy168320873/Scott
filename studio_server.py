@@ -21,7 +21,7 @@ import logging
 import os
 
 from a2wsgi import WSGIMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.types import Receive, Scope, Send
 
 from studio.main import app as studio_app
@@ -62,8 +62,56 @@ async def _legacy_unavailable(scope: Scope, receive: Receive, send: Send) -> Non
     await response(scope, receive, send)
 
 
+def _mount_frontend(app) -> bool:
+    """把已建置的 Studio 前端掛在 /studio。
+
+    只有 `frontend/dist` 存在時才掛載（正式部署通常由 nginx 服務前端）。
+    SPA 需要 fallback：任何 /studio/* 路徑都回 index.html，
+    由前端路由決定顯示哪個頁面。
+
+    Returns:
+        是否成功掛載。
+    """
+
+    from pathlib import Path
+
+    dist = Path(__file__).resolve().parent / "frontend" / "dist"
+    index = dist / "index.html"
+    if not index.is_file():
+        return False
+
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/studio/assets", StaticFiles(directory=dist / "assets"), name="studio-assets")
+
+    @app.get("/studio/env.js", include_in_schema=False)
+    async def _studio_env() -> Response:
+        """執行期注入後端位址；同源部署時為空字串。"""
+
+        base = os.environ.get("STUDIO_API_BASE_URL", "")
+        return Response(
+            content=f'window.__SCOTT_STUDIO_ENV__ = {{ API_BASE_URL: "{base}" }};',
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/studio", include_in_schema=False)
+    @app.get("/studio/{path:path}", include_in_schema=False)
+    async def _studio_spa(path: str = "") -> FileResponse:
+        """SPA fallback。"""
+
+        return FileResponse(index)
+
+    logger.info("studio frontend mounted at /studio")
+    return True
+
+
 def build_application():
     """組出對外服務的 ASGI application。"""
+
+    # 前端必須先掛：Flask 掛在 `/` 會攔截所有未匹配路徑。
+    _mount_frontend(studio_app)
 
     flask_app = _load_legacy_flask_app()
     if flask_app is not None:
