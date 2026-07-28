@@ -178,3 +178,87 @@ git checkout main -- <path>
 2. 不刪除任何既有 `.py` 檔案
 3. 不修改既有 SQLite 資料表結構
 4. 既有 `python app.py` 啟動路徑保持可用
+
+
+---
+
+## 9. Scott Studio 併存後的架構（Phase 3 起）
+
+> 本節記錄 **加上 Scott Studio 之後** 的整體架構。
+> 上方 §1–§8 描述的既有股票系統**完全未變**。
+
+### 9.1 兩套系統的關係
+
+```
+uvicorn studio_server:application
+  │
+  ├─ /api/v1/studio/*   → FastAPI（Studio API，116 個操作）
+  ├─ /studio/*          → Studio 頁面與 API 文件
+  │
+  └─ /  (WSGI mount)    → 既有 Flask app（112 條股票路由，路徑不變）
+
+python app.py           → 只跑股票系統，完全不經過 Studio
+```
+
+### 9.2 Studio 分層
+
+```
+API Layer        studio/api/v1/routes/     只收參、驗證、權限、回應組合
+      ↓
+Service Layer    studio/services/          業務規則、狀態流轉、跨資源驗證
+      ↓
+Repository Layer studio/repositories/      查詢組裝、分頁、排序
+      ↓
+Database         studio/models/            23 張 studio_* 資料表
+```
+
+輔助層：
+
+| 目錄 | 職責 |
+| --- | --- |
+| `studio/core/` | db / storage / redis / errors / security / deps / ids |
+| `studio/schemas/` | Pydantic DTO（API 契約） |
+| `studio/tasks/` | Celery app（執行器於 Phase 4） |
+| `studio/scripts/` | 初始化與 OpenAPI 匯出 |
+
+### 9.3 認證
+
+Studio 與股票系統**共用同一個登入**：
+
+- `studio/core/security.py` 以 `itsdangerous` 驗證 Flask 簽發的 session cookie
+- **不 import `app.py`** —— 股票模組不存在時 Studio 仍可獨立運作
+- 規則與 `app.py::_require_auth` 一致：`ACCESS_CODE` 未設定即停用認證
+- Studio API 未登入一律回 **JSON 401**，絕不回 HTML 登入頁
+
+### 9.4 OpenAPI 流程
+
+```
+studio/api/v1/routes/  ──►  /studio/openapi.json
+                            │
+                            ├─ python -m studio.scripts.export_openapi
+                            │     └─► frontend/openapi.json（含金鑰掃描）
+                            │
+                            └─ pnpm run openapi:gen
+                                  └─► frontend/src/services/generated/
+                                        13 個 Service、157 個型別
+```
+
+後端 API 是唯一規格來源；`frontend/openapi.json` 與 generated client 皆進版控，
+讓 API 變更在 code review 中可見。
+
+### 9.5 執行方式（Phase 3 現況）
+
+```bash
+# 只跑股票系統（現行部署，未變）
+python app.py
+
+# 股票 + Studio（預設 SQLite / 本機儲存 / inline 任務，無需外部服務）
+uvicorn studio_server:application --host 0.0.0.0 --port 8000
+
+# Studio 完整堆疊
+docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml up --build
+
+# 重新產生前端型別
+python -m studio.scripts.export_openapi
+cd frontend && pnpm run openapi:gen
+```

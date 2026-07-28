@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -60,6 +61,27 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await close_redis()
         await dispose_engine()
         logger.info("%s stopped", settings.app_name)
+
+
+def _sanitise_validation_errors(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把 Pydantic 驗證錯誤轉為可 JSON 序列化的形式。
+
+    只保留前端實際需要的欄位（位置、訊息、型別），並把 `ctx` 中的任意物件
+    （常見的是自訂 validator 拋出的例外）轉成字串。
+    """
+
+    cleaned: list[dict[str, Any]] = []
+    for error in errors:
+        item: dict[str, Any] = {
+            "loc": [str(part) for part in error.get("loc", ())],
+            "msg": str(error.get("msg", "")),
+            "type": str(error.get("type", "")),
+        }
+        ctx = error.get("ctx")
+        if isinstance(ctx, dict):
+            item["ctx"] = {key: str(value) for key, value in ctx.items()}
+        cleaned.append(item)
+    return cleaned
 
 
 def create_app() -> FastAPI:
@@ -127,14 +149,19 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
-        """把 FastAPI 的欄位驗證錯誤轉為標準錯誤信封。"""
+        """把 FastAPI 的欄位驗證錯誤轉為標準錯誤信封。
+
+        錯誤明細需先淨化：自訂 validator 拋出的 `ValueError` 會被 Pydantic
+        原樣放進 `ctx`，而例外物件無法序列化成 JSON —— 若直接輸出，
+        任何自訂驗證規則都會讓這個處理器本身 500，而不是回傳 422。
+        """
 
         return JSONResponse(
             status_code=422,
             content=ApiResponse.fail(
                 "request_validation_error",
                 "請求參數驗證失敗",
-                {"errors": exc.errors()},
+                {"errors": _sanitise_validation_errors(exc.errors())},
             ).model_dump(mode="json"),
         )
 

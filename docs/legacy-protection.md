@@ -138,3 +138,46 @@ git checkout <base> -- Procfile .github/workflows/ci.yml \
 ```
 
 基準 commit：`9fb1d7c`
+
+
+---
+
+## 8. Phase 3 後的補充保護
+
+### 8.1 認證隔離
+
+Studio 的認證（`studio/core/security.py`）**不 import `app.py`**，
+而是自行以 `itsdangerous` 驗證 Flask session cookie 的簽章。因此：
+
+- 股票模組不存在時，Studio 仍可獨立啟動（退回「未認證」而非崩潰）
+- `app.py` 不需要為了 Studio 做任何修改
+- 兩者共用 `SECRET_KEY` 與 `ACCESS_CODE`，登入行為完全一致
+
+`tests/studio/test_api.py` 涵蓋：偽造 cookie 被拒、錯誤金鑰簽章被拒、
+未登入回 JSON 401 而非 HTML。
+
+### 8.2 路徑隔離（Phase 3 調整）
+
+Studio API 前綴由 `/api/studio/v1` 改為 **`/api/v1/studio`**。
+`test_api_is_under_v1_studio_prefix` 會檢查 OpenAPI 中**所有** 65 個路徑
+都收斂在該前綴之下；`test_studio_paths_are_not_registered_on_flask`
+則確認這些路徑不會出現在 Flask app 上。
+
+### 8.3 機密不外洩
+
+| 出口 | 保護 |
+| --- | --- |
+| API response | `ProviderService.to_read()` 是唯一輸出路徑，不含金鑰欄位 |
+| 資料庫 | `Provider` 只有 `api_key_env`（變數名稱），無任何金鑰欄位 |
+| 輸入 | `ProviderCreate` validator 拒絕看起來像金鑰的值（`sk-` 前綴、含空白、過長） |
+| OpenAPI | `export_openapi.py` 對 5 種金鑰樣式掃描，命中即中止匯出 |
+| 前端 client | `test_generated_client_contains_no_secrets` 掃描產生的 `.ts` |
+| 版控 | `.gitignore` 排除 `.env`、`*.db`、`node_modules` |
+
+### 8.4 目前測試總數
+
+| 套件 | 數量 |
+| --- | --- |
+| `tests/legacy`（股票回歸，阻斷性） | 47 |
+| `tests/studio`（Studio） | 111 |
+| **合計** | **158** |

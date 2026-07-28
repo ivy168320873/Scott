@@ -2,7 +2,9 @@
 
 > **單一事實來源。** 任何新 Session 請先讀本檔，再讀 `docs/jellyfish-implementation-plan.md`。
 > 分支：`feature/jellyfish-parity`
-> 最後更新：Phase 2 完成
+> 最後更新：Phase 3 完成
+>
+> **開工前必讀 `CONSTRAINTS.md`（永久約束）。**
 
 ---
 
@@ -13,7 +15,7 @@
 | 0 | 分析與保護措施 | ✅ 完成 |
 | 1 | 基礎架構 | ✅ 完成 |
 | 2 | 核心資料模型 | ✅ 完成 |
-| 3 | API 與 OpenAPI | ⬜ 未開始 |
+| 3 | API 與 OpenAPI | ✅ 完成 |
 | 4 | 非同步任務中心 | ⬜ 未開始 |
 | 5 | AI 腳本與分鏡流程 | ⬜ 未開始 |
 | 6 | 圖片與影片生成 | ⬜ 未開始 |
@@ -114,50 +116,62 @@ Scott（股市分析）與 Jellyfish（AI 短劇）業務零重疊。
 
 ---
 
-## 下一步：Phase 3 — API 與 OpenAPI
+## Phase 3 — API 與 OpenAPI ✅
 
-### 建議順序
+- [x] `studio/core/security.py` — 與股票系統 Flask session 相容的認證（不 import app.py）
+- [x] `studio/repositories/` — 泛型 Repository + 23 個資源 Repository
+- [x] `studio/schemas/` — project / shot / asset / provider / task DTO
+- [x] `studio/services/` — project / shot / asset / media / provider / task Service
+- [x] `studio/api/v1/routes/` — projects / shots / assets / media / providers / tasks
+- [x] `studio/scripts/export_openapi.py` — OpenAPI 匯出 + 金鑰掃描
+- [x] `frontend/` — package.json、tsconfig、openapi.json、generated client
+- [x] `tests/studio/test_api.py` — 62 個 API 測試
 
-1. Repository 層 → 2. Service 層 → 3. Schemas → 4. Routes → 5. OpenAPI 匯出
+### Phase 3 驗證結果
+
+| 指令 | 結果 |
+| --- | --- |
+| `python -m pytest tests -q` | ✅ **158 passed**（47 legacy + 111 studio） |
+| `python -m pytest tests/legacy -q` | ✅ **47 passed** |
+| `ruff check studio studio_server.py tests migrations` | ✅ clean |
+| `python -m compileall -q .` | ✅ |
+| alembic autogenerate drift | ✅ 0 ops |
+| `docker compose config -q` | ✅ valid |
+| `frontend: tsc --noEmit` | ✅ OK |
+
+### Phase 3 修正的缺陷（皆由測試發現）
+
+1. **`updated_at` 用 SQL 端 `onupdate=func.now()`** → UPDATE 後欄位被標記過期，
+   Pydantic 同步序列化時觸發延遲載入 → **每個 PATCH 端點都會 500**。
+   改為 Python 端 callable。
+2. **`Model.provider` / `Shot.detail` 延遲載入** → async session 下拋 `MissingGreenlet`。
+   改為 `selectinload` eager load。
+3. **422 處理器本身會 500** → 自訂 validator 拋出的 `ValueError` 被放進 `ctx`，
+   無法 JSON 序列化。新增 `_sanitise_validation_errors()`。
+
+---
+
+## 下一步：Phase 4 — 非同步任務中心
 
 ### 精確待建檔案
 
 | 檔案 | 內容 |
 | --- | --- |
-| `studio/repositories/base.py` | 泛型 CRUD repository（get / list / create / update / delete / count） |
-| `studio/repositories/project.py` | Project、Chapter 查詢 |
-| `studio/repositories/shot.py` | Shot 與子資源查詢 |
-| `studio/repositories/asset.py` | 五類資產的多型查詢 |
-| `studio/repositories/task.py` | 任務查詢（依狀態、專案、task_kind） |
-| `studio/repositories/provider.py` | Provider / Model / PromptTemplate |
-| `studio/schemas/project.py` | ProjectCreate / Update / Read、ChapterCreate / Update / Read |
-| `studio/schemas/shot.py` | Shot、ShotDetail、Frame、Dialogue、Candidate 的 DTO |
-| `studio/schemas/asset.py` | 資產 DTO |
-| `studio/schemas/task.py` | TaskRead（含 `elapsed_seconds`、`is_cancellable`） |
-| `studio/schemas/provider.py` | ProviderRead（**必須含 `api_key_configured: bool`，不得回傳金鑰**） |
-| `studio/services/project.py` | 專案／章節業務邏輯、stats 更新 |
-| `studio/services/shot.py` | 分鏡 CRUD、`recompute_shot_status()`、候選確認 |
-| `studio/services/asset.py` | 資產 CRUD、名稱查重 |
-| `studio/services/provider.py` | 供應商 CRUD、連線測試 |
-| `studio/api/v1/routes/projects.py` 等 | 各資源 route，只收參／驗證／組回應 |
-| `studio/scripts/export_openapi.py` | 匯出 `frontend/openapi.json` |
+| `studio/tasks/registry.py` | `TaskExecutorRegistry`（by `task_kind`） |
+| `studio/tasks/executor.py` | 執行器抽象基底 + 進度回寫 |
+| `studio/tasks/execute.py` | Celery task 進入點 |
+| `studio/tasks/inline.py` | inline 模式的背景執行緒執行器 |
+| `studio/services/task.py` | 擴充：`dispatch()`、`mark_running()`、`mark_succeeded()`、`mark_failed()`、`apply_cancel()`、`retry()` |
+| `studio/api/v1/routes/tasks.py` | 擴充：`POST /tasks/{id}/retry`、進度串流 |
+| `tests/studio/test_task_lifecycle.py` | 生命週期、取消、重試、重啟恢復測試 |
 
-### Phase 3 注意事項
+### Phase 4 注意事項
 
-1. **API 層不得含業務邏輯** —— 只收參、驗證、權限、組回應
-2. `ProviderRead` 絕不可回傳 `api_key_env` 的**值**；只回傳變數名稱與
-   `api_key_configured` 布林（用 `studio.config.secret_is_configured()`）
-3. 所有回應用 `ApiResponse[T]` 信封
-4. 分頁用 `studio.core.deps.Paging`
-5. Service 層錯誤用 `studio.core.errors` 的型別，API 層不需 try/except
+1. 取消採兩段式：API 只設 `cancel_requested`，執行器在安全點偵測後才寫 `cancelled_at`
+2. `inline` 模式仍必須把狀態寫入資料庫，才能查詢與恢復
+3. 任務執行不得綁在 web request 中
+4. Redis / Celery **不得**成為股票系統的啟動條件（`CONSTRAINTS.md` A3）
 
-### Phase 3 驗收指令
-
-```bash
-ruff check studio tests
-python -m pytest tests -q
-python -m studio.scripts.export_openapi   # 應產出 frontend/openapi.json
-```
 
 ---
 

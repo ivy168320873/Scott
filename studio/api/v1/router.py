@@ -8,8 +8,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from studio.api.v1.routes import health
+from studio.api.v1.routes import assets, health, media, projects, providers, shots, tasks
 
 api_router = APIRouter()
 
 api_router.include_router(health.router)
+api_router.include_router(projects.router)
+api_router.include_router(shots.router)
+api_router.include_router(assets.character_router)
+api_router.include_router(assets.actor_router)
+api_router.include_router(assets.scene_router)
+api_router.include_router(assets.prop_router)
+api_router.include_router(assets.costume_router)
+api_router.include_router(media.router)
+api_router.include_router(providers.router)
+api_router.include_router(tasks.router)

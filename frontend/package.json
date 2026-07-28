@@ -1,0 +1,33 @@
+{
+  "name": "scott-studio-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "openapi:export": "cd .. && python -m studio.scripts.export_openapi",
+    "openapi:gen": "openapi-typescript-codegen --input ./openapi.json --output ./src/services/generated --client fetch --useOptions --useUnionTypes",
+    "openapi:update": "pnpm run openapi:export && pnpm run openapi:gen"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.5.0",
+    "antd": "^5.22.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "openapi-typescript-codegen": "^0.29.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

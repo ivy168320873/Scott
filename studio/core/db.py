@@ -12,7 +12,7 @@ from __future__ import annotations
 import enum as _enum
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from sqlalchemy import DateTime, Enum, event, func
@@ -31,22 +31,37 @@ class Base(DeclarativeBase):
     """所有 Studio 模型的宣告基底。"""
 
 
+def _utc_now() -> datetime:
+    """目前的 UTC 時間（Python 端）。"""
+
+    return datetime.now(UTC)
+
+
 class TimestampMixin:
     """`created_at` / `updated_at` 時間戳混入。
 
-    使用資料庫端的 `func.now()` 而非 Python 端時間，避免多個 worker
-    因時鐘偏差而產生不一致的排序結果。
+    時間值由 **Python 端**產生，資料庫端的 `server_default` 只作為
+    繞過 ORM 直接寫入時的保險。
+
+    為什麼不用 SQL 端的 `onupdate=func.now()`：
+    那會讓 SQLAlchemy 在 UPDATE 後把該欄位標記為過期，之後任何讀取都需要
+    再發一次 SELECT。在 async session 中，這個延遲載入發生在 Pydantic 的
+    同步序列化過程裡，會直接拋出 `MissingGreenlet` —— 也就是每一個
+    PATCH 端點都會 500。改用 Python 端 callable 後，值在 flush 當下就已知，
+    不需要回查資料庫。
     """
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
+        default=_utc_now,
         server_default=func.now(),
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
+        default=_utc_now,
+        onupdate=_utc_now,
         server_default=func.now(),
-        onupdate=func.now(),
         nullable=False,
     )
 

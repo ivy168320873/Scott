@@ -17,6 +17,7 @@ studio_storage/
 deploy/compose/.env
 frontend/node_modules/
 frontend/dist/
-frontend/openapi.json
+# 注意：frontend/openapi.json 與 src/services/generated/ 刻意「不」忽略 ——
+# 它們是前後端之間的契約，必須進版控才能在 code review 中看見 API 變更。
 .pytest_cache/
 .ruff_cache/
