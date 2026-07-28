@@ -7,7 +7,12 @@ dist/
 build/
 .venv/
 venv/
-.claude/
+# .claude/ 預設忽略（本機快取、session、個人設定），
+# 但共用的 agent 定義與專案層級 settings.json 要進版控。
+.claude/*
+!.claude/agents/
+!.claude/settings.json
+.claude/settings.local.json
 monitor_state.json
 user_data.db
 *.db
