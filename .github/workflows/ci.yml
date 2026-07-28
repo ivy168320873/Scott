@@ -60,3 +60,25 @@ jobs:
             --env-file deploy/compose/.env.example \
             -f deploy/compose/docker-compose.yml \
             config -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+
+      - name: Type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Production build
+        working-directory: frontend
+        run: npm run build

@@ -2,7 +2,7 @@
 
 > **單一事實來源。** 任何新 Session 請先讀本檔，再讀 `docs/jellyfish-implementation-plan.md`。
 > 分支：`feature/jellyfish-parity`
-> 最後更新：Phase 3 完成
+> 最後更新：Phase 8 完成（MVP）
 >
 > **開工前必讀 `CONSTRAINTS.md`（永久約束）。**
 
@@ -16,11 +16,11 @@
 | 1 | 基礎架構 | ✅ 完成 |
 | 2 | 核心資料模型 | ✅ 完成 |
 | 3 | API 與 OpenAPI | ✅ 完成 |
-| 4 | 非同步任務中心 | ⬜ 未開始 |
-| 5 | AI 腳本與分鏡流程 | ⬜ 未開始 |
-| 6 | 圖片與影片生成 | ⬜ 未開始 |
-| 7 | 前端完整工作平台 | ⬜ 未開始 |
-| 8 | 測試、文件與部署 | ⬜ 未開始 |
+| 4 | 非同步任務中心 | ✅ 完成 |
+| 5 | AI 腳本與分鏡流程 | ✅ 完成 |
+| 6 | 圖片與影片生成 | ✅ 完成 |
+| 7 | 前端完整工作平台 | ✅ 完成 |
+| 8 | 測試、文件與部署 | ✅ 完成 |
 
 ---
 
@@ -149,29 +149,39 @@ Scott（股市分析）與 Jellyfish（AI 短劇）業務零重疊。
 3. **422 處理器本身會 500** → 自訂 validator 拋出的 `ValueError` 被放進 `ctx`，
    無法 JSON 序列化。新增 `_sanitise_validation_errors()`。
 
+
 ---
 
-## 下一步：Phase 4 — 非同步任務中心
+## Phase 4–8 摘要（Completion Sprint）
 
-### 精確待建檔案
+| Phase | 內容 | 關鍵產出 |
+| --- | --- | --- |
+| 4 | 非同步任務系統 | `tasks/runtime.py`（生命週期）、`registry.py`、`dispatch.py`（celery + inline）、`execute.py`、兩階段取消、retry、`recover_stale_tasks` |
+| 5 | 腳本與分鏡工作流 | 6 個腳本執行器 + `shot_frame_prompt`、`routes/workflow.py`、Anthropic / OpenAI 相容 Adapter |
+| 6 | 圖片與影片生成 | `media_tasks.py`、產物寫入儲存並登記 FileItem、`GenerationTaskLink` 回寫、批次生成 |
+| 7 | 前端 MVP | 8 個頁面（Tab 整合）、全部走 generated client、loading/empty/error/retry、防重複送出、響應式 |
+| 8 | 整合與部署 | CI 加前端 typecheck/build、`docs/studio-deployment.md`、compose 驗證 |
 
-| 檔案 | 內容 |
+### 最終驗證結果
+
+| 項目 | 結果 |
 | --- | --- |
-| `studio/tasks/registry.py` | `TaskExecutorRegistry`（by `task_kind`） |
-| `studio/tasks/executor.py` | 執行器抽象基底 + 進度回寫 |
-| `studio/tasks/execute.py` | Celery task 進入點 |
-| `studio/tasks/inline.py` | inline 模式的背景執行緒執行器 |
-| `studio/services/task.py` | 擴充：`dispatch()`、`mark_running()`、`mark_succeeded()`、`mark_failed()`、`apply_cancel()`、`retry()` |
-| `studio/api/v1/routes/tasks.py` | 擴充：`POST /tasks/{id}/retry`、進度串流 |
-| `tests/studio/test_task_lifecycle.py` | 生命週期、取消、重試、重啟恢復測試 |
+| 後端測試 | ✅ **208 passed** |
+| legacy 回歸（阻斷性） | ✅ **47 passed** |
+| ruff | ✅ clean |
+| compileall | ✅ |
+| alembic upgrade + drift | ✅ 0 ops |
+| docker compose config | ✅ valid |
+| 前端 tsc --noEmit | ✅ clean |
+| 前端 production build | ✅ 成功 |
+| app.py / requirements.txt / railway.json / run.sh / templates / static | ✅ 未變更 |
 
-### Phase 4 注意事項
+### 已知未執行
 
-1. 取消採兩段式：API 只設 `cancel_requested`，執行器在安全點偵測後才寫 `cancelled_at`
-2. `inline` 模式仍必須把狀態寫入資料庫，才能查詢與恢復
-3. 任務執行不得綁在 web request 中
-4. Redis / Celery **不得**成為股票系統的啟動條件（`CONSTRAINTS.md` A3）
-
+- **Live provider integration**：環境無 API 金鑰，未對任何供應商發出真實網路請求。
+  請求／回應映射與錯誤處理由 24 個契約測試涵蓋。
+- **Docker Compose 實際啟動**：僅驗證 `config -q`，未實跑容器。
+- **瀏覽器端對端**：未以真實瀏覽器操作完整流程。
 
 ---
 
