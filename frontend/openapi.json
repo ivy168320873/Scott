@@ -6357,6 +6357,514 @@
           }
         }
       }
+    },
+    "/api/v1/studio/chapters/{chapter_id}/analyze": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "提交腳本拆分鏡任務",
+        "description": "把章節腳本拆解成分鏡。回傳任務物件，實際工作在背景執行。",
+        "operationId": "analyzeChapterScript",
+        "parameters": [
+          {
+            "name": "chapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chapter Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptTaskOptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TaskRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/chapters/{chapter_id}/extract": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "提交實體提取任務",
+        "description": "從章節的所有分鏡提取角色／場景／道具／服裝／對白候選。",
+        "operationId": "extractChapterEntities",
+        "parameters": [
+          {
+            "name": "chapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chapter Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptTaskOptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TaskRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/chapters/{chapter_id}/simplify": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "提交腳本精簡任務",
+        "description": "精簡腳本並寫入 condensed_text，供後續分析節省 token。",
+        "operationId": "simplifyChapterScript",
+        "parameters": [
+          {
+            "name": "chapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chapter Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptTaskOptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TaskRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/chapters/{chapter_id}/optimize": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "提交腳本優化任務",
+        "description": "產生優化建議稿；結果放在任務 result 中，不直接覆蓋原文。",
+        "operationId": "optimizeChapterScript",
+        "parameters": [
+          {
+            "name": "chapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chapter Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptTaskOptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TaskRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/chapters/{chapter_id}/consistency-check": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "提交一致性檢查任務",
+        "description": "檢查分鏡序列的敘事與視覺一致性問題。",
+        "operationId": "checkChapterConsistency",
+        "parameters": [
+          {
+            "name": "chapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chapter Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptTaskOptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TaskRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/shots/{shot_id}/generate-prompts": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "提交分鏡提示詞生成任務",
+        "description": "為分鏡產生首尾幀圖片提示詞與影片提示詞。",
+        "operationId": "generateShotPrompts",
+        "parameters": [
+          {
+            "name": "shot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Shot Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptTaskOptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TaskRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/shots/{shot_id}/generate-images": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "提交分鏡關鍵幀圖片生成任務",
+        "description": "為分鏡的關鍵幀生成圖片。",
+        "operationId": "generateShotImages",
+        "parameters": [
+          {
+            "name": "shot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Shot Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageTaskOptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TaskRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/shots/{shot_id}/generate-video": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "提交分鏡影片生成任務",
+        "description": "為分鏡生成影片。\n\n不強制要求 video-readiness 通過 —— 使用者可能刻意先試跑。\n準備度資訊由 `GET /shots/{id}/readiness` 提供，由前端提示。",
+        "operationId": "generateShotVideo",
+        "parameters": [
+          {
+            "name": "shot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Shot Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VideoTaskOptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TaskRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/assets/generate-image": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "提交資產參考圖生成任務",
+        "description": "為角色／場景／道具／服裝生成參考圖。",
+        "operationId": "generateAssetImage",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetImageTaskOptions"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TaskRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/shots/batch/generate-images": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "summary": "批次提交圖片生成",
+        "description": "為多個分鏡批次提交圖片生成。\n\n每個分鏡各建一筆任務，讓進度與失敗可以個別追蹤與重試；\n找不到的分鏡會被略過並列在 `skipped`，不讓整批失敗。",
+        "operationId": "batchGenerateShotImages",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchShotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_BatchResult_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6657,6 +7165,40 @@
         },
         "type": "object",
         "title": "ApiResponse[AssetImageRead]"
+      },
+      "ApiResponse_BatchResult_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "是否成功",
+            "default": true
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatchResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "回應資料"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "錯誤內容；成功時為 null"
+          }
+        },
+        "type": "object",
+        "title": "ApiResponse[BatchResult]"
       },
       "ApiResponse_ChapterRead_": {
         "properties": {
@@ -8384,6 +8926,47 @@
         "title": "AssetImageRead",
         "description": "資產圖片對外表示。"
       },
+      "AssetImageTaskOptions": {
+        "properties": {
+          "asset_kind": {
+            "$ref": "#/components/schemas/AssetKind",
+            "description": "資產類型"
+          },
+          "asset_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Asset Id",
+            "description": "資產 ID"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id",
+            "description": "指定圖片模型"
+          },
+          "count": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "description": "生成張數",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "required": [
+          "asset_kind",
+          "asset_id"
+        ],
+        "title": "AssetImageTaskOptions",
+        "description": "資產參考圖生成選項。"
+      },
       "AssetKind": {
         "type": "string",
         "enum": [
@@ -8409,6 +8992,67 @@
         ],
         "title": "AssetViewAngle",
         "description": "資產圖片視角（用於多角度描述同一資產）。"
+      },
+      "BatchResult": {
+        "properties": {
+          "task_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Task Ids",
+            "description": "已建立的任務 ID"
+          },
+          "skipped": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Skipped",
+            "description": "被略過的分鏡與原因"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_ids"
+        ],
+        "title": "BatchResult",
+        "description": "批次提交結果。"
+      },
+      "BatchShotRequest": {
+        "properties": {
+          "shot_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Shot Ids",
+            "description": "要處理的分鏡 ID"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id",
+            "description": "指定模型"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shot_ids"
+        ],
+        "title": "BatchShotRequest",
+        "description": "批次生成請求。"
       },
       "CameraAngle": {
         "type": "string",
@@ -9277,6 +9921,41 @@
         ],
         "title": "HealthData",
         "description": "health endpoint 回應。"
+      },
+      "ImageTaskOptions": {
+        "properties": {
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id",
+            "description": "指定圖片模型；留空使用預設"
+          },
+          "frame_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Frame Types",
+            "description": "要生成的幀類型"
+          },
+          "max_retries": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Max Retries",
+            "description": "重試次數",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "title": "ImageTaskOptions",
+        "description": "圖片生成選項。"
       },
       "MediaCreate": {
         "properties": {
@@ -11442,6 +12121,39 @@
         "title": "ScriptRead",
         "description": "章節腳本內容。"
       },
+      "ScriptTaskOptions": {
+        "properties": {
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id",
+            "description": "指定文字模型；留空使用預設"
+          },
+          "replace_existing": {
+            "type": "boolean",
+            "title": "Replace Existing",
+            "description": "重新拆解時是否清除既有分鏡",
+            "default": true
+          },
+          "max_retries": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Max Retries",
+            "description": "失敗時的重試次數",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "title": "ScriptTaskOptions",
+        "description": "腳本類任務的共用選項。"
+      },
       "ScriptUpdate": {
         "properties": {
           "raw_text": {
@@ -13193,6 +13905,33 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VideoTaskOptions": {
+        "properties": {
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id",
+            "description": "指定影片模型；留空使用預設"
+          },
+          "max_retries": {
+            "type": "integer",
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Max Retries",
+            "description": "重試次數（影片成本高，預設不重試）",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "VideoTaskOptions",
+        "description": "影片生成選項。"
       }
     }
   }

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from studio.api.v1.routes import assets, health, media, projects, providers, shots, tasks
+from studio.api.v1.routes import assets, health, media, projects, providers, shots, tasks, workflow
 
 api_router = APIRouter()
 
@@ -23,3 +23,4 @@ api_router.include_router(assets.costume_router)
 api_router.include_router(media.router)
 api_router.include_router(providers.router)
 api_router.include_router(tasks.router)
+api_router.include_router(workflow.router)
