@@ -1,0 +1,31 @@
+# Scott 工具設定。
+#
+# 注意：ruff 的 lint 範圍刻意只涵蓋 cli_agent 與 studio。
+# 既有股市分析模組（app.py 等）維持原狀，不納入 lint，以免產生大量與本次改造
+# 無關的變更。
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [
+    "migrations/versions",
+    "frontend",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+ignore = [
+    "B008",   # FastAPI 的 Depends() 慣用寫法即為在預設值中呼叫函式
+    "UP042",  # 刻意使用 `str, Enum` 而非 StrEnum：與 Pydantic / SQLAlchemy 的
+              # 序列化行為經過驗證，且與參考專案 Jellyfish 的模型定義保持一致
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

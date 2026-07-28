@@ -2,7 +2,7 @@
 
 > **單一事實來源。** 任何新 Session 請先讀本檔，再讀 `docs/jellyfish-implementation-plan.md`。
 > 分支：`feature/jellyfish-parity`
-> 最後更新：Phase 0 完成
+> 最後更新：Phase 1 完成
 
 ---
 
@@ -11,7 +11,7 @@
 | Phase | 內容 | 狀態 |
 | --- | --- | --- |
 | 0 | 分析與保護措施 | ✅ 完成 |
-| 1 | 基礎架構 | ⬜ 未開始 |
+| 1 | 基礎架構 | ✅ 完成 |
 | 2 | 核心資料模型 | ⬜ 未開始 |
 | 3 | API 與 OpenAPI | ⬜ 未開始 |
 | 4 | 非同步任務中心 | ⬜ 未開始 |
@@ -25,21 +25,12 @@
 ## Phase 0 — 分析與保護措施 ✅
 
 - [x] 建立 `feature/jellyfish-parity` 分支
-- [x] Clone 並完整閱讀 Jellyfish
-  - [x] README.md
-  - [x] AGENTS.md（語意約定、頁面職責、完成標準）
-  - [x] backend（models / api / services / core / chains / tasks）
-  - [x] front（package.json、目錄結構、OpenAPI 產生流程）
-  - [x] deploy/compose（docker-compose.yml、.env.example）
-  - [x] 資料模型（Project / Chapter / Shot / 資產 / Task / Provider）
-  - [x] API 路由結構
-  - [x] 任務系統（GenerationTask / GenerationTaskLink / TaskExecutorRegistry）
-  - [x] 模型供應商管理（Provider / Model / ModelSettings）
+- [x] Clone 並完整閱讀 Jellyfish（README / AGENTS.md / backend / front / deploy / 資料模型 / API 路由 / 任務系統 / 供應商管理 / compose / OpenAPI 流程）
 - [x] 盤點 Scott 現有程式
 - [x] `docs/scott-architecture.md`
 - [x] `docs/jellyfish-gap-analysis.md`
 - [x] `docs/jellyfish-implementation-plan.md`
-- [x] 確認既有啟動方式（`python app.py`）與 CI（compileall + ruff）
+- [x] 確認既有啟動方式與 CI
 - [x] 回滾說明（`docs/scott-architecture.md` §8）
 
 ### 關鍵結論
@@ -49,34 +40,82 @@ Scott（股市分析）與 Jellyfish（AI 短劇）業務零重疊。
 
 ---
 
-## 下一步：Phase 1 — 基礎架構
+## Phase 1 — 基礎架構 ✅
+
+- [x] `studio/config.py` — pydantic-settings；密鑰只由環境變數解析（`resolve_secret`）
+- [x] `studio/core/db.py` — SQLAlchemy 2.0 async engine / session / Base / TimestampMixin；SQLite 外鍵強制開啟
+- [x] `studio/core/redis_client.py` — async Redis，延遲連線
+- [x] `studio/core/storage.py` — `ObjectStorage` 抽象 + S3 / local 兩種實作，含路徑穿越防護
+- [x] `studio/core/errors.py` — 統一錯誤型別 + 供應商錯誤標準化
+- [x] `studio/core/ids.py` — 帶前綴字串主鍵
+- [x] `studio/core/deps.py` — FastAPI 相依注入（DbSession / Paging / Storage）
+- [x] `studio/schemas/common.py` — 統一回應信封 `ApiResponse` + `Page`
+- [x] `studio/api/v1/routes/health.py` — 元件級健康檢查 + liveness 探針
+- [x] `studio/main.py` — FastAPI 組裝 + 全部錯誤走統一信封（含 404/405/422/500）
+- [x] `studio/tasks/celery_app.py` — Celery 設定 + inline 降級模式
+- [x] `studio/scripts/init.py` — bucket 建立 + migration（compose 一次性服務）
+- [x] `studio_server.py` — ASGI 進入點，Flask 經 `WSGIMiddleware` 掛在 `/`
+- [x] Alembic：`alembic.ini` + `migrations/env.py`（async，連線字串走環境變數）
+- [x] `deploy/compose/docker-compose.yml` — postgres / redis / minio / studio-init / backend / worker / frontend
+- [x] `deploy/compose/.env.example`
+- [x] `deploy/docker/backend.Dockerfile`（含 HEALTHCHECK）
+- [x] `deploy/docker/frontend.Dockerfile` + `nginx.conf` + 執行期環境注入腳本
+- [x] `requirements-studio.txt`（版本全部釘選並實際安裝驗證）
+- [x] `pyproject.toml` — ruff + pytest 設定
+- [x] `tests/studio/test_infrastructure.py` — 24 個測試
+- [x] CI 擴充：ruff / pytest / alembic / compose config
+
+### Phase 1 驗證結果
+
+| 指令 | 結果 |
+| --- | --- |
+| `ruff check studio studio_server.py tests migrations` | ✅ All checks passed |
+| `python -m pytest tests -q` | ✅ 24 passed |
+| `python -m compileall -q .` | ✅ 通過 |
+| `python -m alembic current` | ✅ 設定可載入 |
+| `docker compose ... config -q` | ✅ 設定有效 |
+
+### 已驗證的關鍵行為
+
+- Studio 與既有 Flask app 併存：`/`、`/login` 路徑與內容完全不變，`/api/studio/v1/*` 同時可用
+- Flask 匯入失敗時 Studio 仍可獨立啟動（降級而非崩潰）
+- 所有錯誤回應（404 / 405 / 422 / 500 / Service 層錯誤）形狀一致
+
+---
+
+## 下一步：Phase 2 — 核心資料模型
 
 ### 精確待建檔案
 
 | 檔案 | 內容 |
 | --- | --- |
-| `studio/__init__.py` | 套件入口 |
-| `studio/config.py` | pydantic-settings；所有金鑰走環境變數 |
-| `studio/core/db.py` | SQLAlchemy async engine / session / Base |
-| `studio/core/redis_client.py` | Redis 連線 |
-| `studio/core/storage.py` | 物件儲存抽象（S3 / local） |
-| `studio/core/errors.py` | 統一錯誤型別 |
-| `studio/tasks/celery_app.py` | Celery app + inline fallback |
-| `studio/api/v1/routes/health.py` | health endpoint |
-| `studio/main.py` | FastAPI app 組裝 |
-| `studio_server.py` | ASGI 進入點（FastAPI + Flask via WSGIMiddleware） |
-| `requirements-studio.txt` | Studio 相依（與主 app 分離） |
-| `deploy/compose/docker-compose.yml` | postgres / redis / minio / backend / worker / frontend |
-| `deploy/compose/.env.example` | 環境變數範本 |
-| `deploy/docker/backend.Dockerfile` | 後端映像 |
-| `deploy/docker/frontend.Dockerfile` | 前端映像 |
+| `studio/models/types.py` | 所有 enum：`ShotStatus`(pending/ready，**不含 generating**)、`ShotCandidateType/Status`、`ShotDialogueCandidateStatus`、`CameraShotType`、`CameraAngle`、`CameraMovement`、`ShotFrameType`、`VFXType`、`DialogueLineMode`、`AssetViewAngle`、`FileType`、`FileUsageKind`、`PromptCategory`、`ModelCategoryKey`、`ProviderStatus`、`ChapterStatus` |
+| `studio/models/project.py` | `Project`、`Chapter` |
+| `studio/models/shot.py` | `Shot`、`ShotDetail`、`ShotFrame`、`ShotDialogue` |
+| `studio/models/candidate.py` | `ShotExtractedCandidate`、`ShotExtractedDialogueCandidate`、`ShotCharacterLink` |
+| `studio/models/asset.py` | `Character`、`Actor`、`Scene`、`Prop`、`Costume`、`AssetImage` |
+| `studio/models/asset_link.py` | `ProjectActorLink`、`ProjectSceneLink`、`ProjectPropLink`、`ProjectCostumeLink` |
+| `studio/models/file.py` | `FileItem`、`FileUsage` |
+| `studio/models/task.py` | `GenerationTask`、`GenerationTaskLink` |
+| `studio/models/provider.py` | `Provider`（含 `api_key_env`，**不存明文金鑰**）、`Model`、`ModelSettings`、`PromptTemplate` |
+| `studio/models/__init__.py` | 匯入全部模型供 Alembic autogenerate |
+| `migrations/versions/0001_*.py` | 初始 migration |
 
-### Phase 1 驗收指令
+### Phase 2 注意事項
+
+1. 所有表名加 `studio_` 前綴
+2. `shot.status` 只有 `pending` / `ready`；執行時狀態一律來自任務系統
+3. `Provider.api_key_env` 存環境變數 **名稱**，絕不存金鑰值
+4. 主鍵用 `studio.core.ids` 的帶前綴字串
+5. 外鍵一律指定 `ondelete`（CASCADE / SET NULL）
+
+### Phase 2 驗收指令
 
 ```bash
-python -m compileall -q studio studio_server.py
-python -c "import studio.config"
-docker compose -f deploy/compose/docker-compose.yml config -q
+ruff check studio tests
+python -m alembic revision --autogenerate -m "initial studio schema"
+python -m alembic upgrade head
+python -m pytest tests -q
 ```
 
 ---

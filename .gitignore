@@ -11,3 +11,12 @@ venv/
 monitor_state.json
 user_data.db
 *.db
+
+# ── Scott Studio ──────────────────────────────────────────────────────────────
+studio_storage/
+deploy/compose/.env
+frontend/node_modules/
+frontend/dist/
+frontend/openapi.json
+.pytest_cache/
+.ruff_cache/

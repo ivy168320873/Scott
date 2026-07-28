@@ -1,3 +1,6 @@
 # 開發／CI 用相依（部署不需要）。
 -r requirements.txt
+-r requirements-studio.txt
 ruff>=0.6
+pytest>=8.3
+pytest-asyncio>=0.24

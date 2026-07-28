@@ -26,3 +26,24 @@ jobs:
 
       - name: Lint maintained code (cli_agent)
         run: ruff check cli_agent
+
+      - name: Lint Scott Studio
+        run: ruff check studio studio_server.py tests
+
+      - name: Scott Studio tests
+        run: python -m pytest tests -q
+
+      - name: Alembic configuration check
+        run: python -m alembic current
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Docker Compose config
+        run: |
+          docker compose \
+            --env-file deploy/compose/.env.example \
+            -f deploy/compose/docker-compose.yml \
+            config -q

@@ -1,0 +1,149 @@
+# Scott Studio — 完整開發／部署堆疊。
+#
+# 啟動：
+#   cp deploy/compose/.env.example deploy/compose/.env
+#   docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.yml up --build
+#
+# 服務啟動順序由 healthcheck 與 service_completed_successfully 控制，
+# 確保 backend / worker 只在資料庫遷移完成後才啟動。
+
+name: scott-studio
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # 一次性任務：建立 bucket 並執行資料庫遷移，完成後退出。
+  studio-init:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/backend.Dockerfile
+    environment: &studio_env
+      STUDIO_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      STUDIO_REDIS_URL: redis://redis:6379/0
+      STUDIO_TASK_EXECUTION_MODE: celery
+      STUDIO_STORAGE_BACKEND: s3
+      STUDIO_S3_ENDPOINT_URL: http://minio:9000
+      STUDIO_S3_REGION_NAME: us-east-1
+      STUDIO_S3_BUCKET_NAME: ${STUDIO_S3_BUCKET_NAME}
+      STUDIO_S3_ACCESS_KEY_ENV: MINIO_ROOT_USER
+      STUDIO_S3_SECRET_KEY_ENV: MINIO_ROOT_PASSWORD
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      STUDIO_DEBUG: ${STUDIO_DEBUG:-false}
+      STUDIO_CORS_ORIGINS: ${STUDIO_CORS_ORIGINS}
+      # 既有 Scott 股市分析 app
+      ACCESS_CODE: ${ACCESS_CODE:-}
+      SECRET_KEY: ${SECRET_KEY:-}
+      # AI 供應商金鑰（Provider 表只存變數名稱，值只在此注入）
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    command: ["python", "-m", "studio.scripts.init"]
+    restart: "no"
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/backend.Dockerfile
+    environment: *studio_env
+    ports:
+      - "${STUDIO_BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      studio-init:
+        condition: service_completed_successfully
+    command:
+      ["uvicorn", "studio_server:application", "--host", "0.0.0.0", "--port", "8000"]
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/backend.Dockerfile
+    environment: *studio_env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      studio-init:
+        condition: service_completed_successfully
+    command:
+      ["celery", "-A", "studio.tasks.celery_app:celery_app", "worker", "-l", "info", "--concurrency", "4"]
+    healthcheck:
+      test:
+        ["CMD-SHELL", "celery -A studio.tasks.celery_app:celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/frontend.Dockerfile
+    environment:
+      STUDIO_API_BASE_URL: ${STUDIO_API_BASE_URL}
+    ports:
+      - "${STUDIO_FRONTEND_PORT:-7788}:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
