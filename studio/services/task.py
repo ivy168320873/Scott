@@ -82,7 +82,7 @@ class TaskService:
 
         return ensure_found(await self.tasks.get(task_id), resource="任務", entity_id=task_id)
 
-    async def create_task(self, payload: TaskCreate) -> GenerationTask:
+    async def create_task(self, payload: TaskCreate, *, dispatch: bool = True) -> GenerationTask:
         """建立任務紀錄。
 
         先驗證關聯資源存在，讓錯誤是明確的 404 而非稍後執行時才失敗。
@@ -109,9 +109,20 @@ class TaskService:
             status=TaskStatus.pending,
         )
         try:
-            return await self.tasks.add(task)
+            task = await self.tasks.add(task)
         except IntegrityError as exc:
             raise translate_integrity_error(exc, resource="任務") from exc
+
+        if dispatch:
+            # 必須先 commit：worker 可能在本交易提交前就開始執行，
+            # 屆時會查不到這筆任務。
+            await self.session.commit()
+            from studio.tasks.dispatch import dispatch_task
+
+            task.executor_type = dispatch_task(task.id)
+            await self.session.flush()
+
+        return task
 
     async def request_cancel(self, task_id: str, payload: TaskCancel) -> GenerationTask:
         """請求取消任務。
@@ -183,3 +194,71 @@ class TaskService:
         link.status = payload.status
         await self.session.flush()
         return link
+
+    async def retry_task(self, task_id: str) -> GenerationTask:
+        """重跑一個已結束的任務。
+
+        沿用同一筆紀錄而非另建新任務：使用者關心的是「這件工作」的最終結果，
+        分成多筆會讓任務中心出現重複項目、也難以追蹤實際嘗試次數。
+
+        Raises:
+            StateTransitionError: 任務仍在執行中，或已達重試上限。
+        """
+
+        task = await self.get_task(task_id)
+
+        if task.status.is_active:
+            raise StateTransitionError(
+                "任務仍在進行中，無法重試",
+                details={"task_id": task_id, "status": task.status.value},
+            )
+
+        if task.max_retries and task.retry_count >= task.max_retries:
+            raise StateTransitionError(
+                f"已達重試上限（{task.max_retries} 次）",
+                details={"task_id": task_id, "retry_count": task.retry_count},
+            )
+
+        task.status = TaskStatus.pending
+        task.retry_count += 1
+        task.progress = 0
+        task.progress_message = ""
+        task.error = ""
+        task.error_code = ""
+        task.result = None
+        task.started_at = None
+        task.finished_at = None
+        task.cancel_requested = False
+        task.cancel_requested_at = None
+        task.cancelled_at = None
+        task.cancel_reason = ""
+
+        await self.session.commit()
+
+        from studio.tasks.dispatch import dispatch_task
+
+        task.executor_type = dispatch_task(task.id)
+        await self.session.flush()
+        return task
+
+    async def recover_stale_tasks(self) -> int:
+        """把重啟前卡在 running 的任務標記為失敗。
+
+        Worker 意外中止時，任務會永遠停在 `running`。啟動時掃描一次，
+        讓使用者看到明確的失敗而不是無止盡的「執行中」，並可手動重試。
+
+        Returns:
+            被標記為失敗的任務數。
+        """
+
+        from datetime import UTC, datetime
+
+        stale, _ = await self.tasks.list_page(offset=0, limit=500, status=TaskStatus.running)
+        for task in stale:
+            task.status = TaskStatus.failed
+            task.error = "服務重啟時任務仍在執行中，已標記為失敗，可重試"
+            task.error_code = "task_interrupted"
+            task.finished_at = datetime.now(UTC)
+
+        await self.session.flush()
+        return len(stale)

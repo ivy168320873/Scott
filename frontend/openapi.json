@@ -6168,6 +6168,49 @@
         }
       }
     },
+    "/api/v1/studio/tasks/{task_id}/retry": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "重試任務",
+        "description": "重跑一個已結束的任務。仍在執行或已達重試上限時回 409。",
+        "operationId": "retryTask",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_TaskRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/studio/tasks/{task_id}/links": {
       "get": {
         "tags": [
@@ -12697,6 +12740,7 @@
           "script_optimize",
           "script_simplify",
           "script_consistency",
+          "shot_frame_prompt",
           "asset_image_generation",
           "frame_image_generation",
           "video_generation"
@@ -13005,6 +13049,18 @@
             ],
             "title": "Elapsed Seconds",
             "description": "耗時（秒）；未開始為 null"
+          },
+          "elapsed_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsed Ms",
+            "description": "耗時（毫秒）；未開始為 null"
           },
           "is_cancellable": {
             "type": "boolean",

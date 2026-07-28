@@ -195,6 +195,13 @@ class GenerationTask(Base, TimestampMixin):
         return max(0.0, (end - self.started_at).total_seconds())
 
     @property
+    def elapsed_ms(self) -> int | None:
+        """任務耗時（毫秒）。前端以毫秒顯示較精確。"""
+
+        seconds = self.elapsed_seconds
+        return None if seconds is None else int(seconds * 1000)
+
+    @property
     def is_cancellable(self) -> bool:
         """任務目前是否可被取消（僅非終態任務可取消）。"""
 

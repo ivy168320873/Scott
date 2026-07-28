@@ -190,6 +190,28 @@ export class TasksService {
         });
     }
     /**
+     * 重試任務
+     * 重跑一個已結束的任務。仍在執行或已達重試上限時回 409。
+     * @returns ApiResponse_TaskRead_ Successful Response
+     * @throws ApiError
+     */
+    public static retryTask({
+        taskId,
+    }: {
+        taskId: string,
+    }): CancelablePromise<ApiResponse_TaskRead_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/tasks/{task_id}/retry',
+            path: {
+                'task_id': taskId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * 列出任務產物
      * 列出任務的產物關聯與各自的採用狀態。
      * @returns ApiResponse_list_TaskLinkRead__ Successful Response

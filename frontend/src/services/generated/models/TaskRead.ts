@@ -89,6 +89,10 @@ export type TaskRead = {
      */
     elapsed_seconds: (number | null);
     /**
+     * 耗時（毫秒）；未開始為 null
+     */
+    elapsed_ms?: (number | null);
+    /**
      * 目前是否可取消
      */
     is_cancellable: boolean;

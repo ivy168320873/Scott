@@ -63,6 +63,7 @@ class TaskRead(BaseModel):
     started_at: datetime | None = Field(description="開始執行時間")
     finished_at: datetime | None = Field(description="結束時間")
     elapsed_seconds: float | None = Field(description="耗時（秒）；未開始為 null")
+    elapsed_ms: int | None = Field(default=None, description="耗時（毫秒）；未開始為 null")
     is_cancellable: bool = Field(description="目前是否可取消")
     retry_count: int = Field(description="已重試次數")
     max_retries: int = Field(description="最大重試次數")

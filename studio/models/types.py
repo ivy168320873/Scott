@@ -280,6 +280,7 @@ class TaskKind(str, Enum):
     script_optimize = "script_optimize"
     script_simplify = "script_simplify"
     script_consistency = "script_consistency"
+    shot_frame_prompt = "shot_frame_prompt"
     asset_image_generation = "asset_image_generation"
     frame_image_generation = "frame_image_generation"
     video_generation = "video_generation"

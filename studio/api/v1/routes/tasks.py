@@ -127,6 +127,19 @@ async def cancel_task(
     return ApiResponse.ok(TaskRead.model_validate(task))
 
 
+@router.post(
+    "/tasks/{task_id}/retry",
+    response_model=ApiResponse[TaskRead],
+    operation_id="retryTask",
+    summary="重試任務",
+)
+async def retry_task(task_id: str, db: DbSession, _user: CurrentUser) -> ApiResponse[TaskRead]:
+    """重跑一個已結束的任務。仍在執行或已達重試上限時回 409。"""
+
+    task = await TaskService(db).retry_task(task_id)
+    return ApiResponse.ok(TaskRead.model_validate(task))
+
+
 @router.delete(
     "/tasks/{task_id}",
     response_model=ApiResponse[OkData],
