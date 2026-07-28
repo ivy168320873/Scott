@@ -230,7 +230,7 @@
 
 ### 6.3 Scott 需新增
 
-全部 —— 新增 `/api/studio/v1/*` 命名空間，與既有 Flask route 完全不衝突。
+全部 —— 新增 `/api/v1/studio/*` 命名空間，與既有 Flask route 完全不衝突。
 統一回應信封（Jellyfish 有 `tests/test_api_response_envelopes.py` 驗證此契約）。
 
 ---
@@ -303,7 +303,7 @@ Scott 既有頁面（`index.html` / `agent.html` / `admin.html` / `login.html`�
 
 | # | 風險 | 等級 | 緩解 |
 | --- | --- | --- | --- |
-| R1 | 引入 FastAPI 與 Flask 併存，可能造成路由衝突 | 中 | Studio 全部收斂在 `/api/studio/v1` 與 `/studio` 前綴；Flask 掛在 root，經 ASGI `WSGIMiddleware` 代理 |
+| R1 | 引入 FastAPI 與 Flask 併存，可能造成路由衝突 | 中 | Studio 全部收斂在 `/api/v1/studio` 與 `/studio` 前綴；Flask 掛在 root，經 ASGI `WSGIMiddleware` 代理 |
 | R2 | 新增大量 Python 相依可能破壞 Railway 建置 | 中 | 全部釘選版本；CI 加建置驗證；Studio 相依以 `requirements-studio.txt` 分離，主 app 不強制安裝 |
 | R3 | SQLite 與 PostgreSQL 行為差異（JSON、時區、autoincrement） | 中 | Studio 統一用 SQLAlchemy；dev 用 SQLite、prod 用 PostgreSQL；避免 DB 專屬語法 |
 | R4 | 既有 SQLite 表被誤改 | **高** | Studio 使用 **獨立資料庫連線與獨立表名前綴 `studio_`**；不共用 `user_data.db` |

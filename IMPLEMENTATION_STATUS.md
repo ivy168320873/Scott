@@ -77,7 +77,7 @@ Scott（股市分析）與 Jellyfish（AI 短劇）業務零重疊。
 
 ### 已驗證的關鍵行為
 
-- Studio 與既有 Flask app 併存：`/`、`/login` 路徑與內容完全不變，`/api/studio/v1/*` 同時可用
+- Studio 與既有 Flask app 併存：`/`、`/login` 路徑與內容完全不變，`/api/v1/studio/*` 同時可用
 - Flask 匯入失敗時 Studio 仍可獨立啟動（降級而非崩潰）
 - 所有錯誤回應（404 / 405 / 422 / 500 / Service 層錯誤）形狀一致
 

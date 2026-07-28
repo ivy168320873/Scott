@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # ── 應用 ──────────────────────────────────────────────────────────────────
     app_name: str = Field(default="Scott Studio", description="平台顯示名稱")
-    api_v1_prefix: str = Field(default="/api/studio/v1", description="Studio API 前綴")
+    api_v1_prefix: str = Field(default="/api/v1/studio", description="Studio API 前綴")
     debug: bool = Field(default=False, description="是否開啟除錯模式")
     cors_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173",

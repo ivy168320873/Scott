@@ -1,7 +1,7 @@
 """Scott 統一 ASGI 進入點：Studio API + 既有股市分析 app。
 
 架構：
-- FastAPI（Studio）為 ASGI 主體，處理 `/api/studio/v1/*` 與 `/studio/*`。
+- FastAPI（Studio）為 ASGI 主體，處理 `/api/v1/studio/*` 與 `/studio/*`。
 - 既有 Flask app（股市分析）以 WSGI middleware 掛在 `/`，路徑完全不變。
 
 因此：
@@ -55,7 +55,7 @@ async def _legacy_unavailable(scope: Scope, receive: Receive, send: Send) -> Non
             "data": None,
             "error": {
                 "code": "legacy_app_unavailable",
-                "message": "股市分析模組目前不可用；Studio API 仍可正常使用（/api/studio/v1）。",
+                "message": "股市分析模組目前不可用；Studio API 仍可正常使用（/api/v1/studio）。",
             },
         },
     )

@@ -42,7 +42,7 @@
 | 前端狀態 | **zustand** | 與 Jellyfish 一致 |
 | API client | **openapi-typescript-codegen** 產生 | 需求 #8 |
 | 表名前綴 | `studio_` | 避免與 Scott 既有表衝突 |
-| API 前綴 | `/api/studio/v1` | 避免與 Flask route 衝突 |
+| API 前綴 | `/api/v1/studio` | 避免與 Flask route 衝突 |
 
 ---
 
@@ -106,7 +106,7 @@ Scott/
 - `.env.example`
 - Health check + startup dependency
 
-**驗收**：`python -c "import studio.main"`、`docker compose config` 通過、`/api/studio/v1/health` 可回應
+**驗收**：`python -c "import studio.main"`、`docker compose config` 通過、`/api/v1/studio/health` 可回應
 
 ### Phase 2 — 核心資料模型
 

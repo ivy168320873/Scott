@@ -134,7 +134,7 @@ def test_local_storage_public_url_prefers_configured_base(tmp_path) -> None:
     assert with_base.public_url("x.png") == "https://cdn.test/assets/x.png"
 
     without_base = LocalObjectStorage(tmp_path)
-    assert without_base.public_url("x.png").startswith("/api/studio/v1/files/content/")
+    assert without_base.public_url("x.png").startswith("/api/v1/studio/files/content/")
 
 
 # ── 錯誤型別 ──────────────────────────────────────────────────────────────────
@@ -193,7 +193,7 @@ def _client() -> TestClient:
 def test_health_returns_component_status(client: TestClient) -> None:
     """健康檢查應回報各元件狀態，而非只回 200。"""
 
-    response = client.get("/api/studio/v1/health")
+    response = client.get("/api/v1/studio/health")
     assert response.status_code == 200
 
     body = response.json()
@@ -206,7 +206,7 @@ def test_health_returns_component_status(client: TestClient) -> None:
 def test_liveness_ignores_dependencies(client: TestClient) -> None:
     """存活探針不檢查外部相依，外部服務異常不應造成容器重啟。"""
 
-    body = client.get("/api/studio/v1/health/live").json()
+    body = client.get("/api/v1/studio/health/live").json()
     assert body["data"]["status"] == "ok"
     assert body["data"]["components"] == []
 
@@ -215,13 +215,13 @@ def test_openapi_spec_is_generated(client: TestClient) -> None:
     """OpenAPI 為前端型別的唯一來源，必須可產生。"""
 
     spec = client.get("/studio/openapi.json").json()
-    assert "/api/studio/v1/health" in spec["paths"]
+    assert "/api/v1/studio/health" in spec["paths"]
 
 
 def test_unmatched_route_uses_standard_envelope(client: TestClient) -> None:
     """404 也要走統一信封，前端才能以單一 helper 解析所有回應。"""
 
-    response = client.get("/api/studio/v1/does-not-exist")
+    response = client.get("/api/v1/studio/does-not-exist")
     assert response.status_code == 404
 
     body = response.json()
@@ -233,7 +233,7 @@ def test_unmatched_route_uses_standard_envelope(client: TestClient) -> None:
 def test_method_not_allowed_uses_standard_envelope(client: TestClient) -> None:
     """405 同樣需為標準信封，並帶穩定錯誤碼。"""
 
-    body = client.post("/api/studio/v1/health").json()
+    body = client.post("/api/v1/studio/health").json()
     assert body["success"] is False
     assert body["error"]["code"] == "method_not_allowed"
 
@@ -243,11 +243,11 @@ def test_studio_error_maps_to_envelope_and_status() -> None:
 
     api = create_app()
 
-    @api.get("/api/studio/v1/_boom")
+    @api.get("/api/v1/studio/_boom")
     async def _boom() -> None:
         raise ValidationError("欄位不合法", details={"field": "title"})
 
-    body = TestClient(api).get("/api/studio/v1/_boom")
+    body = TestClient(api).get("/api/v1/studio/_boom")
     assert body.status_code == 422
 
     payload = body.json()
@@ -261,11 +261,11 @@ def test_request_validation_error_uses_standard_envelope() -> None:
 
     api = create_app()
 
-    @api.get("/api/studio/v1/_needs-int")
+    @api.get("/api/v1/studio/_needs-int")
     async def _needs_int(value: int) -> dict[str, int]:
         return {"value": value}
 
-    response = TestClient(api).get("/api/studio/v1/_needs-int", params={"value": "abc"})
+    response = TestClient(api).get("/api/v1/studio/_needs-int", params={"value": "abc"})
     assert response.status_code == 422
 
     payload = response.json()
@@ -305,4 +305,4 @@ def test_legacy_flask_app_can_be_mounted() -> None:
     assert client.get("/login").text == "scott login"
 
     # Studio 路徑同時可用
-    assert client.get("/api/studio/v1/health").status_code == 200
+    assert client.get("/api/v1/studio/health").status_code == 200

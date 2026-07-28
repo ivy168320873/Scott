@@ -30,11 +30,24 @@ jobs:
       - name: Lint Scott Studio
         run: ruff check studio studio_server.py tests
 
+      # 最高優先：既有股票系統不得因 Studio 而回歸。
+      # 這一步必須先於 Studio 測試，失敗即代表既有系統被破壞。
+      - name: Stock app regression tests (blocking)
+        run: python -m pytest tests/legacy -q
+
       - name: Scott Studio tests
-        run: python -m pytest tests -q
+        run: python -m pytest tests/studio -q
 
       - name: Alembic configuration check
         run: python -m alembic current
+
+      - name: Assert migrations never touch legacy tables
+        run: |
+          if grep -rlnE "user_data|observation_engine|signal_confidence|daily_report|stress_test|alert_history" migrations/versions/; then
+            echo "::error::Alembic migration references a legacy stock table"
+            exit 1
+          fi
+          echo "OK: migrations only touch studio_* tables"
 
   compose:
     runs-on: ubuntu-latest

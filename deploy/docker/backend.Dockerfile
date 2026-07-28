@@ -27,6 +27,6 @@ COPY . .
 EXPOSE 8000
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
-    CMD curl -fsS http://127.0.0.1:8000/api/studio/v1/health/live || exit 1
+    CMD curl -fsS http://127.0.0.1:8000/api/v1/studio/health/live || exit 1
 
 CMD ["uvicorn", "studio_server:application", "--host", "0.0.0.0", "--port", "8000"]

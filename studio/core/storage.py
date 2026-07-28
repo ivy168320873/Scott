@@ -101,7 +101,7 @@ class LocalObjectStorage(ObjectStorage):
         if self._public_base_url:
             return f"{self._public_base_url}/{key.lstrip('/')}"
         # 未設定公開前綴時，交由 API 端點代為串流。
-        return f"/api/studio/v1/files/content/{key.lstrip('/')}"
+        return f"/api/v1/studio/files/content/{key.lstrip('/')}"
 
     def healthy(self) -> bool:
         return self._root.is_dir()
@@ -168,7 +168,7 @@ class S3ObjectStorage(ObjectStorage):
     def public_url(self, key: str) -> str:
         if self._public_base_url:
             return f"{self._public_base_url}/{key.lstrip('/')}"
-        return f"/api/studio/v1/files/content/{key.lstrip('/')}"
+        return f"/api/v1/studio/files/content/{key.lstrip('/')}"
 
     def healthy(self) -> bool:
         try:
