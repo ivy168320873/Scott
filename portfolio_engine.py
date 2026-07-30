@@ -5,7 +5,14 @@ relative to benchmark performance and capital opportunity cost.
 Levels: ADD / HOLD / WATCH / TRIM / ROTATE / STOP_LOSS
 """
 from __future__ import annotations
+
+import math
 from datetime import date as _date, datetime as _dt, timezone as _tz
+
+from ohlcv_utils import sanitize_ohlcv
+
+# 持有天數少於此值時不計算年化報酬——太短的期間年化後會嚴重失真。
+_MIN_ANNUALIZE_DAYS = 7
 
 
 def _sma(lst: list, n: int) -> float:
@@ -25,30 +32,55 @@ def calc_capital_efficiency(
     benchmark_return: benchmark % return over the same holding period (e.g., QQQ).
                       Pass None if unavailable — absolute PnL is used as fallback.
     """
+    def _f(value, default: float = 0.0) -> float:
+        """把使用者／外部來源的數值轉成有限 float，失敗回 default。"""
+        try:
+            f = float(value)
+        except (TypeError, ValueError):
+            return default
+        return f if math.isfinite(f) else default
+
+    if not isinstance(holding, dict):
+        return _empty_result("?", "持倉資料格式錯誤")
+    if not isinstance(ohlcv, dict):
+        return _empty_result(holding.get("symbol", "?"), "資料不足或未提供成本")
+
+    # 與其他三個引擎一致：先清洗。否則 closes 全為 None／NaN 時
+    # _sma 會回 0.0，使 `current > ma20` 恆成立而產出「收在 MA20 之上，
+    # 趨勢尚可」——在一根有效 K 線都沒有的情況下。字串 closes 更會拋 TypeError。
+    ohlcv        = sanitize_ohlcv(ohlcv) or {}
+
     symbol       = holding.get("symbol", "?")
-    cost         = float(holding.get("cost", 0) or 0)
-    qty          = float(holding.get("qty",  0) or 0)
+    cost         = _f(holding.get("cost"))
+    qty          = _f(holding.get("qty"))
     buy_date_str = holding.get("buy_date", "")
     closes       = ohlcv.get("closes", [])
 
+    # NaN／字串成本會讓 cost <= 0 判定失效，後續分數全變 NaN 卻回報 ok=True
     if not closes or cost <= 0:
         return _empty_result(symbol, "資料不足或未提供成本")
 
-    current = float(holding.get("current_price", 0) or closes[-1])
+    current = _f(holding.get("current_price")) or _f(closes[-1])
+    if current <= 0:
+        return _empty_result(symbol, "現價資料無效")
     pnl_pct = (current - cost) / cost * 100
-
-    # Holding days
-    try:
-        buy_date     = _dt.strptime(buy_date_str, "%Y-%m-%d").replace(tzinfo=_tz.utc).date()
-        holding_days = (_date.today() - buy_date).days
-    except Exception:
-        holding_days = 30
-
-    holding_days = max(holding_days, 1)
 
     score: int = 50   # neutral baseline
     reasons:      list[str] = []
     warning_flags: list[str] = []
+
+    # 持有天數：無法解析時回報 None，不假造天數。
+    # 假造會直接顯示在 detail.holding_days 上，等於對使用者謊報持倉時間。
+    holding_days: int | None
+    try:
+        buy_date     = _dt.strptime(buy_date_str, "%Y-%m-%d").replace(tzinfo=_tz.utc).date()
+        holding_days = (_date.today() - buy_date).days
+    except Exception:
+        holding_days = None
+
+    if holding_days is not None and holding_days < 0:
+        warning_flags.append("買進日期異常（晚於今日）")
+        holding_days = 0
 
     # ── 1. Alpha vs benchmark (±20 pts) ──────────────────────────────────────
     if benchmark_return is not None:
@@ -83,13 +115,21 @@ def calc_capital_efficiency(
             score -=  5; reasons.append("收在 MA20 附近，趨勢中性")
 
     # ── 3. Annualised return / holding efficiency (±15 pts) ──────────────────
-    annual_return = (pnl_pct / holding_days) * 365
-    if   annual_return >  50: score += 15; reasons.append(f"年化報酬率 {annual_return:.0f}%（資本效率極高）")
-    elif annual_return >  30: score += 10; reasons.append(f"年化報酬率 {annual_return:.0f}%（資本效率高）")
-    elif annual_return >  10: score +=  5; reasons.append(f"年化報酬率 {annual_return:.0f}%")
-    elif annual_return >  -5: score +=  0
-    elif annual_return > -15: score -=  8; reasons.append(f"年化報酬率 {annual_return:.0f}%（偏低）"); warning_flags.append("年化報酬偏低")
-    else:                     score -= 15; reasons.append(f"年化報酬率 {annual_return:.0f}%（資本效率極低）"); warning_flags.append("資本效率極低")
+    # 持有天數過短時年化報酬會被放大到失真（持有 1 天的 +10% 會年化成 3650%），
+    # 因此不足門檻或天數未知時直接跳過此區塊，並在 reasons 誠實說明。
+    annual_return: float | None = None
+    if holding_days is not None and holding_days >= _MIN_ANNUALIZE_DAYS:
+        annual_return = (pnl_pct / holding_days) * 365
+        if   annual_return >  50: score += 15; reasons.append(f"年化報酬率 {annual_return:.0f}%（資本效率極高）")
+        elif annual_return >  30: score += 10; reasons.append(f"年化報酬率 {annual_return:.0f}%（資本效率高）")
+        elif annual_return >  10: score +=  5; reasons.append(f"年化報酬率 {annual_return:.0f}%")
+        elif annual_return >  -5: score +=  0
+        elif annual_return > -15: score -=  8; reasons.append(f"年化報酬率 {annual_return:.0f}%（偏低）"); warning_flags.append("年化報酬偏低")
+        else:                     score -= 15; reasons.append(f"年化報酬率 {annual_return:.0f}%（資本效率極低）"); warning_flags.append("資本效率極低")
+    elif holding_days is None:
+        reasons.append("買進日期缺漏或無法解析，年化報酬未納入評分")
+    else:
+        reasons.append(f"持有 {holding_days} 天不足 {_MIN_ANNUALIZE_DAYS} 天，年化報酬不具參考性，未納入評分")
 
     score = min(100, max(0, score))
 
@@ -127,7 +167,7 @@ def calc_capital_efficiency(
             "cost_basis":       cost,
             "pnl_pct":          round(pnl_pct, 2),
             "holding_days":     holding_days,
-            "annual_return":    round(annual_return, 1),
+            "annual_return":    round(annual_return, 1) if annual_return is not None else None,
             "position_value":   round(current * qty, 2),
             "benchmark_return": benchmark_return,
         },

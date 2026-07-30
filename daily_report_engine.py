@@ -16,6 +16,7 @@ init_db()
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -26,6 +27,8 @@ import sector_map as _smap
 import alert_history as _ah
 import portfolio_engine as _pe
 import rotation_engine as _re
+
+_log = logging.getLogger(__name__)
 try:
     import data_provider as _dp
     _HAS_DP = True
@@ -311,8 +314,11 @@ def _build_portfolio_summary(positions: list, ohlcv_fn) -> dict:
             # Simple drag score via rotation_engine helper
             closes = ohlcv["closes"]
             mom = _re._momentum_score(closes)
-            holding_days = ce.get("detail", {}).get("holding_days", 30)
-            pnl_pct = ce.get("detail", {}).get("pnl_pct", 0.0)
+            # 可能為 None（買進日期缺漏或無法解析）；calc_drag_score 會自行歸零。
+            # 注意 .get(key, default) 在鍵存在但值為 None 時不會套用 default，
+            # 不可寫成 .get("holding_days", 30)。
+            holding_days = ce.get("detail", {}).get("holding_days")
+            pnl_pct = ce.get("detail", {}).get("pnl_pct") or 0.0
             drag = _re.calc_drag_score(
                 ce_score=ce_score or 50,
                 holding_days=holding_days,
@@ -344,9 +350,13 @@ def _build_portfolio_summary(positions: list, ohlcv_fn) -> dict:
                 strong_positions.append(symbol)
 
         except Exception:
+            # 不得靜默吞掉——否則像 holding_days 型別變更這類回歸會讓持倉
+            # 無聲從報告中消失，且沒有任何線索可追。
+            _log.exception("持倉分析失敗，該筆以資料不足呈現：symbol=%s", symbol)
             position_details.append({
                 "symbol": symbol, "level": "HOLD",
                 "score": None, "ok": False,
+                "error": "分析失敗（詳見伺服器日誌）",
             })
 
     efficiency_avg = round(sum(scores) / len(scores), 1) if scores else None
@@ -500,6 +510,9 @@ def _build_rotation_suggestions(positions: list, ohlcv_fn) -> list:
             for p in actionable
         ]
     except Exception:
+        # 同樣不得靜默吞掉——否則輪動建議整段消失時，畫面上與
+        # 「今天沒有輪動建議」無法區分，且無任何線索可追。
+        _log.exception("輪動建議產生失敗，改回傳空清單")
         return []
 
 

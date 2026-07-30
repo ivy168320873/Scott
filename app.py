@@ -3392,7 +3392,9 @@ def _rotation_fire_alerts(pos_results: list[dict]):
         action       = pos.get("rotation_action", "")
         ce_score     = pos.get("capital_efficiency_score") or 50
         rel_bench    = pos.get("relative_to_benchmark")    # None if no benchmark
-        holding_days = pos.get("holding_days", 0)
+        # 可能為 None（買進日期缺漏或無法解析）。注意 .get(key, default)
+        # 在鍵存在但值為 None 時不會套用 default，不可寫成 .get(..., 0)。
+        holding_days = pos.get("holding_days") or 0
         ce_result    = pos.get("ce_detail", {})
 
         should_alert = (

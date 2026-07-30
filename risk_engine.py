@@ -7,6 +7,8 @@ Chase Risk Score (0-100): How risky is it to buy/chase at current price?
 """
 from __future__ import annotations
 
+from ohlcv_utils import sanitize_ohlcv
+
 
 def _sma(lst: list, n: int) -> float:
     tail = [v for v in lst[-n:] if v and v > 0]
@@ -32,15 +34,19 @@ def calc_chase_risk(ohlcv: dict) -> dict:
     Calculate Chase Risk Score from normalized OHLCV dict.
     ohlcv must have: closes, opens, highs, lows, volumes (lists).
     """
+    # 先清洗：NaN 會靜默通過所有比較而算出 0 分並回報 ok=True，
+    # 等於把「沒有資料」講成「低追價風險，可介入」。
+    ohlcv = sanitize_ohlcv(ohlcv) or {}
+
     closes  = ohlcv.get("closes",  [])
     opens   = ohlcv.get("opens",   [])
     highs   = ohlcv.get("highs",   [])
     lows    = ohlcv.get("lows",    [])
     volumes = ohlcv.get("volumes", [])
 
-    n = min(len(closes), len(opens), len(highs), len(lows), len(volumes))
+    n = min(len(closes), len(opens), len(highs), len(lows), len(volumes)) if closes else 0
     if n < 20:
-        return _empty_result("資料不足（需要至少 20 天 K 線）")
+        return _empty_result("資料不足（需要至少 20 天有效 K 線）")
 
     closes  = closes[-n:];  opens   = opens[-n:]
     highs   = highs[-n:];   lows    = lows[-n:]
@@ -95,13 +101,17 @@ def calc_chase_risk(ohlcv: dict) -> dict:
         score += rsi_pts
 
     # ── 5. 爆量長上影 (0 or 10 pts) ──────────────────────────────────────────
-    avg20_vol = _sma(volumes, 20)
-    body      = abs(closes[-1] - opens[-1])
-    u_shad    = highs[-1] - max(closes[-1], opens[-1])
-    if avg20_vol > 0 and volumes[-1] > avg20_vol * 2.0 and body > 0 and u_shad > body * 1.5:
-        score += 10
-        reasons.append("爆量長上影線（量大收縮，可能為主力出貨訊號）")
-        warning_flags.append("爆量長上影")
+    # 無成交量資料時整段跳過並誠實說明，不可把「沒有量」當成「量很小」。
+    if not ohlcv.get("has_volume", True):
+        reasons.append("缺成交量資料，量能相關判斷未納入評分")
+    else:
+        avg20_vol = _sma(volumes, 20)
+        body      = abs(closes[-1] - opens[-1])
+        u_shad    = highs[-1] - max(closes[-1], opens[-1])
+        if avg20_vol > 0 and volumes[-1] > avg20_vol * 2.0 and body > 0 and u_shad > body * 1.5:
+            score += 10
+            reasons.append("爆量長上影線（量大收縮，可能為主力出貨訊號）")
+            warning_flags.append("爆量長上影")
 
     # ── 6. High-but-weak close (0 or 5 pts) ──────────────────────────────────
     intraday_range = highs[-1] - lows[-1]

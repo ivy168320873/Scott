@@ -6,6 +6,8 @@ Levels: LEADING / IMPROVING / NEUTRAL / WEAKENING / LAGGING
 """
 from __future__ import annotations
 
+from ohlcv_utils import sanitize_ohlcv
+
 
 def _sma(lst: list, n: int) -> float:
     tail = [v for v in lst[-n:] if v and v > 0]
@@ -29,12 +31,14 @@ def calc_sector_leadership(
     vol_expand_count    = 0
     above_ma20_count    = 0
     total               = 0
+    vol_sample          = 0      # 有成交量資料的成分股數（量能比例的分母）
 
-    for sym, ohlcv in stocks_ohlcv.items():
+    for sym, raw_ohlcv in stocks_ohlcv.items():
+        ohlcv = sanitize_ohlcv(raw_ohlcv) or {}   # 缺值成分股不得混入板塊統計
         closes  = ohlcv.get("closes",  [])
         highs   = ohlcv.get("highs",   [])
         volumes = ohlcv.get("volumes", [])
-        n = min(len(closes), len(highs), len(volumes))
+        n = min(len(closes), len(highs), len(volumes)) if closes else 0
         if n < 20:
             continue
         total += 1
@@ -48,10 +52,12 @@ def calc_sector_leadership(
         if closes[-1] >= max(highs[-20:]):
             new_high_count += 1
 
-        # Volume expansion today vs 20d avg
-        avg_vol = _sma(volumes, 20)
-        if avg_vol > 0 and volumes[-1] > avg_vol * 1.2:
-            vol_expand_count += 1
+        # Volume expansion today vs 20d avg（無量資料者不列入分母）
+        if ohlcv.get("has_volume", True):
+            vol_sample += 1
+            avg_vol = _sma(volumes, 20)
+            if avg_vol > 0 and volumes[-1] > avg_vol * 1.2:
+                vol_expand_count += 1
 
         # Above MA20?
         ma20 = _sma(closes, 20)
@@ -63,7 +69,13 @@ def calc_sector_leadership(
 
     avg_gain          = sum(gains_20d) / len(gains_20d) if gains_20d else 0.0
     new_high_ratio    = new_high_count   / total * 100
-    vol_expand_ratio  = vol_expand_count / total * 100
+    # 分母改用「有量資料的檔數」；樣本不足時為 None，代表未知而非 0%。
+    # 門檻取「過半且至少 1 檔」——避免 4 檔中只有 1 檔有量卻宣稱
+    # 「100% 個股量能放大（資金湧入）」，同時不讓單檔板塊永遠算不出比例。
+    _MIN_VOL_SAMPLE = max(1, (total + 1) // 2)
+    vol_expand_ratio = (
+        vol_expand_count / vol_sample * 100 if vol_sample >= _MIN_VOL_SAMPLE else None
+    )
     above_ma20_ratio  = above_ma20_count / total * 100
 
     score = 50   # neutral baseline
@@ -85,9 +97,12 @@ def calc_sector_leadership(
     elif new_high_ratio <  5: score -= 10; reasons.append(f"僅 {new_high_ratio:.0f}% 個股創新高"); warning_flags.append("創新高比例低")
 
     # ── 3. Volume expansion ratio (±10 pts) ──────────────────────────────────
-    if   vol_expand_ratio > 60: score += 10; reasons.append(f"{vol_expand_ratio:.0f}% 個股量能放大（資金湧入）")
-    elif vol_expand_ratio > 40: score +=  5; reasons.append(f"{vol_expand_ratio:.0f}% 個股量能放大")
-    elif vol_expand_ratio < 15: score -=  8; reasons.append(f"板塊整體量能萎縮（{vol_expand_ratio:.0f}%）"); warning_flags.append("量能萎縮")
+    # 無成交量資料時整段跳過——不得把「沒有量資料」講成「板塊量能萎縮」。
+    if vol_expand_ratio is None:
+        reasons.append(f"僅 {vol_sample}/{total} 檔有成交量資料，量能項未納入評分")
+    elif vol_expand_ratio > 60: score += 10; reasons.append(f"{vol_expand_ratio:.0f}% 個股量能放大（{vol_expand_count}/{vol_sample} 檔，資金湧入）")
+    elif vol_expand_ratio > 40: score +=  5; reasons.append(f"{vol_expand_ratio:.0f}% 個股量能放大（{vol_expand_count}/{vol_sample} 檔）")
+    elif vol_expand_ratio < 15: score -=  8; reasons.append(f"板塊整體量能萎縮（{vol_expand_ratio:.0f}%，{vol_expand_count}/{vol_sample} 檔）"); warning_flags.append("量能萎縮")
 
     # ── 4. Above MA20 ratio (±10 pts) ────────────────────────────────────────
     if   above_ma20_ratio > 80: score += 10; reasons.append(f"{above_ma20_ratio:.0f}% 個股站上 MA20（廣泛強勢）")
@@ -128,7 +143,7 @@ def calc_sector_leadership(
         "detail": {
             "avg_20d_gain_pct":      round(avg_gain, 1),
             "new_high_ratio_pct":    round(new_high_ratio, 1),
-            "vol_expand_ratio_pct":  round(vol_expand_ratio, 1),
+            "vol_expand_ratio_pct":  round(vol_expand_ratio, 1) if vol_expand_ratio is not None else None,
             "above_ma20_ratio_pct":  round(above_ma20_ratio, 1),
         },
     }

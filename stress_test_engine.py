@@ -317,15 +317,18 @@ def _compute_position_metrics(
         or pos.get('buyDate')
         or ''
     )
+    # 買進日期無法解析時回報 None，不假造天數——holding_days 會出現在
+    # 回傳結果與 drag_reasons（「持有 N 天，跑輸基準…」）中對使用者顯示。
+    holding_days: int | None
     try:
         buy_dt = datetime.strptime(buy_date_str, '%Y-%m-%d').date()
-        holding_days = (date.today() - buy_dt).days
+        holding_days = max((date.today() - buy_dt).days, 0)
     except Exception:
-        holding_days = 30
-    holding_days = max(holding_days, 1)
+        holding_days = None
 
-    # capital_efficiency_decay adds 30 days
-    if scenario == 'capital_efficiency_decay':
+    # capital_efficiency_decay 情境：模擬再持有 30 天後的資金效率衰退。
+    # 天數未知時無法做這個推演，維持 None。
+    if scenario == 'capital_efficiency_decay' and holding_days is not None:
         holding_days = holding_days + 30
 
     # Sell decision

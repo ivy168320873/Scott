@@ -6,6 +6,7 @@ engines) from app.py.
 """
 from __future__ import annotations
 
+from ohlcv_utils      import sanitize_ohlcv, to_finite_float
 from risk_engine      import calc_chase_risk
 from sell_engine      import calc_sell_decision
 from portfolio_engine import calc_capital_efficiency
@@ -14,6 +15,7 @@ from sector_engine    import calc_sector_leadership
 __all__ = [
     "normalize_yahoo",
     "normalize_list",
+    "sanitize_ohlcv",
     "run_chase_risk",
     "run_sell_decision",
     "run_capital_efficiency",
@@ -22,6 +24,10 @@ __all__ = [
 
 
 # ── OHLCV normalization helpers ───────────────────────────────────────────────
+
+# 數值轉換與 OHLCV 清洗的單一實作在 ohlcv_utils，各引擎共用同一份語意。
+_num = to_finite_float
+
 
 def normalize_yahoo(yahoo_data: dict) -> dict | None:
     """
@@ -42,18 +48,41 @@ def normalize_yahoo(yahoo_data: dict) -> dict | None:
             q.get("close",  []),
             q.get("volume", []),
         )
-        rows = [(t, o, h, l, c, v) for t, o, h, l, c, v in raw
-                if c and c > 0 and o and h and l and v is not None]
-        if not rows:
+
+        timestamps: list = []
+        closes:  list[float] = []
+        opens:   list[float] = []
+        highs:   list[float] = []
+        lows:    list[float] = []
+        volumes: list[float] = []
+
+        # 逐根轉換：單一髒值只丟掉那一根 K 棒，不讓整支股票變成「無資料」。
+        for t, o, h, low, c, v in raw:
+            close = _num(c)
+            if close is None or close <= 0:
+                continue
+            open_ = _num(o)
+            high  = _num(h)
+            low_  = _num(low)
+            volume = _num(v)
+            timestamps.append(t)
+            closes.append(close)
+            opens.append(open_ if open_ is not None else close)
+            highs.append(high if high is not None else close)
+            lows.append(low_ if low_ is not None else close)
+            volumes.append(volume if volume is not None else 0.0)
+
+        if not closes:
             return None
-        ts_, o_, h_, l_, c_, v_ = zip(*rows)
         return {
-            "closes":     list(c_),
-            "opens":      list(o_),
-            "highs":      list(h_),
-            "lows":       list(l_),
-            "volumes":    list(v_),
-            "timestamps": list(ts_),
+            "closes":     closes,
+            "opens":      opens,
+            "highs":      highs,
+            "lows":       lows,
+            "volumes":    volumes,
+            "timestamps": timestamps,
+            # 缺量被補成 0，需另外標示，否則下游無法區分「沒有量」與「量為 0」
+            "has_volume": any(v > 0 for v in volumes),
         }
     except (KeyError, IndexError, TypeError):
         return None
@@ -66,20 +95,49 @@ def normalize_list(rows: list) -> dict | None:
     """
     if not rows:
         return None
-    valid = [r for r in rows if r.get("close", 0) > 0]
-    if not valid:
+
+    closes:  list[float] = []
+    opens:   list[float] = []
+    highs:   list[float] = []
+    lows:    list[float] = []
+    volumes: list[float] = []
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue                      # 跳過格式錯誤的列，不讓整批資料失敗
+        close = _num(row.get("close"))
+        if close is None or close <= 0:
+            continue                      # 缺值／非數值／非正數一律略過
+
+        def _or_close(key: str, _row=row, _close=close) -> float:
+            v = _num(_row.get(key))
+            return v if v is not None else _close
+
+        closes.append(close)
+        opens.append(_or_close("open"))
+        highs.append(_or_close("high"))
+        lows.append(_or_close("low"))
+        volume = _num(row.get("volume"))
+        volumes.append(volume if volume is not None else 0.0)
+
+    if not closes:
         return None
     return {
-        "closes":     [r["close"]  for r in valid],
-        "opens":      [r.get("open",  r["close"]) for r in valid],
-        "highs":      [r.get("high",  r["close"]) for r in valid],
-        "lows":       [r.get("low",   r["close"]) for r in valid],
-        "volumes":    [r.get("volume", 0)          for r in valid],
+        "closes":     closes,
+        "opens":      opens,
+        "highs":      highs,
+        "lows":       lows,
+        "volumes":    volumes,
         "timestamps": [],
+        # 缺量被補成 0，需另外標示，否則下游無法區分「沒有量」與「量為 0」
+        "has_volume": any(v > 0 for v in volumes),
     }
 
 
 # ── Public wrappers (called from app.py routes) ───────────────────────────────
+#
+# 各引擎入口已自行呼叫 sanitize_ohlcv（見 ohlcv_utils），因此這些包裝層
+# 不再重複清洗；保留 sanitize_ohlcv 的 re-export 供既有呼叫端使用。
 
 def run_chase_risk(ohlcv_norm: dict) -> dict:
     return calc_chase_risk(ohlcv_norm)
@@ -103,4 +161,6 @@ def run_capital_efficiency(holding: dict, ohlcv_norm: dict,
 
 def run_sector_leadership(sector_name: str,
                           stocks_ohlcv: dict) -> dict:
+    if not isinstance(stocks_ohlcv, dict):
+        stocks_ohlcv = {}
     return calc_sector_leadership(sector_name, stocks_ohlcv)

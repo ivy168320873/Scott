@@ -5,6 +5,10 @@ Decisions (in priority order): STOP_LOSS > SELL > ROTATE > TRIM > WATCH > NONE
 """
 from __future__ import annotations
 
+import math
+
+from ohlcv_utils import sanitize_ohlcv
+
 
 def _sma(lst: list, n: int) -> float:
     tail = [v for v in lst[-n:] if v and v > 0]
@@ -14,7 +18,7 @@ def _sma(lst: list, n: int) -> float:
 def calc_sell_decision(
     ohlcv: dict,
     cost: float,
-    holding_days: int = 0,
+    holding_days: int | None = 0,
     stop_pct: float = 8.0,
     trail_pct: float = 15.0,
     profit_target_pct: float = 20.0,
@@ -27,11 +31,25 @@ def calc_sell_decision(
     trail_pct:         trailing stop % from peak close
     profit_target_pct: partial-profit trigger % above cost
     """
+    # 清洗缺值，避免 None 讓比較拋 TypeError、NaN 讓決策靜默變成「繼續持有」
+    ohlcv = sanitize_ohlcv(ohlcv) or {}
+
+    # holding_days 可為 None（買進日期缺漏）；歸零使時間停損不觸發，
+    # 避免每個呼叫端各自防護時漏掉。
+    if holding_days is None:
+        holding_days = 0
+
     closes  = ohlcv.get("closes",  [])
     volumes = ohlcv.get("volumes", [])
     n = len(closes)
 
-    if n < 5 or cost <= 0:
+    # cost 可能為 None／NaN／字串（來自使用者輸入或外部資料），
+    # NaN <= 0 為 False 會讓後續計算全部變成 NaN 卻回報 ok=True。
+    try:
+        cost = float(cost)
+    except (TypeError, ValueError):
+        return _empty_result("資料不足或未提供成本")
+    if n < 5 or not math.isfinite(cost) or cost <= 0:
         return _empty_result("資料不足或未提供成本")
 
     current = closes[-1]

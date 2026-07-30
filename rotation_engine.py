@@ -113,7 +113,7 @@ def _chase_risk_score(closes: list) -> int:
 
 def calc_drag_score(
     ce_score: int,
-    holding_days: int,
+    holding_days: int | None,
     pnl_pct: float,
     benchmark_return: float | None,
     sector_trend: str | None,         # LEADING | IMPROVING | NEUTRAL | WEAKENING | LAGGING
@@ -123,9 +123,16 @@ def calc_drag_score(
     """
     Returns drag_score (0–100), drag_level, and drag_reasons.
     Higher drag_score → more capital drag → more urgency to rotate.
+
+    holding_days 可為 None（買進日期缺漏或無法解析）——`portfolio_engine`
+    刻意不假造天數。此處統一歸零，讓以天數為條件的扣分不觸發，
+    避免每個呼叫端各自防護時漏掉（曾因此在 daily_report_engine 拋 TypeError）。
     """
     score = 0
     reasons: list[str] = []
+
+    if holding_days is None:
+        holding_days = 0
 
     # Holding too long without benchmark beat
     if holding_days >= 7 and benchmark_return is not None:
@@ -415,7 +422,9 @@ def analyze_portfolio(
             ce = _pe.calc_capital_efficiency(holding, ohlcv, benchmark_return=bench_return)
             ce_score   = ce.get("score") or 50
             ce_level   = ce.get("level", "HOLD")
-            holding_days = ce.get("detail", {}).get("holding_days", 30)
+            # 可能為 None（買進日期缺漏或無法解析）；calc_drag_score 會自行歸零。
+            # 注意 .get(key, default) 在鍵存在但值為 None 時不會套用 default。
+            holding_days = ce.get("detail", {}).get("holding_days")
             sell_signal  = ce_level  # CE level == sell signal for drag purposes
 
             # Momentum + chase risk

@@ -92,6 +92,12 @@ def _normalize(rows: list[dict], source: str) -> dict | None:
     valid = [r for r in rows if r.get("close", 0) > 0]
     if not valid:
         return None
+    # 記錄「是否真的有成交量資料」。缺量被補成 0 之後，下游無法區分
+    # 「沒有量」與「量為 0」，會憑空產出「板塊量能萎縮」這種結論。
+    has_volume = any(
+        r.get("volume") is not None and float(r.get("volume") or 0) > 0
+        for r in valid
+    )
     return {
         "closes":     [float(r["close"])          for r in valid],
         "opens":      [float(r.get("open",  r["close"])) for r in valid],
@@ -99,6 +105,7 @@ def _normalize(rows: list[dict], source: str) -> dict | None:
         "lows":       [float(r.get("low",   r["close"])) for r in valid],
         "volumes":    [int(r.get("volume",  0))           for r in valid],
         "timestamps": [],
+        "has_volume": has_volume,
         "is_demo":    False,
         "source":     source,
     }

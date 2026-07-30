@@ -24,5 +24,8 @@ jobs:
       - name: Syntax check (whole repo)
         run: python -m compileall -q .
 
-      - name: Lint maintained code (cli_agent)
-        run: ruff check cli_agent
+      - name: Lint maintained code (cli_agent + tests + ohlcv_utils)
+        run: ruff check cli_agent tests ohlcv_utils.py
+
+      - name: Unit tests
+        run: pytest

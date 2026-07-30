@@ -58,10 +58,18 @@ SYMBOL_TO_SECTOR: dict[str, str] = {
 
 
 def get_sector(symbol: str) -> str | None:
-    """Return the sector name for a symbol, or None if unknown."""
+    """Return the sector name for a symbol, or None if unknown.
+
+    非字串輸入（symbol 解析失敗時可能傳入 None）回 None，不拋例外。
+    """
+    if not isinstance(symbol, str):
+        return None
     return SYMBOL_TO_SECTOR.get(symbol.upper().strip())
 
 
 def get_sector_symbols(sector: str) -> list[str]:
-    """Return the canonical peer list for a sector (empty list if unknown)."""
-    return SECTOR_SYMBOLS.get(sector, [])
+    """Return the canonical peer list for a sector (empty list if unknown).
+
+    回傳副本，避免呼叫端 append／sort 汙染模組級對照表。
+    """
+    return list(SECTOR_SYMBOLS.get(sector, []))
