@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.name }} · 車銷 CRM{% endblock %}
+{% block heading %}{{ customer.name }}{% endblock %}
+
+{% block content %}
+
+{# ── 基本資料 ── #}
+<div class="card">
+  <div class="row between" style="margin-bottom:10px">
+    <span class="tag tag-{{ customer.stage }}">{{ STAGE_LABELS[customer.stage] }}</span>
+    <a class="btn btn-sm" href="{{ url_for('customer_edit', customer_id=customer.id) }}">編輯</a>
+  </div>
+
+  {% if customer.phone %}
+  <div class="row" style="gap:8px;margin-bottom:10px">
+    <a class="btn btn-sm btn-primary" href="tel:{{ customer.phone }}">📞 撥打</a>
+    <a class="btn btn-sm" href="sms:{{ customer.phone }}">💬 簡訊</a>
+    <span class="small muted">{{ customer.phone }}</span>
+  </div>
+  {% endif %}
+
+  <div class="small muted">
+    {% if customer.want_model %}意向：{{ customer.want_model }}
+      {%- if customer.want_trim %} {{ customer.want_trim }}{% endif %}
+      {%- if customer.want_color %} · {{ customer.want_color }}{% endif %}<br>{% endif %}
+    {% if customer.budget_min or customer.budget_max %}
+      預算：{{ customer.budget_min | money }} ~ {{ customer.budget_max | money }}<br>{% endif %}
+    {% if customer.buy_timing %}時程：{{ customer.buy_timing }}{% endif %}
+    {% if customer.payment_type %} · {{ customer.payment_type }}{% endif %}
+    {% if customer.source %}<br>來源：{{ customer.source }}{% endif %}
+  </div>
+  {% if customer.note %}
+  <div class="small" style="margin-top:9px;padding-top:9px;border-top:1px solid var(--border)">
+    {{ customer.note }}
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('customer_stage', customer_id=customer.id) }}"
+        style="margin-top:12px">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <label for="stage-select">變更銷售階段</label>
+    <div class="row" style="gap:8px">
+      <select id="stage-select" name="stage" style="flex:1">
+        {% for key, label in STAGES %}
+        <option value="{{ key }}" {{ 'selected' if customer.stage == key }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-primary" type="submit">更新</button>
+    </div>
+  </form>
+</div>
+
+{# ── 跟進待辦 ── #}
+<div class="card">
+  <h2>跟進待辦</h2>
+  {% for f in follow_ups %}
+  <div class="item row between">
+    <div style="flex:1;min-width:0">
+      <div class="item-title" style="{{ 'text-decoration:line-through;color:var(--muted)' if f.done }}">
+        {{ f.content }}
+      </div>
+      <div class="item-sub" style="{{ 'color:var(--danger)' if (not f.done and f.due_date < today) }}">
+        {{ f.due_date }}{% if not f.done and f.due_date < today %} · 已逾期{% endif %}
+        {%- if f.done %} · 已完成{% endif %}
+      </div>
+    </div>
+    {% if not f.done %}
+    <form method="post" action="{{ url_for('follow_up_done', follow_up_id=f.id) }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ url_for('customer_detail', customer_id=customer.id) }}">
+      <button class="btn btn-sm btn-ok" type="submit">完成</button>
+    </form>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="empty">尚無待辦</div>
+  {% endfor %}
+
+  <form method="post" action="{{ url_for('follow_up_add', customer_id=customer.id) }}"
+        style="margin-top:10px">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <label for="fu-content">新增待辦</label>
+    <input id="fu-content" name="content" placeholder="例：回電確認交車時間" required>
+    <label for="fu-date">預定日期</label>
+    <input id="fu-date" name="due_date" type="date" value="{{ today }}">
+    <button class="btn btn-block" type="submit" style="margin-top:10px">新增待辦</button>
+  </form>
+</div>
+
+{# ── 試乘紀錄 ── #}
+<div class="card">
+  <h2>試乘紀錄（{{ test_drives|length }}）</h2>
+  {% for t in test_drives %}
+  <div class="item">
+    <div class="row between">
+      <div class="item-title">{{ t.model or '未填車型' }}</div>
+      <div class="small muted">{{ t.drive_date }}</div>
+    </div>
+    <div class="item-sub">
+      {% if t.rating %}滿意度 {{ '★' * t.rating }}{{ '☆' * (5 - t.rating) }}{% endif %}
+      {% if t.feedback %}<br>{{ t.feedback }}{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="empty">尚無試乘紀錄</div>
+  {% endfor %}
+
+  <form method="post" action="{{ url_for('test_drive_add', customer_id=customer.id) }}"
+        style="margin-top:10px">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <div class="grid2">
+      <div>
+        <label for="td-date">試乘日期</label>
+        <input id="td-date" name="drive_date" type="date" value="{{ today }}">
+      </div>
+      <div>
+        <label for="td-rating">滿意度 1-5</label>
+        <input id="td-rating" name="rating" type="number" inputmode="numeric" min="1" max="5">
+      </div>
+    </div>
+    <label for="td-model">試乘車型</label>
+    <input id="td-model" name="model" value="{{ customer.want_model or '' }}">
+    <label for="td-feedback">回饋</label>
+    <textarea id="td-feedback" name="feedback" placeholder="客戶對動力、空間、配備的反應…"></textarea>
+    <button class="btn btn-block" type="submit" style="margin-top:10px">新增試乘紀錄</button>
+  </form>
+</div>
+
+{# ── 報價版本 ── #}
+<div class="card">
+  <h2>報價版本（{{ quotes|length }}）</h2>
+  {% for q in quotes %}
+  <div class="item">
+    <div class="row between">
+      <div class="item-title">
+        v{{ q.version }} · {{ q.model or '未填車型' }}
+        {% if loop.first %}<span class="tag tag-QUOTED">最新</span>{% endif %}
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:700;color:var(--accent)">{{ q.final_price | money }}</div>
+      </div>
+    </div>
+    <div class="item-sub">
+      牌價 {{ q.list_price | money }} − 折讓 {{ q.discount | money }} + 配件 {{ q.accessories | money }}
+      <br>{{ q.created_at[:10] }}{% if q.note %} · {{ q.note }}{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="empty">尚無報價</div>
+  {% endfor %}
+
+  <form method="post" action="{{ url_for('quote_add', customer_id=customer.id) }}"
+        style="margin-top:10px">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <label for="q-model">報價車型</label>
+    <input id="q-model" name="model" value="{{ customer.want_model or '' }}">
+    <div class="grid2">
+      <div>
+        <label for="q-list">牌價</label>
+        <input id="q-list" name="list_price" type="number" inputmode="numeric" step="1000" min="0">
+      </div>
+      <div>
+        <label for="q-disc">折讓</label>
+        <input id="q-disc" name="discount" type="number" inputmode="numeric" step="1000" min="0">
+      </div>
+    </div>
+    <div class="grid2">
+      <div>
+        <label for="q-acc">配件加價</label>
+        <input id="q-acc" name="accessories" type="number" inputmode="numeric" step="1000" min="0">
+      </div>
+      <div>
+        <label for="q-final">成交價（留空自動計算）</label>
+        <input id="q-final" name="final_price" type="number" inputmode="numeric" step="1000" min="0">
+      </div>
+    </div>
+    <label for="q-note">備註</label>
+    <input id="q-note" name="note" placeholder="例：含首年保險，主管已核可">
+    <button class="btn btn-block" type="submit" style="margin-top:10px">建立新報價版本</button>
+  </form>
+</div>
+
+{# ── 舊車估價 ── #}
+<div class="card">
+  <h2>舊車估價（{{ trade_ins|length }}）</h2>
+  {% for t in trade_ins %}
+  <div class="item">
+    <div class="row between">
+      <div class="item-title">{{ t.brand }} {{ t.model }}</div>
+      <div style="font-weight:700;color:var(--purple)">{{ t.estimated | money }}</div>
+    </div>
+    <div class="item-sub">
+      {% if t.year %}{{ t.year }} 年{% endif %}
+      {%- if t.mileage %} · {{ '{:,}'.format(t.mileage) }} km{% endif %}
+      {%- if t.condition %} · 車況 {{ t.condition }}{% endif %}
+      {% if t.note %}<br>{{ t.note }}{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="empty">尚無舊車估價</div>
+  {% endfor %}
+
+  <form method="post" action="{{ url_for('trade_in_add', customer_id=customer.id) }}"
+        style="margin-top:10px">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <div class="grid2">
+      <div>
+        <label for="ti-brand">品牌</label>
+        <input id="ti-brand" name="brand" placeholder="例：Toyota">
+      </div>
+      <div>
+        <label for="ti-model">車型</label>
+        <input id="ti-model" name="model" placeholder="例：Altis">
+      </div>
+    </div>
+    <div class="grid2">
+      <div>
+        <label for="ti-year">出廠年份</label>
+        <input id="ti-year" name="year" type="number" inputmode="numeric" min="1980" max="2100">
+      </div>
+      <div>
+        <label for="ti-mileage">里程 (km)</label>
+        <input id="ti-mileage" name="mileage" type="number" inputmode="numeric" min="0">
+      </div>
+    </div>
+    <div class="grid2">
+      <div>
+        <label for="ti-cond">車況</label>
+        <select id="ti-cond" name="condition">
+          {% for c in ['', '優', '良', '普通', '待整理'] %}
+          <option value="{{ c }}">{{ c or '未評估' }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="ti-est">估價金額</label>
+        <input id="ti-est" name="estimated" type="number" inputmode="numeric" step="1000" min="0">
+      </div>
+    </div>
+    <label for="ti-note">備註</label>
+    <input id="ti-note" name="note" placeholder="例：有鈑金紀錄，需再確認">
+    <button class="btn btn-block" type="submit" style="margin-top:10px">新增估價紀錄</button>
+  </form>
+</div>
+
+{% endblock %}

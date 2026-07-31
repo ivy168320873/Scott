@@ -1,0 +1,24 @@
+{
+  "name": "車銷 CRM · 汽車業務客戶追蹤",
+  "short_name": "車銷 CRM",
+  "description": "汽車業務的客戶追蹤、試乘、報價與舊車估價管理",
+  "lang": "zh-TW",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "今日跟進", "url": "/" },
+    { "name": "新增客戶", "url": "/customers/new" }
+  ]
+}

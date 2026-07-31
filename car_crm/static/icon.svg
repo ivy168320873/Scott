@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#0d1117"/>
+  <g transform="translate(256 268)">
+    <!-- 車身 -->
+    <path d="M-150 30 L-132 -34 Q-126 -56 -102 -56 L102 -56 Q126 -56 132 -34 L150 30 Z"
+          fill="#58a6ff"/>
+    <rect x="-158" y="30" width="316" height="46" rx="20" fill="#58a6ff"/>
+    <!-- 車窗 -->
+    <path d="M-108 22 L-95 -30 Q-92 -42 -78 -42 L-8 -42 L-8 22 Z" fill="#0d1117" opacity=".72"/>
+    <path d="M8 22 L8 -42 L78 -42 Q92 -42 95 -30 L108 22 Z" fill="#0d1117" opacity=".72"/>
+    <!-- 車輪 -->
+    <circle cx="-92" cy="78" r="30" fill="#e6edf3"/>
+    <circle cx="-92" cy="78" r="13" fill="#0d1117"/>
+    <circle cx="92" cy="78" r="30" fill="#e6edf3"/>
+    <circle cx="92" cy="78" r="13" fill="#0d1117"/>
+  </g>
+  <!-- 成長箭頭：代表業績追蹤 -->
+  <path d="M330 150 L392 150 L392 212" stroke="#3fb950" stroke-width="22"
+        fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M300 200 L340 160 L368 188 L392 150" stroke="#3fb950" stroke-width="22"
+        fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}找不到資料 · 車銷 CRM{% endblock %}
+{% block heading %}找不到資料{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="empty" style="padding:28px 0">
+    <div style="font-size:2.4rem;margin-bottom:10px">🔍</div>
+    找不到這筆資料，可能已被移除。
+  </div>
+  <a class="btn btn-primary btn-block" href="{{ url_for('index') }}">回到今日</a>
+</div>
+{% endblock %}

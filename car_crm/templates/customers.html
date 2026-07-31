@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}客戶 · 車銷 CRM{% endblock %}
+{% block heading %}客戶（{{ customers|length }}）{% endblock %}
+
+{% block content %}
+<form method="get" action="{{ url_for('customers') }}" class="card" style="padding:12px">
+  <input type="search" name="q" value="{{ keyword }}" placeholder="搜尋姓名 / 電話 / 車型"
+         inputmode="search" enterkeyhint="search">
+  {% if active_stage %}<input type="hidden" name="stage" value="{{ active_stage }}">{% endif %}
+</form>
+
+<div style="display:flex;gap:7px;overflow-x:auto;padding-bottom:10px;margin-bottom:4px;
+            -webkit-overflow-scrolling:touch">
+  <a class="btn btn-sm {{ 'btn-primary' if not active_stage }}"
+     href="{{ url_for('customers', q=keyword) }}">全部</a>
+  {% for key, label in STAGES %}
+  <a class="btn btn-sm {{ 'btn-primary' if active_stage == key }}"
+     href="{{ url_for('customers', stage=key, q=keyword) }}">{{ label }}</a>
+  {% endfor %}
+</div>
+
+<div class="card">
+  {% for c in customers %}
+  <a class="item" href="{{ url_for('customer_detail', customer_id=c.id) }}">
+    <div class="row between">
+      <div style="flex:1;min-width:0">
+        <div class="item-title">
+          {{ c.name }}
+          <span class="tag tag-{{ c.stage }}">{{ STAGE_LABELS[c.stage] }}</span>
+        </div>
+        <div class="item-sub">
+          {{ c.want_model or '未填車型' }}
+          {%- if c.budget_max %} · 預算 {{ c.budget_max | money }}{% endif %}
+          {%- if c.buy_timing %} · {{ c.buy_timing }}{% endif %}
+        </div>
+        {% if c.phone %}<div class="item-sub">{{ c.phone }}</div>{% endif %}
+      </div>
+      <span class="muted">›</span>
+    </div>
+  </a>
+  {% else %}
+  <div class="empty">
+    {% if keyword or active_stage %}沒有符合條件的客戶{% else %}還沒有客戶，點下方「新增」建立第一筆{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

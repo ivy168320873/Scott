@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}操作未完成 · 車銷 CRM{% endblock %}
+{% block heading %}操作未完成{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="empty" style="padding:24px 0">
+    <div style="font-size:2.2rem;margin-bottom:10px">🔒</div>
+    {{ reason or '這個操作無法完成' }}
+  </div>
+  <a class="btn btn-primary btn-block" href="{{ url_for('index') }}">回到今日</a>
+</div>
+{% endblock %}

@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}今日 · 車銷 CRM{% endblock %}
+{% block heading %}今日 {{ d.today }}{% endblock %}
+
+{% block content %}
+
+{# ── 逾期：最優先，用紅色突顯 ── #}
+{% if d.overdue %}
+<div class="card" style="border-color:#5c2a2e">
+  <h2 style="color:var(--danger)">⚠ 逾期未跟進（{{ d.overdue|length }}）</h2>
+  {% for f in d.overdue %}
+  <div class="item">
+    <div class="row between">
+      <div style="flex:1;min-width:0">
+        <a class="item-title" href="{{ url_for('customer_detail', customer_id=f.customer_id) }}">
+          {{ f.customer_name }}
+        </a>
+        <span class="tag tag-{{ f.customer_stage }}">{{ STAGE_LABELS[f.customer_stage] }}</span>
+        <div class="item-sub">{{ f.content }}</div>
+        <div class="item-sub" style="color:var(--danger)">應於 {{ f.due_date }} 聯繫</div>
+      </div>
+      <form method="post" action="{{ url_for('follow_up_done', follow_up_id=f.id) }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ url_for('index') }}">
+        <button class="btn btn-sm btn-ok" type="submit">完成</button>
+      </form>
+    </div>
+    {% if f.customer_phone %}
+    <a class="btn btn-sm" style="margin-top:8px" href="tel:{{ f.customer_phone }}">📞 撥打 {{ f.customer_phone }}</a>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── 今天該聯絡誰 ── #}
+<div class="card">
+  <h2>今天該聯絡誰（{{ d.due_today|length }}）</h2>
+  {% for f in d.due_today %}
+  <div class="item">
+    <div class="row between">
+      <div style="flex:1;min-width:0">
+        <a class="item-title" href="{{ url_for('customer_detail', customer_id=f.customer_id) }}">
+          {{ f.customer_name }}
+        </a>
+        <span class="tag tag-{{ f.customer_stage }}">{{ STAGE_LABELS[f.customer_stage] }}</span>
+        <div class="item-sub">{{ f.content }}</div>
+      </div>
+      <form method="post" action="{{ url_for('follow_up_done', follow_up_id=f.id) }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ url_for('index') }}">
+        <button class="btn btn-sm btn-ok" type="submit">完成</button>
+      </form>
+    </div>
+    {% if f.customer_phone %}
+    <a class="btn btn-sm" style="margin-top:8px" href="tel:{{ f.customer_phone }}">📞 撥打 {{ f.customer_phone }}</a>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="empty">今天沒有排定的跟進 👍</div>
+  {% endfor %}
+</div>
+
+{# ── 熱門客戶 ── #}
+<div class="card">
+  <h2>熱門客戶</h2>
+  {% for h in d.hot %}
+  <a class="item row between" href="{{ url_for('customer_detail', customer_id=h.customer.id) }}">
+    <div style="flex:1;min-width:0">
+      <div class="item-title">
+        {{ h.customer.name }}
+        <span class="tag tag-{{ h.customer.stage }}">{{ STAGE_LABELS[h.customer.stage] }}</span>
+      </div>
+      <div class="item-sub">
+        {{ h.customer.want_model or '未填車型' }}
+        {%- if h.customer.buy_timing %} · {{ h.customer.buy_timing }}{% endif %}
+        {%- if h.drive_count %} · 試乘 {{ h.drive_count }} 次{% endif %}
+        {%- if h.quote_count %} · 報價 {{ h.quote_count }} 版{% endif %}
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div class="big" style="font-size:1.15rem;color:var(--accent)">{{ h.score }}</div>
+      <div class="small muted">優先度</div>
+    </div>
+  </a>
+  {% else %}
+  <div class="empty">尚無進行中的客戶</div>
+  {% endfor %}
+  <div class="small muted" style="margin-top:8px">
+    優先度＝階段＋購車時程＋試乘／報價次數的排序依據，非成交機率預測。
+  </div>
+</div>
+
+{# ── 成交進度 ── #}
+<div class="card">
+  <h2>成交進度</h2>
+  <div class="row between" style="margin-bottom:12px">
+    <div>
+      <div class="big">{{ d.total_customers }}</div>
+      <div class="small muted">總客戶</div>
+    </div>
+    <div style="text-align:center">
+      <div class="big" style="color:var(--ok)">{{ d.won_count }}</div>
+      <div class="small muted">已成交</div>
+    </div>
+    <div style="text-align:right">
+      <div class="big" style="color:{{ 'var(--ok)' if d.win_rate is not none else 'var(--muted)' }}">
+        {% if d.win_rate is not none %}{{ d.win_rate }}%{% else %}—{% endif %}
+      </div>
+      <div class="small muted">成交率</div>
+    </div>
+  </div>
+
+  {% set maxn = (d.funnel | map(attribute='count') | max) or 1 %}
+  {% for f in d.funnel %}
+  <div class="funnel-row">
+    <div class="funnel-label">{{ STAGE_LABELS[f.key] }}</div>
+    <div class="funnel-bar">
+      <div class="funnel-fill tag-{{ f.key }}" style="width:{{ (f.count / maxn * 100) | round(1) }}%"></div>
+    </div>
+    <div class="funnel-n">{{ f.count }}</div>
+  </div>
+  {% endfor %}
+  {% if d.win_rate is none %}
+  <div class="small muted" style="margin-top:8px">尚無結案客戶，成交率待累積資料後顯示。</div>
+  {% else %}
+  <div class="small muted" style="margin-top:8px">
+    成交率分母僅計已結案（成交 {{ d.won_count }} ＋ 戰敗 {{ d.lost_count }}），不含進行中。
+  </div>
+  {% endif %}
+</div>
+
+{# ── 即將到期 ── #}
+{% if d.upcoming %}
+<div class="card">
+  <h2>接下來的跟進</h2>
+  {% for f in d.upcoming %}
+  <a class="item row between" href="{{ url_for('customer_detail', customer_id=f.customer_id) }}">
+    <div style="flex:1;min-width:0">
+      <div class="item-title">{{ f.customer_name }}</div>
+      <div class="item-sub">{{ f.content }}</div>
+    </div>
+    <div class="small muted">{{ f.due_date }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}

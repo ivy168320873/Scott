@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}{{ '編輯客戶' if customer else '新增客戶' }} · 車銷 CRM{% endblock %}
+{% block heading %}{{ '編輯客戶' if customer else '新增客戶' }}{% endblock %}
+
+{% block content %}
+<form method="post" novalidate>
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <div class="card">
+    <h2>基本資料</h2>
+    <label for="name">姓名 <span style="color:var(--danger)">*</span></label>
+    <input id="name" name="name" value="{{ form.name or '' }}" required
+           autocomplete="name" enterkeyhint="next">
+
+    <label for="phone">手機</label>
+    <input id="phone" name="phone" value="{{ form.phone or '' }}"
+           type="tel" inputmode="tel" autocomplete="tel">
+
+    <label for="email">Email</label>
+    <input id="email" name="email" value="{{ form.email or '' }}"
+           type="email" inputmode="email" autocomplete="email">
+
+    <label for="source">來源</label>
+    <select id="source" name="source">
+      {% set sources = ['', '來店', '網路詢問', '朋友介紹', '車展', '電話進線', '舊客回購'] %}
+      {% for s in sources %}
+      <option value="{{ s }}" {{ 'selected' if (form.source or '') == s }}>{{ s or '未指定' }}</option>
+      {% endfor %}
+    </select>
+
+    {% if customer %}
+    <label for="stage">銷售階段</label>
+    <select id="stage" name="stage">
+      {% for key, label in STAGES %}
+      <option value="{{ key }}" {{ 'selected' if form.stage == key }}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>購車需求</h2>
+    <label for="want_model">意向車型</label>
+    <input id="want_model" name="want_model" value="{{ form.want_model or '' }}"
+           placeholder="例：Altis / RAV4">
+
+    <div class="grid2">
+      <div>
+        <label for="want_trim">車款等級</label>
+        <input id="want_trim" name="want_trim" value="{{ form.want_trim or '' }}">
+      </div>
+      <div>
+        <label for="want_color">希望顏色</label>
+        <input id="want_color" name="want_color" value="{{ form.want_color or '' }}">
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <label for="budget_min">預算下限</label>
+        <input id="budget_min" name="budget_min" value="{{ form.budget_min or '' }}"
+               type="number" inputmode="numeric" step="1000" min="0">
+      </div>
+      <div>
+        <label for="budget_max">預算上限</label>
+        <input id="budget_max" name="budget_max" value="{{ form.budget_max or '' }}"
+               type="number" inputmode="numeric" step="1000" min="0">
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <label for="buy_timing">購車時程</label>
+        <select id="buy_timing" name="buy_timing">
+          {% set timings = ['', '一個月內', '三個月內', '半年內', '觀望'] %}
+          {% for t in timings %}
+          <option value="{{ t }}" {{ 'selected' if (form.buy_timing or '') == t }}>{{ t or '未指定' }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="payment_type">付款方式</label>
+        <select id="payment_type" name="payment_type">
+          {% set pays = ['', '現金', '貸款', '租賃'] %}
+          {% for p in pays %}
+          <option value="{{ p }}" {{ 'selected' if (form.payment_type or '') == p }}>{{ p or '未指定' }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label for="note">備註</label>
+    <textarea id="note" name="note" placeholder="客戶偏好、家庭狀況、決策者…">{{ form.note or '' }}</textarea>
+  </div>
+
+  <button class="btn btn-primary btn-block" type="submit">
+    {{ '儲存變更' if customer else '建立客戶' }}
+  </button>
+</form>
+{% endblock %}
