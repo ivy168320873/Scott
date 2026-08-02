@@ -6,7 +6,9 @@ Public API
 ----------
 init_db(db_path)                     -> None
 record_signal(payload)               -> dict
+record_signal_once(payload)          -> dict
 update_outcomes(updates)             -> dict
+update_symbol_outcomes(symbol, ohlcv, benchmark_ohlcv=None) -> dict
 get_confidence_stats(signal_type)    -> list[dict] | dict
 get_signal_history(limit)            -> list[dict]
 get_calibration_override(decision)   -> dict  (used by top_tier_decision_engine)
@@ -17,10 +19,10 @@ import math
 import os
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 _DB_PATH = os.environ.get("USER_DATA_DB", "./user_data.db")
-_LOCK    = threading.Lock()
+_LOCK    = threading.RLock()
 
 SIGNAL_TYPES = [
     "STRONG_BUY", "BUY", "WATCH", "HOLD",
@@ -151,6 +153,51 @@ def record_signal(payload: dict) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def record_signal_once(payload: dict) -> dict:
+    """Record at most one identical symbol/date/decision signal per day."""
+    sym = str(payload.get("symbol") or "").upper().strip()
+    decision = str(payload.get("decision") or "").upper().strip()
+    signal_date = str(
+        payload.get("signal_date") or datetime.now(timezone.utc).date().isoformat()
+    )
+    if not sym:
+        return {"ok": False, "error": "symbol is required"}
+    if not decision:
+        return {"ok": False, "error": "decision is required"}
+
+    try:
+        with _LOCK:
+            with sqlite3.connect(_DB_PATH) as conn:
+                row = conn.execute(
+                    """SELECT id FROM signal_history
+                       WHERE symbol=? AND signal_date=? AND decision=?
+                       ORDER BY id DESC LIMIT 1""",
+                    (sym, signal_date, decision),
+                ).fetchone()
+            if row:
+                return {
+                    "ok": True,
+                    "id": row[0],
+                    "symbol": sym,
+                    "decision": decision,
+                    "recorded": False,
+                    "duplicate": True,
+                }
+
+            enriched = dict(payload)
+            enriched.update({
+                "symbol": sym,
+                "decision": decision,
+                "signal_date": signal_date,
+            })
+            result = record_signal(enriched)
+            if result.get("ok"):
+                result.update({"recorded": True, "duplicate": False})
+            return result
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 # ── Update outcomes ───────────────────────────────────────────────────────────
 
 def update_outcomes(updates) -> dict:
@@ -251,6 +298,73 @@ def update_outcomes(updates) -> dict:
     return {"ok": True, "updated": updated, "errors": errors}
 
 
+def update_symbol_outcomes(
+    symbol: str,
+    ohlcv: dict,
+    benchmark_ohlcv: dict | None = None,
+) -> dict:
+    """Backfill pending 1/3/5 trading-day outcomes from normalized OHLCV.
+
+    This is intentionally triggered when a symbol is analysed again.  It keeps
+    calibration current without adding a background job or external scheduler.
+    Demo data is never allowed to train the history.
+    """
+    sym = str(symbol or "").upper().strip()
+    if not sym:
+        return {"ok": False, "error": "symbol is required", "updated": 0}
+    if not isinstance(ohlcv, dict) or ohlcv.get("is_demo"):
+        return {"ok": True, "updated": 0, "skipped": "demo_or_missing_data"}
+
+    bars = _dated_closes(ohlcv)
+    if len(bars) < 2:
+        return {"ok": True, "updated": 0, "skipped": "insufficient_bars"}
+    benchmark_bars = _dated_closes(benchmark_ohlcv or {})
+
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            pending = [dict(row) for row in conn.execute(
+                """SELECT id, signal_date, entry_price
+                   FROM signal_history
+                   WHERE symbol=? AND is_demo=0 AND return_5d IS NULL
+                   ORDER BY signal_date ASC""",
+                (sym,),
+            ).fetchall()]
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "updated": 0}
+
+    updates: list[dict] = []
+    for row in pending:
+        signal_day = _parse_day(row.get("signal_date"))
+        if signal_day is None:
+            continue
+        anchor = _anchor_index(bars, signal_day)
+        if anchor is None or anchor + 1 >= len(bars):
+            continue
+
+        entry = _positive_float(row.get("entry_price")) or bars[anchor][1]
+        update: dict = {"id": row["id"]}
+        for horizon in (1, 3, 5):
+            idx = anchor + horizon
+            if idx < len(bars):
+                update[f"price_{horizon}d"] = bars[idx][1]
+                benchmark_return = _forward_return(benchmark_bars, signal_day, horizon)
+                if benchmark_return is not None:
+                    update[f"benchmark_return_{horizon}d"] = benchmark_return
+
+        forward = [price for _, price in bars[anchor + 1:min(len(bars), anchor + 6)]]
+        if forward and entry > 0:
+            update["max_favorable_excursion"] = round((max(forward) - entry) / entry * 100, 4)
+            update["max_adverse_excursion"] = round((min(forward) - entry) / entry * 100, 4)
+        updates.append(update)
+
+    if not updates:
+        return {"ok": True, "updated": 0, "pending": len(pending), "errors": []}
+    result = update_outcomes(updates)
+    result["pending"] = len(pending)
+    return result
+
+
 # ── Confidence statistics ─────────────────────────────────────────────────────
 
 def get_confidence_stats(signal_type: str | None = None):
@@ -265,7 +379,7 @@ def get_confidence_stats(signal_type: str | None = None):
             if signal_type:
                 stype = signal_type.upper()
                 rows = [dict(r) for r in conn.execute(
-                    "SELECT * FROM signal_history WHERE decision=? ORDER BY signal_date DESC",
+                    "SELECT * FROM signal_history WHERE decision=? AND is_demo=0 ORDER BY signal_date DESC",
                     (stype,),
                 ).fetchall()]
                 return _compute_stats(stype, rows)
@@ -273,7 +387,7 @@ def get_confidence_stats(signal_type: str | None = None):
                 result = []
                 for stype in SIGNAL_TYPES:
                     rows = [dict(r) for r in conn.execute(
-                        "SELECT * FROM signal_history WHERE decision=? ORDER BY signal_date DESC",
+                        "SELECT * FROM signal_history WHERE decision=? AND is_demo=0 ORDER BY signal_date DESC",
                         (stype,),
                     ).fetchall()]
                     result.append(_compute_stats(stype, rows))
@@ -364,6 +478,15 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
         "notes":            notes,
         "kill_weight_up":   kill_weight_up,
         "chase_weight_up":  chase_weight_up,
+        "sample_size":      sample,
+        "evaluated_size":   stats.get("evaluated_size", 0),
+        "win_rate_1d":      stats.get("win_rate_1d"),
+        "win_rate_3d":      stats.get("win_rate_3d"),
+        "win_rate_5d":      stats.get("win_rate_5d"),
+        "avg_return_5d":    stats.get("avg_return_5d"),
+        "avg_relative_return_5d": stats.get("avg_relative_return_5d"),
+        "false_signal_rate": stats.get("false_signal_rate"),
+        "stop_loss_rate":   stats.get("stop_loss_rate"),
     }
 
 
@@ -614,4 +737,71 @@ def _no_override() -> dict:
         "notes":            [],
         "kill_weight_up":   False,
         "chase_weight_up":  False,
+        "sample_size":      0,
+        "evaluated_size":   0,
+        "win_rate_1d":      None,
+        "win_rate_3d":      None,
+        "win_rate_5d":      None,
+        "avg_return_5d":    None,
+        "avg_relative_return_5d": None,
+        "false_signal_rate": 0.0,
+        "stop_loss_rate":   0.0,
     }
+
+
+def _dated_closes(ohlcv: dict) -> list[tuple[date, float]]:
+    timestamps = ohlcv.get("timestamps") or []
+    closes = ohlcv.get("closes") or []
+    by_day: dict[date, float] = {}
+    for raw_ts, raw_close in zip(timestamps, closes):
+        close = _positive_float(raw_close)
+        day = _timestamp_day(raw_ts)
+        if day is not None and close is not None:
+            by_day[day] = close
+    return sorted(by_day.items(), key=lambda item: item[0])
+
+
+def _timestamp_day(value) -> date | None:
+    try:
+        if isinstance(value, (int, float)) or str(value).strip().replace(".", "", 1).isdigit():
+            timestamp = float(value)
+            if timestamp <= 0:
+                return None
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc).date()
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _parse_day(value) -> date | None:
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _anchor_index(bars: list[tuple[date, float]], signal_day: date) -> int | None:
+    anchor = None
+    for index, (bar_day, _) in enumerate(bars):
+        if bar_day <= signal_day:
+            anchor = index
+        else:
+            break
+    return anchor
+
+
+def _forward_return(bars: list[tuple[date, float]], signal_day: date, horizon: int) -> float | None:
+    anchor = _anchor_index(bars, signal_day)
+    if anchor is None or anchor + horizon >= len(bars):
+        return None
+    return _pct_change(bars[anchor][1], bars[anchor + horizon][1])
+
+
+def _positive_float(value) -> float | None:
+    try:
+        result = float(value)
+        if result > 0 and math.isfinite(result):
+            return result
+    except (TypeError, ValueError):
+        pass
+    return None

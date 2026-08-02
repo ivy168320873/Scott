@@ -30,6 +30,7 @@ from datetime import datetime, timezone, timedelta
 import market_regime_engine   as _mre
 import data_quality_engine    as _dqe
 import position_sizing_engine as _pse
+import decision_confidence_engine as _dce
 from risk_engine   import calc_chase_risk
 from sell_engine   import calc_sell_decision
 from sector_engine import calc_sector_leadership
@@ -229,6 +230,11 @@ def run_top_tier_decision(
                 if cur_idx != -1 and cap_idx != -1 and cur_idx < cap_idx:
                     decision = cal_max
                     risk_controls.append(f"訊號信心校準：{calibration['notes'][-1] if calibration.get('notes') else f'降級為 {cal_max}'}")
+                    calibration = _sce.get_calibration_override(decision, regime)
+                    if decision == "BUY" and level == "A+":
+                        level, dcolor = "A", "#3fb950"
+                    elif decision == "WATCH" and level in ("A+", "A"):
+                        level, dcolor = "B", "#e3b341"
         except Exception:
             pass
 
@@ -256,6 +262,22 @@ def run_top_tier_decision(
         mr, dq, cr, sd, sl, chase_score, top_tier_score, decision, level
     )
 
+    # Explainable reliability layer.  This score describes evidence quality,
+    # not expected return or probability of profit.
+    confidence_card = _dce.build_confidence_card(
+        symbol=symbol,
+        decision=decision,
+        composite_score=top_tier_score,
+        data_quality=dq,
+        market_regime=mr,
+        chase_risk=cr,
+        position_sizing=pos_result,
+        signal_calibration=calibration,
+        kill_signal=kill,
+        blockers=must_not_buy,
+        risk_controls=risk_controls,
+    )
+
     return {
         "ok":              True,
         # ── New comprehensive fields ──────────────────────────────────────
@@ -278,6 +300,7 @@ def run_top_tier_decision(
         "score_breakdown":     score_breakdown,
         "next_check_time":     next_check,
         "disclaimer":          _DISCLAIMER,
+        "confidence_card":     confidence_card,
         # ── Backward-compat UI fields (used by _renderTTD in index.html) ──
         "action_level":    _level_to_action(level, decision),
         "action_label":    _decision_label(decision),
