@@ -5391,6 +5391,201 @@ def api_portfolio_optimize_latest():
     return jsonify({"ok": True, "cached_seconds_ago": age, **_optimizer_cache["result"]})
 
 
+# ── 一鍵選股報告 (/scan) ──────────────────────────────────────────────────────
+_scan_cache: dict = {"html": None, "ts": 0}
+_SCAN_TTL = 3600  # 快取 1 小時（掃描較重）
+
+
+def _scan_fetch_many(syms):
+    """平行抓多檔 OHLCV，回傳 {sym: ohlcv}（跳過失敗）。"""
+    out = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(_get_ohlcv_norm, s): s for s in syms}
+        for f in as_completed(futs):
+            try:
+                o = f.result()
+                if o and o.get("closes"):
+                    out[futs[f]] = o
+            except Exception:
+                pass
+    return out
+
+
+def _scan_chase_risk(o):
+    """伺服器端追高風險（與前端動能爆發同邏輯的日線版）：回傳 (分數, 等級)。"""
+    closes = o.get("closes", [])
+    if len(closes) < 5:
+        return 0, "低"
+    prev = closes[-2] or closes[-1]
+    chg = (closes[-1] / prev - 1) * 100 if prev else 0
+    win = closes[-60:]
+    hi = max(win) if win else closes[-1]
+    pctFH = (closes[-1] / hi - 1) * 100 if hi else -50
+    try:
+        rsi_list = _bt._rsi(closes)
+        rsi = next((v for v in reversed(rsi_list) if v is not None), 50)
+    except Exception:
+        rsi = 50
+    vols = o.get("volumes", [])
+    vr = 1.0
+    if len(vols) >= 21:
+        avg = sum(vols[-21:-1]) / 20
+        vr = vols[-1] / avg if avg else 1.0
+    risk = 0
+    if chg > 9: risk += 45
+    elif chg > 7: risk += 35
+    elif chg > 4: risk += 18
+    elif chg > 2: risk += 7
+    if pctFH >= -3: risk += 25
+    elif pctFH >= -8: risk += 12
+    if rsi > 80: risk += 18
+    elif rsi > 72: risk += 9
+    if vr > 4: risk += 12
+    elif vr > 2.5: risk += 6
+    risk = min(round(risk), 100)
+    level = "高" if risk >= 60 else "中" if risk >= 35 else "低"
+    return risk, level
+
+
+@app.route("/scan")
+def scan_report():
+    """一鍵選股報告：大盤 → 產業輪動 → 強勢產業選股（7模組）→ 追高風險。"""
+    now = _time.time()
+    if _scan_cache["html"] and now - _scan_cache["ts"] < _SCAN_TTL:
+        return Response(_scan_cache["html"], mimetype="text/html")
+
+    # universe：每個產業取前 5 檔 + 大盤基準
+    universe = []
+    for syms in _smap.SECTOR_SYMBOLS.values():
+        universe += syms[:5]
+    universe = list(dict.fromkeys(universe + ["QQQ", "SPY"]))
+    data = _scan_fetch_many(universe)
+    bench = data.get("QQQ") or data.get("SPY")
+
+    try:
+        ms = _dp.market_state()
+        market_txt = f"{ms.get('overall', '?')}（{ms.get('regime', '?')}）"
+        demo_seen = bool(ms.get("is_demo"))
+    except Exception:
+        market_txt, demo_seen = "未知", False
+
+    # 產業輪動排名
+    sector_rank = []
+    for sector, syms in _smap.SECTOR_SYMBOLS.items():
+        stocks = {s: data[s] for s in syms[:5] if s in data}
+        if not stocks:
+            continue
+        try:
+            r = _de.run_sector_leadership(sector, stocks)
+            sector_rank.append((sector, r.get("score", 0), r.get("level_label", "")))
+        except Exception:
+            pass
+    sector_rank.sort(key=lambda x: -x[1])
+    strong = [s for s in sector_rank if s[1] >= 60][:5]
+    weak = [s for s in sector_rank if s[1] <= 40][-3:]
+    top_sectors = strong or sector_rank[:3]
+
+    # 選股：強勢產業成分股跑 7 模組決策
+    picks, seen = [], set()
+    for sector, _sc, _lv in top_sectors:
+        for s in _smap.get_sector_symbols(sector)[:5]:
+            if s in seen or s not in data:
+                continue
+            seen.add(s)
+            if not _HAS_FDE:
+                break
+            try:
+                r = _fde.compute(data[s], bench_ohlcv=bench, risk_profile="balanced")
+            except Exception:
+                continue
+            demo_seen = demo_seen or bool(r.get("is_demo"))
+            if r.get("action_code") == "BUY" or r.get("grade") in ("A+", "A", "B"):
+                risk, level = _scan_chase_risk(data[s])
+                picks.append({
+                    "symbol": s, "sector": sector,
+                    "score": round(r.get("total_score", 0), 1),
+                    "grade": r.get("grade", "?"),
+                    "action": r.get("action_label", r.get("action_code", "")),
+                    "stop": r.get("stop_loss"),
+                    "risk": risk, "level": level,
+                })
+    picks.sort(key=lambda p: -(p["score"] or 0))
+    picks = picks[:12]
+
+    date_str = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
+    demo_note = "（示範資料）" if demo_seen else ""
+
+    css = """
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0f1419;color:#e6edf3;
+ font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:14px}
+a.back{color:#8b98a5;font-size:.8rem;text-decoration:none}
+h1{font-size:1.15rem;margin:6px 0 2px}.sub{font-size:.75rem;color:#8b98a5;margin-bottom:12px}
+.sec{background:#1a212b;border-radius:12px;padding:12px 14px;margin-bottom:12px}
+.sec h2{font-size:.85rem;margin:0 0 8px;color:#58a6ff}
+.row{font-size:.8rem;padding:5px 0;border-bottom:1px solid #232a35;line-height:1.5}
+.row:last-child{border-bottom:none}
+.tag{font-size:.62rem;padding:1px 7px;border-radius:4px;margin-left:5px}
+.strong{color:#3fb950}.weak{color:#f85149}.muted{color:#8b98a5}
+.rl-高{color:#f85149;font-weight:700}.rl-中{color:#e3b341;font-weight:700}.rl-低{color:#3fb950;font-weight:700}
+.card{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:.78rem;min-width:520px}
+th{background:#232a35;color:#fff;padding:7px 9px;text-align:right;white-space:nowrap;position:sticky;top:0}
+th:nth-child(-n+2),td:nth-child(-n+2){text-align:left}
+td{padding:7px 9px;border-bottom:1px solid #232a35;white-space:nowrap}
+.disc{font-size:.66rem;color:#8b98a5;margin-top:10px;line-height:1.6}
+</style>
+"""
+    parts = [
+        css, '<div class="wrap">',
+        '<a class="back" href="/">← 返回首頁</a>',
+        f"<h1>🎯 一鍵選股報告{demo_note}</h1>",
+        f'<div class="sub">大盤研判：{market_txt}　｜　更新：{date_str}（快取1小時）</div>',
+    ]
+
+    # 產業輪動
+    parts.append('<div class="sec"><h2>🔄 產業輪動</h2>')
+    if strong:
+        parts.append('<div class="row"><span class="strong">🔥 資金流入：</span>'
+                     + "、".join(f"{s}({sc:.0f})" for s, sc, _ in strong) + "</div>")
+    if weak:
+        parts.append('<div class="row"><span class="weak">❄️ 轉弱避開：</span>'
+                     + "、".join(f"{s}({sc:.0f})" for s, sc, _ in weak) + "</div>")
+    if not strong and not weak:
+        parts.append('<div class="row muted">目前產業強弱不明顯</div>')
+    parts.append("</div>")
+
+    # 選股清單
+    parts.append('<div class="sec"><h2>✅ 強勢產業選股（7模組決策）</h2>')
+    if picks:
+        parts.append('<div class="card"><table><thead><tr>'
+                     '<th>代號</th><th>產業</th><th>評級</th><th>分數</th>'
+                     '<th>行動</th><th>停損</th><th>追高風險</th></tr></thead><tbody>')
+        for p in picks:
+            stop = f"{p['stop']:.2f}" if isinstance(p["stop"], (int, float)) else "—"
+            parts.append(
+                f"<tr><td><b>{p['symbol']}</b></td><td class='muted'>{p['sector']}</td>"
+                f"<td>{p['grade']}</td><td>{p['score']}</td><td>{p['action']}</td>"
+                f"<td>{stop}</td><td class='rl-{p['level']}'>{p['level']}</td></tr>"
+            )
+        parts.append("</tbody></table></div>")
+    else:
+        parts.append('<div class="row muted">目前強勢產業中無符合條件（BUY／A~B級）的標的——寧可空手等更好的機會</div>')
+    parts.append("</div>")
+
+    parts.append('<div class="disc">⚠️ 本報告為機械式量化彙整（大盤研判 + 產業領導力 + 7模組決策 + 追高風險），'
+                 '僅供參考、不構成投資建議。追高風險「高」者不宜直接追價，宜等回測或分時承接；請嚴守停損。</div>')
+    parts.append("</div>")
+
+    html = ('<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            "<title>一鍵選股報告</title>" + "".join(parts) + "</body></html>")
+
+    _scan_cache["html"] = html
+    _scan_cache["ts"] = now
+    return Response(html, mimetype="text/html")
+
+
 # ── 台股動能排行榜 (/momentum) ────────────────────────────────────────────────
 
 def _mom_num(s):
@@ -5421,9 +5616,13 @@ def _mom_pct_rank(vals):
 @app.route("/momentum")
 def momentum_ranking():
     """台股強勢股動能排行榜（HTML 表格，手機友善）。"""
-    data = get_twse_stock_day_all()
-    # get_twse_stock_day_all() 回傳 pandas DataFrame；轉成 list[dict] 方便逐檔處理。
-    items = data.to_dict("records") if hasattr(data, "to_dict") else (data or [])
+    try:
+        data = get_twse_stock_day_all()
+        # get_twse_stock_day_all() 回傳 pandas DataFrame；轉成 list[dict] 方便逐檔處理。
+        items = data.to_dict("records") if hasattr(data, "to_dict") else (data or [])
+    except Exception:
+        traceback.print_exc()
+        items = []
 
     rows = []
     for it in items:
