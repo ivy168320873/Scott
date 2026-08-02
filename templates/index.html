@@ -1286,6 +1286,32 @@ body{padding-bottom:52px}
 .ttd-loading{display:flex;align-items:center;gap:10px;padding:20px 0;color:var(--muted);font-size:.84rem}
 .ttd-trigger-btn{font-size:.78rem;padding:5px 13px;background:rgba(210,168,255,.12);color:var(--purple);border:1px solid rgba(210,168,255,.3);border-radius:8px;cursor:pointer;font-weight:700;transition:background .2s}
 .ttd-trigger-btn:hover{background:rgba(210,168,255,.22)}
+.conf-card{border:1px solid rgba(88,166,255,.35);background:linear-gradient(145deg,rgba(88,166,255,.09),rgba(210,168,255,.05));border-radius:13px;padding:14px;margin-bottom:12px}
+.conf-card-main{display:grid;grid-template-columns:86px minmax(0,1fr);gap:13px;align-items:center;margin-bottom:12px}
+.conf-ring{--conf-angle:0deg;--conf-color:#8b949e;width:82px;height:82px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--conf-color) var(--conf-angle),var(--border) 0);position:relative}
+.conf-ring:before{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--card)}
+.conf-ring-value{position:relative;z-index:1;text-align:center;line-height:1}
+.conf-ring-score{font-size:1.55rem;font-weight:900}
+.conf-ring-grade{font-size:.62rem;color:var(--muted);margin-top:4px;font-weight:700}
+.conf-heading{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:5px}
+.conf-heading strong{font-size:1rem}
+.conf-label{font-size:.68rem;font-weight:800;border-radius:10px;padding:2px 8px;border:1px solid currentColor}
+.conf-meaning{font-size:.73rem;color:var(--muted);line-height:1.45;margin-bottom:7px}
+.conf-meta{display:flex;gap:6px;flex-wrap:wrap}
+.conf-chip{font-size:.66rem;color:var(--text);padding:3px 7px;border-radius:7px;background:var(--surface2);border:1px solid var(--border)}
+.conf-evidence{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-bottom:10px}
+.conf-ev{background:rgba(13,17,23,.3);border:1px solid var(--border);border-radius:9px;padding:8px}
+.conf-ev-head{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:.7rem;font-weight:700;margin-bottom:5px}
+.conf-ev-note{font-size:.62rem;color:var(--muted);line-height:1.35;margin-top:4px;min-height:1.7em}
+.conf-bar{height:4px;border-radius:4px;background:var(--border);overflow:hidden}
+.conf-bar-fill{height:100%;border-radius:4px}
+.conf-sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.conf-section{background:var(--surface2);border-radius:9px;padding:9px 10px}
+.conf-section-title{font-size:.68rem;font-weight:800;margin-bottom:5px}
+.conf-item{font-size:.67rem;line-height:1.45;color:var(--muted);margin:3px 0;padding-left:12px;position:relative}
+.conf-item:before{content:"•";position:absolute;left:1px;color:currentColor}
+.conf-cap{font-size:.66rem;color:#e3b341;line-height:1.4;margin-top:8px}
+@media(max-width:519px){.conf-card{padding:12px}.conf-evidence,.conf-sections{grid-template-columns:1fr}.conf-card-main{grid-template-columns:76px minmax(0,1fr)}.conf-ring{width:72px;height:72px}.conf-ring-score{font-size:1.35rem}.conf-ev-note{min-height:0}}
 .inst-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px}
 .inst-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
 .inst-badge{padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:700;text-transform:uppercase}
@@ -1666,7 +1692,7 @@ body{padding-bottom:52px}
 
   <div id="detail">
     <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:6px">
-      <button class="ttd-trigger-btn" id="ttd-trigger-btn" onclick="runTopTierDecision()" style="display:none">🏆 頂級決策</button>
+      <button class="ttd-trigger-btn" id="ttd-trigger-btn" onclick="runTopTierDecision()" style="display:none">🛡 信號可信度</button>
       <button class="ttd-trigger-btn" id="inst-trigger-btn" onclick="runInstitutionalFlow()" style="display:none;background:rgba(88,166,255,.12);color:#58a6ff;border-color:rgba(88,166,255,.3)">🏦 機構流向</button>
       <button class="btn btn-secondary" style="padding:5px 12px;font-size:.82rem" onclick="exportCSV()">📥 匯出CSV</button>
     </div>
@@ -4658,6 +4684,7 @@ let _lastComputedData = null;
 let _lastAIResult = null;
 let _sigTimer = null;
 let _sigCountdown = 60;
+let _ttdRequestSeq = 0;
 
 async function search(sym) {
   const symbol = (sym || document.getElementById('sym').value.trim()).toUpperCase();
@@ -4723,6 +4750,8 @@ async function search(sym) {
     try { _renderSSD(d); } catch(e) {}
     renderSR(d);
     requestAI(d);
+    document.getElementById('ttd-trigger-btn').style.display = 'inline-block';
+    runTopTierDecision({auto: true, expectedSymbol: d.symbol});
     loadExtendedHours(d);   // non-blocking
     addToHistory(d.symbol);
     updateFavBtn();
@@ -4741,14 +4770,18 @@ async function search(sym) {
 // Top-Tier Decision Mode — Phase 13
 // ══════════════════════════════════════════════════════
 
-async function runTopTierDecision() {
+async function runTopTierDecision(options = {}) {
   const d = _lastComputedData;
   if (!d) return;
+  const auto = Boolean(options && options.auto);
+  const requestSymbol = String((options && options.expectedSymbol) || d.symbol || '').toUpperCase();
+  if (!requestSymbol || String(d.symbol || '').toUpperCase() !== requestSymbol) return;
+  const requestSeq = ++_ttdRequestSeq;
 
   const panel = document.getElementById('ttd-panel');
   panel.style.display = 'block';
-  panel.innerHTML = '<div class="ttd-loading"><span class="ai-spinner"></span>頂級決策分析中…</div>';
-  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  panel.innerHTML = '<div class="ttd-loading"><span class="ai-spinner"></span>正在建立信號可信度評分卡…</div>';
+  if (!auto) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   const meta = _lastAutoRecMeta || {};
   const watchlist = (_allAutoRecScored || []).map(w => ({
@@ -4788,8 +4821,10 @@ async function runTopTierDecision() {
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error);
+    if (requestSeq !== _ttdRequestSeq || String(_lastComputedData?.symbol || '').toUpperCase() !== requestSymbol) return;
     panel.innerHTML = _renderTTD(j);
   } catch(e) {
+    if (requestSeq !== _ttdRequestSeq) return;
     panel.innerHTML = `<div class="neg" style="font-size:.84rem;padding:10px">決策分析失敗：${_esc(e.message)}</div>`;
   }
 }
@@ -4884,6 +4919,67 @@ function _renderInstFlow(j) {
   </div>`;
 }
 
+function _renderConfidenceCard(c) {
+  if (!c || typeof c !== 'object') return '';
+  const score = Math.max(0, Math.min(100, Number(c.confidence_score) || 0));
+  const color = /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#8b949e';
+  const freshness = c.data_freshness || {};
+  const history = c.historical_calibration || {};
+  const evidence = Array.isArray(c.evidence) ? c.evidence : [];
+  const blockers = Array.isArray(c.blockers) ? c.blockers : [];
+  const controls = Array.isArray(c.risk_controls) ? c.risk_controls : [];
+  const invalidation = Array.isArray(c.invalidation_conditions) ? c.invalidation_conditions : [];
+  const caps = Array.isArray(c.caps_applied) ? c.caps_applied : [];
+  const evColor = value => value >= 80 ? '#3fb950' : value >= 60 ? '#58a6ff' : value >= 40 ? '#e3b341' : '#f85149';
+  const listItems = items => items.map(item => `<div class="conf-item">${_esc(item)}</div>`).join('');
+  const ageText = freshness.age_days == null ? '更新日未知' : `${Number(freshness.age_days).toFixed(0)} 天前`;
+  const historyWin = history.win_rate_5d == null ? '待累積' : `${Number(history.win_rate_5d).toFixed(1)}%`;
+
+  const evidenceHtml = evidence.map(item => {
+    const value = Math.max(0, Math.min(100, Number(item.score) || 0));
+    const ec = evColor(value);
+    return `<div class="conf-ev">
+      <div class="conf-ev-head"><span>${_esc(item.label || '')} <span style="color:var(--muted);font-size:.6rem">${Number(item.weight) || 0}%</span></span><span style="color:${ec}">${value.toFixed(0)}</span></div>
+      <div class="conf-bar"><div class="conf-bar-fill" style="width:${value}%;background:${ec}"></div></div>
+      <div class="conf-ev-note">${_esc(item.note || '')}</div>
+    </div>`;
+  }).join('');
+
+  return `<section class="conf-card" aria-label="信號可信度評分卡">
+    <div class="conf-card-main">
+      <div class="conf-ring" style="--conf-angle:${score * 3.6}deg;--conf-color:${color}">
+        <div class="conf-ring-value">
+          <div class="conf-ring-score" style="color:${color}">${score.toFixed(0)}</div>
+          <div class="conf-ring-grade">${_esc(c.grade || '—')} 級</div>
+        </div>
+      </div>
+      <div>
+        <div class="conf-heading"><strong>🛡 信號可信度</strong><span class="conf-label" style="color:${color}">${_esc(c.label || '')}</span></div>
+        <div class="conf-meaning">${_esc(c.score_meaning || '決策證據的完整度與一致性，非獲利機率')}</div>
+        <div class="conf-meta">
+          <span class="conf-chip">來源 ${_esc(freshness.source || 'unknown')}</span>
+          <span class="conf-chip">${_esc(freshness.last_date || '無日期')} · ${_esc(ageText)}</span>
+          <span class="conf-chip">K線 ${Number(freshness.bar_count) || 0} 根</span>
+          <span class="conf-chip">5日驗證 ${Number(history.evaluated_size) || 0}/${Number(history.sample_size) || 0} · 命中 ${_esc(historyWin)}</span>
+        </div>
+      </div>
+    </div>
+    <div class="conf-evidence">${evidenceHtml}</div>
+    <div class="conf-sections">
+      <div class="conf-section">
+        <div class="conf-section-title" style="color:${blockers.length ? '#f0883e' : '#3fb950'}">${blockers.length ? '⚠ 決策阻擋條件' : '✓ 硬性檢查通過'}</div>
+        ${blockers.length ? listItems(blockers) : '<div class="conf-item">目前沒有硬性阻擋條件</div>'}
+      </div>
+      <div class="conf-section">
+        <div class="conf-section-title" style="color:#e3b341">⏱ 判斷失效條件</div>
+        ${listItems(invalidation)}
+      </div>
+      ${controls.length ? `<div class="conf-section"><div class="conf-section-title" style="color:#58a6ff">🧭 風險控制</div>${listItems(controls)}</div>` : ''}
+    </div>
+    ${caps.length ? `<div class="conf-cap">評分上限：${caps.map(_esc).join('；')}</div>` : ''}
+  </section>`;
+}
+
 function _renderTTD(j) {
   const lvl   = j.action_level;
   const color = /^#[0-9a-f]{6}$/i.test(j.action_color || '') ? j.action_color : '#8b949e';
@@ -4943,10 +5039,11 @@ function _renderTTD(j) {
     <div class="ttd-header">
       <div class="ttd-title">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--purple)"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
-        Top-Tier Decision Mode · 頂級決策系統
+        Top-Tier Decision Mode · 可信度決策系統
       </div>
       <button onclick="runTopTierDecision()" style="font-size:.7rem;padding:3px 10px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:6px;cursor:pointer">↺ 重新計算</button>
     </div>
+    ${_renderConfidenceCard(j.confidence_card)}
     <div class="ttd-summary">${_esc(j.summary || '')}</div>
     <div class="ttd-grid">
       ${dimCards}

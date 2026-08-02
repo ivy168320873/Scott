@@ -4763,9 +4763,11 @@ def api_top_tier_decision_get(symbol: str):
         days = int(request.args.get("holding_days", 0) or 0)
         if not sym:
             return jsonify({"ok": False, "error": "symbol 不能為空"}), 400
+        _refresh_signal_outcomes(sym)
         result = _ttde.run_top_tier_decision(
             sym, _get_ohlcv_norm, cost=cost, holding_days=days
         )
+        result["signal_tracking"] = _record_top_tier_signal(result)
         return jsonify(result)
     except Exception as e:
         traceback.print_exc()
@@ -4807,12 +4809,14 @@ def api_top_tier_decision():
             except Exception:
                 pass
 
+        _refresh_signal_outcomes(sym)
         result = _ttde.run_top_tier_decision(
             sym, _get_ohlcv_norm,
             cost=cost, holding_days=days,
             sector_name=sec_n,
             watchlist_ohlcv=wl_ohlcv if wl_ohlcv else None,
         )
+        result["signal_tracking"] = _record_top_tier_signal(result)
         return jsonify(result)
     except Exception as e:
         traceback.print_exc()
@@ -4920,6 +4924,54 @@ try:
     _sce.init_db(_USER_DATA_DB)
 except Exception:
     traceback.print_exc()
+
+
+def _refresh_signal_outcomes(symbol: str) -> dict:
+    """Best-effort auto-calibration before producing a new decision."""
+    try:
+        ohlcv = _get_ohlcv_norm(symbol)
+        benchmark = _get_ohlcv_norm("SPY")
+        if benchmark and benchmark.get("is_demo"):
+            benchmark = None
+        return _sce.update_symbol_outcomes(symbol, ohlcv, benchmark)
+    except Exception as exc:
+        return {"ok": False, "updated": 0, "error": str(exc)}
+
+
+def _record_top_tier_signal(result: dict) -> dict:
+    """Persist one production-quality decision for future calibration."""
+    try:
+        if not isinstance(result, dict) or not result.get("ok"):
+            return {"ok": False, "recorded": False, "reason": "invalid_result"}
+        dq = result.get("data_quality") or {}
+        if dq.get("is_demo") or dq.get("data_status") == "BAD":
+            return {
+                "ok": True,
+                "recorded": False,
+                "reason": "demo_or_bad_data",
+            }
+        kill = result.get("kill_signal") or {}
+        sector = result.get("sector_leadership") or {}
+        position = result.get("position_sizing") or {}
+        sell = result.get("sell_decision") or {}
+        return _sce.record_signal_once({
+            "symbol": result.get("symbol"),
+            "signal_date": dq.get("last_date"),
+            "decision": result.get("decision"),
+            "top_tier_score": result.get("top_tier_score"),
+            "market_regime": result.get("market_regime"),
+            "market_score": result.get("market_score"),
+            "data_quality_status": dq.get("data_status"),
+            "chase_risk_score": (result.get("chase_risk") or {}).get("score"),
+            "sell_signal": sell.get("level"),
+            "kill_signal_triggered": kill.get("triggered", False),
+            "sector_leadership": sector.get("level"),
+            "position_size_level": position.get("position_size_level"),
+            "entry_price": dq.get("last_price"),
+            "is_demo": False,
+        })
+    except Exception as exc:
+        return {"ok": False, "recorded": False, "error": str(exc)}
 
 
 @app.route("/api/signal-confidence")
