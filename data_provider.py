@@ -7,7 +7,7 @@ Priority chain per symbol:
   3. Alpha Vantage  (if ALPHA_VANTAGE_KEY env-var set)
   4. Finnhub        (if FINNHUB_KEY env-var set)
   5. TWSE / TPEX    (.TW / .TWO symbols)
-  6. Demo seed data (last resort, flagged with is_demo=True)
+  6. Demo seed data (development only, explicitly flagged with is_demo=True)
 
 Normalised output format (matches decision_engine.normalize_list):
   {
@@ -60,7 +60,7 @@ _YAHOO_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-_CACHE: dict[str, dict] = {}
+_CACHE: dict[tuple[str, str], dict] = {}
 _CACHE_TTL = 15 * 60        # 15 minutes
 _CACHE_LOCK = threading.Lock()
 
@@ -74,17 +74,47 @@ def _now_ts() -> float:
     return time.monotonic()
 
 
-def _cache_get(symbol: str) -> dict | None:
+def _cache_key(symbol: str, period: str) -> tuple[str, str]:
+    return symbol.upper(), period.lower()
+
+
+def _cache_get(symbol: str, period: str = _DEFAULT_PERIOD) -> dict | None:
     with _CACHE_LOCK:
-        entry = _CACHE.get(symbol.upper())
+        entry = _CACHE.get(_cache_key(symbol, period))
     if entry and (_now_ts() - entry["ts"]) < _CACHE_TTL:
         return entry["data"]
     return None
 
 
-def _cache_set(symbol: str, data: dict) -> None:
+def _cache_set(symbol: str, data: dict, period: str = _DEFAULT_PERIOD) -> None:
     with _CACHE_LOCK:
-        _CACHE[symbol.upper()] = {"ts": _now_ts(), "data": data}
+        _CACHE[_cache_key(symbol, period)] = {"ts": _now_ts(), "data": data}
+
+
+def _period_days(period: str) -> int:
+    """Approximate calendar lookback for providers without period support."""
+    return {
+        "1d": 1, "5d": 7, "1mo": 31, "3mo": 93, "6mo": 186,
+        "1y": 366, "2y": 732, "5y": 1830,
+        "10y": 3660, "ytd": 366, "max": 36500,
+    }.get(period.lower(), 366)
+
+
+def _period_rows(period: str) -> int:
+    return max(2, int(_period_days(period) * 5 / 7) + 1)
+
+
+def _slice_period(data: dict | None, period: str) -> dict | None:
+    if not data:
+        return None
+    count = _period_rows(period)
+    if period.lower() == "max" or len(data.get("closes", [])) <= count:
+        return data
+    result = dict(data)
+    for key in ("closes", "opens", "highs", "lows", "volumes", "timestamps"):
+        if isinstance(result.get(key), list):
+            result[key] = result[key][-count:]
+    return result
 
 
 def _normalize(rows: list[dict], source: str) -> dict | None:
@@ -92,13 +122,27 @@ def _normalize(rows: list[dict], source: str) -> dict | None:
     valid = [r for r in rows if r.get("close", 0) > 0]
     if not valid:
         return None
+    timestamps = []
+    for row in valid:
+        value = row.get("timestamp", row.get("date"))
+        if isinstance(value, (int, float)):
+            timestamps.append(int(value))
+            continue
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            timestamps.append(int(parsed.timestamp()))
+        except (TypeError, ValueError):
+            timestamps.append(0)
+
     return {
         "closes":     [float(r["close"])          for r in valid],
         "opens":      [float(r.get("open",  r["close"])) for r in valid],
         "highs":      [float(r.get("high",  r["close"])) for r in valid],
         "lows":       [float(r.get("low",   r["close"])) for r in valid],
         "volumes":    [int(r.get("volume",  0))           for r in valid],
-        "timestamps": [],
+        "timestamps": timestamps,
         "is_demo":    False,
         "source":     source,
     }
@@ -164,16 +208,27 @@ def _fetch_yahoo_api(symbol: str, range_: str = "1y") -> dict | None:
         j = r.json()
         res = j["chart"]["result"][0]
         q = res["indicators"]["quote"][0]
+        adj_values = (
+            res.get("indicators", {}).get("adjclose", [{}])[0].get("adjclose", [])
+        )
         ts_list = res["timestamp"]
         rows = []
         for i, t in enumerate(ts_list):
             try:
+                raw_close = float(q["close"][i] or 0)
+                adjusted_close = (
+                    float(adj_values[i])
+                    if i < len(adj_values) and adj_values[i] is not None
+                    else raw_close
+                )
+                factor = adjusted_close / raw_close if raw_close > 0 else 1.0
                 rows.append({
                     "date":   datetime.utcfromtimestamp(t).strftime("%Y-%m-%d"),
-                    "open":   float(q["open"][i]   or 0),
-                    "high":   float(q["high"][i]   or 0),
-                    "low":    float(q["low"][i]    or 0),
-                    "close":  float(q["close"][i]  or 0),
+                    "timestamp": t,
+                    "open":   float(q["open"][i] or 0) * factor,
+                    "high":   float(q["high"][i] or 0) * factor,
+                    "low":    float(q["low"][i] or 0) * factor,
+                    "close":  adjusted_close,
                     "volume": int(q["volume"][i]   or 0),
                 })
             except (TypeError, ValueError, IndexError):
@@ -188,7 +243,7 @@ def _fetch_yahoo_api(symbol: str, range_: str = "1y") -> dict | None:
 # Source 3 — Alpha Vantage
 # ---------------------------------------------------------------------------
 
-def _fetch_alpha_vantage(symbol: str, api_key: str) -> dict | None:
+def _fetch_alpha_vantage(symbol: str, api_key: str, period: str = _DEFAULT_PERIOD) -> dict | None:
     try:
         r = requests.get(
             "https://www.alphavantage.co/query",
@@ -209,15 +264,18 @@ def _fetch_alpha_vantage(symbol: str, api_key: str) -> dict | None:
         rows = []
         for date_str in sorted(series.keys()):
             d = series[date_str]
+            raw_close = float(d.get("4. close", 0))
+            adjusted_close = float(d.get("5. adjusted close", raw_close))
+            factor = adjusted_close / raw_close if raw_close > 0 else 1.0
             rows.append({
                 "date":   date_str,
-                "open":   float(d.get("1. open",            0)),
-                "high":   float(d.get("2. high",            0)),
-                "low":    float(d.get("3. low",             0)),
-                "close":  float(d.get("5. adjusted close",  d.get("4. close", 0))),
+                "open":   float(d.get("1. open", 0)) * factor,
+                "high":   float(d.get("2. high", 0)) * factor,
+                "low":    float(d.get("3. low", 0)) * factor,
+                "close":  adjusted_close,
                 "volume": int(float(d.get("6. volume",      0))),
             })
-        return _normalize(rows, "alpha_vantage")
+        return _slice_period(_normalize(rows, "alpha_vantage"), period)
     except Exception as exc:
         logger.debug("Alpha Vantage failed for %s: %s", symbol, exc)
         return None
@@ -227,10 +285,10 @@ def _fetch_alpha_vantage(symbol: str, api_key: str) -> dict | None:
 # Source 4 — Finnhub
 # ---------------------------------------------------------------------------
 
-def _fetch_finnhub(symbol: str, api_key: str) -> dict | None:
+def _fetch_finnhub(symbol: str, api_key: str, period: str = _DEFAULT_PERIOD) -> dict | None:
     try:
         now   = int(time.time())
-        from_ = now - 365 * 24 * 3600
+        from_ = now - _period_days(period) * 24 * 3600
         r = requests.get(
             "https://finnhub.io/api/v1/stock/candle",
             params={
@@ -251,6 +309,7 @@ def _fetch_finnhub(symbol: str, api_key: str) -> dict | None:
         for i, t in enumerate(j["t"]):
             rows.append({
                 "date":   datetime.utcfromtimestamp(t).strftime("%Y-%m-%d"),
+                "timestamp": t,
                 "open":   float(j["o"][i]),
                 "high":   float(j["h"][i]),
                 "low":    float(j["l"][i]),
@@ -373,13 +432,24 @@ def _fetch_demo(symbol: str, n: int = 300) -> dict:
         pct = rng.gauss(0, 0.015)
         closes.append(round(max(1.0, closes[-1] * (1 + pct)), 4))
 
+    opens = [round(c * rng.uniform(0.995, 1.005), 4) for c in closes]
+    highs = [
+        round(max(open_price, close) * rng.uniform(1.000, 1.020), 4)
+        for open_price, close in zip(opens, closes)
+    ]
+    lows = [
+        round(min(open_price, close) * rng.uniform(0.980, 1.000), 4)
+        for open_price, close in zip(opens, closes)
+    ]
+    end_ts = int(datetime.now(timezone.utc).timestamp())
+    timestamps = [end_ts - (n - 1 - i) * 86400 for i in range(n)]
     result = {
         "closes":     closes,
-        "opens":      [round(c * rng.uniform(0.995, 1.005), 4) for c in closes],
-        "highs":      [round(c * rng.uniform(1.000, 1.020), 4) for c in closes],
-        "lows":       [round(c * rng.uniform(0.980, 1.000), 4) for c in closes],
+        "opens":      opens,
+        "highs":      highs,
+        "lows":       lows,
         "volumes":    [rng.randint(500_000, 5_000_000) for _ in closes],
-        "timestamps": [],
+        "timestamps": timestamps,
         "is_demo":    True,
         "source":     "demo",
     }
@@ -393,58 +463,80 @@ def _fetch_demo(symbol: str, n: int = 300) -> dict:
 def get_ohlcv(symbol: str, period: str = _DEFAULT_PERIOD) -> dict | None:
     """
     Fetch OHLCV for `symbol`. Returns normalised dict or None.
-    Never returns None — falls back to demo data as last resort.
+    Production fails closed when all live sources fail.  Demo fallback requires
+    ``ALLOW_DEMO_DATA=true`` and is intended for development or presentations.
     """
     sym = symbol.upper().strip()
+    period = period.lower().strip() or _DEFAULT_PERIOD
+    if not sym:
+        return None
 
     # 1. Cache hit
-    cached = _cache_get(sym)
+    cached = _cache_get(sym, period)
     if cached:
         return cached
 
     result: dict | None = None
 
-    # 2. Taiwan stocks → TWSE first
+    yahoo_period = (
+        period
+        if period in {"1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+        else "1y"
+    )
+
+    # 2. Taiwan stocks: prefer adjusted Yahoo history.  The TWSE/TPEX open-data
+    # endpoint only provides a short raw-price window, so using it first could
+    # silently turn a requested five-year backtest into roughly one year.
     if sym.endswith(".TW") or sym.endswith(".TWO"):
-        result = _fetch_twse(sym)
-        if result:
-            _cache_set(sym, result)
-            return result
-        # For TW stocks also try yfinance (has .TW support)
         result = _fetch_yfinance(sym, period)
         if result:
-            _cache_set(sym, result)
+            _cache_set(sym, result, period)
+            return result
+
+        result = _fetch_yahoo_api(sym, yahoo_period)
+        if result:
+            _cache_set(sym, result, period)
+            return result
+
+        result = _fetch_twse(sym)
+        if result:
+            result = _slice_period(result, period)
+            _cache_set(sym, result, period)
             return result
     else:
         # US stocks: yfinance → Yahoo API → AV → Finnhub
         result = _fetch_yfinance(sym, period)
         if result:
-            _cache_set(sym, result)
+            _cache_set(sym, result, period)
             return result
 
-        result = _fetch_yahoo_api(sym)
+        result = _fetch_yahoo_api(sym, yahoo_period)
         if result:
-            _cache_set(sym, result)
+            _cache_set(sym, result, period)
             return result
 
         av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
         if av_key:
-            result = _fetch_alpha_vantage(sym, av_key)
+            result = _fetch_alpha_vantage(sym, av_key, period)
             if result:
-                _cache_set(sym, result)
+                _cache_set(sym, result, period)
                 return result
 
         fh_key = os.environ.get("FINNHUB_KEY", "")
         if fh_key:
-            result = _fetch_finnhub(sym, fh_key)
+            result = _fetch_finnhub(sym, fh_key, period)
             if result:
-                _cache_set(sym, result)
+                _cache_set(sym, result, period)
                 return result
 
-    # Last resort: demo
-    logger.warning("All live sources failed for %s — using demo data", sym)
-    result = _fetch_demo(sym)
-    _cache_set(sym, result)
+    allow_demo = os.environ.get("ALLOW_DEMO_DATA", "false").lower() == "true"
+    if not allow_demo:
+        logger.error("All live data sources failed for %s; demo fallback is disabled", sym)
+        return None
+
+    logger.warning("All live sources failed for %s — using explicitly enabled demo data", sym)
+    result = _slice_period(_fetch_demo(sym, _period_rows(period)), period)
+    _cache_set(sym, result, period)
     return result
 
 

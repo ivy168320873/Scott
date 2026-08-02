@@ -1,15 +1,28 @@
-from flask import Flask, render_template, jsonify, request, Response, make_response, session, redirect, url_for
+from flask import Flask, render_template, jsonify, request, Response, make_response, session, redirect, url_for, g
+from urllib.parse import urlsplit
+from werkzeug.middleware.proxy_fix import ProxyFix
 import requests as _req
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone, timedelta
 import time as _time
-import traceback, os, json, hashlib
+import traceback, os, json, hashlib, hmac, re
+import html as _html
 import smtplib
 import email.mime.multipart
 import email.mime.text
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import demo_data as _demo
+from collections import defaultdict, deque
+
+# Keep every SQLite-backed module on the Railway Volume when one is mounted.
+# This must run before importing modules that read USER_DATA_DB at import time.
+_RAILWAY_VOLUME = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+if not os.environ.get("USER_DATA_DB", "").strip():
+    os.environ["USER_DATA_DB"] = (
+        os.path.join(_RAILWAY_VOLUME, "user_data.db")
+        if _RAILWAY_VOLUME
+        else "./user_data.db"
+    )
 import data_provider as _dp
 import analyzer
 import backtest as _bt
@@ -36,14 +49,32 @@ except Exception as _e:  # noqa: BLE001 — 匯入失敗不影響主程式其他
     print(f"[agent] web_agent 不可用：{_e}", flush=True)
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # ── Session / Auth config ─────────────────────────────────────────────────────
-app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(24)
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("RAILWAY_ENVIRONMENT") == "production"
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+_IS_PRODUCTION = (
+    os.environ.get("RAILWAY_ENVIRONMENT", "").lower() in {"production", "prod"}
+    or os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").lower() in {"production", "prod"}
+    or os.environ.get("FLASK_ENV", "").lower() in {"production", "prod"}
+)
+_ACCESS_CODE = os.environ.get("ACCESS_CODE", "").strip()
+_ALLOW_INSECURE_NO_AUTH = os.environ.get("ALLOW_INSECURE_NO_AUTH", "false").lower() == "true"
 
-_ACCESS_CODE = os.environ.get("ACCESS_CODE", "")   # set in Railway → empty = no auth required
+if _IS_PRODUCTION and not _ACCESS_CODE and not _ALLOW_INSECURE_NO_AUTH:
+    raise RuntimeError(
+        "ACCESS_CODE must be configured in production. "
+        "Set ALLOW_INSECURE_NO_AUTH=true only for a deliberately public demo."
+    )
+if _IS_PRODUCTION and not os.environ.get("SECRET_KEY", "").strip():
+    raise RuntimeError("SECRET_KEY must be configured in production.")
+
+app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
+app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = _IS_PRODUCTION
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
+
 _LOGIN_LOG: list[dict] = []   # in-memory log (last 200 entries)
 _MAX_LOG = 200
 _SERVER_START = datetime.now(timezone.utc)
@@ -76,16 +107,39 @@ def _reset_attempts(ip: str):
 import threading as _threading
 import sqlite3 as _sqlite3
 
-_USER_DATA_DB   = os.environ.get("USER_DATA_DB",   "./user_data.db")
+_USER_DATA_DB   = os.environ["USER_DATA_DB"]
 _USER_DATA_FILE = os.environ.get("USER_DATA_FILE", "./user_data.json")  # legacy, migrate only
 _user_data_lock = _threading.Lock()
 _user_data_mem: dict = {}   # in-memory read cache
+_CLIENT_SYNC_KEYS = {
+    "portfolio_v1", "alertSettings_v1", "customScanList",
+    "signalHistory_v2", "radarWatchlist", "radarActive",
+}
+
+
+def _strip_line_secrets(value):
+    """Remove retired client-side LINE credentials from persisted data."""
+    if isinstance(value, dict):
+        return {
+            k: _strip_line_secrets(v)
+            for k, v in value.items()
+            if k.lower().replace("_", "") not in {"linetoken", "linenotifytoken"}
+        }
+    if isinstance(value, list):
+        return [_strip_line_secrets(v) for v in value]
+    return value
+
+
+def _db_connect():
+    parent = os.path.dirname(os.path.abspath(_USER_DATA_DB))
+    os.makedirs(parent, exist_ok=True)
+    con = _sqlite3.connect(_USER_DATA_DB, timeout=10, check_same_thread=False)
+    con.execute("PRAGMA busy_timeout=10000")
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA foreign_keys=ON")
+    return con
 
 # ── Production / demo-guard constants ────────────────────────────────────────
-_IS_PRODUCTION = (
-    os.environ.get("RAILWAY_ENVIRONMENT", "").lower() == "production"
-    or os.environ.get("FLASK_ENV", "").lower() == "production"
-)
 _DEMO_WARNING_MSG = "⚠️ 目前使用模擬資料，不能作為交易決策。"
 _DEMO_SIGNAL_CAP  = {"bullish": "neutral", "mild-bullish": "neutral"}
 _DEMO_SIGNAL_TEXT = "觀察（模擬資料）"
@@ -117,7 +171,7 @@ def _apply_demo_guard(result: dict) -> dict:
 def _init_user_db():
     """Create SQLite table; migrate from legacy JSON on first run."""
     global _user_data_mem
-    con = _sqlite3.connect(_USER_DATA_DB, check_same_thread=False)
+    con = _db_connect()
     con.execute("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, ts TEXT)")
     con.commit()
     if con.execute("SELECT COUNT(*) FROM kv").fetchone()[0] == 0:
@@ -131,15 +185,33 @@ def _init_user_db():
             con.commit()
         except (FileNotFoundError, json.JSONDecodeError):
             pass
-    _user_data_mem = {r[0]: json.loads(r[1])
-                      for r in con.execute("SELECT key,value FROM kv")}
+    _user_data_mem = {
+        r[0]: _strip_line_secrets(json.loads(r[1]))
+        for r in con.execute("SELECT key,value FROM kv")
+    }
+    # Purge legacy LINE Notify tokens that older versions stored in SQLite.
+    for key, value in _user_data_mem.items():
+        con.execute(
+            "UPDATE kv SET value=? WHERE key=?",
+            (json.dumps(value, ensure_ascii=False), key),
+        )
+    con.commit()
     con.close()
 
 
 try:
     _init_user_db()
-except Exception:
+except Exception as _db_error:
     traceback.print_exc()
+    if _IS_PRODUCTION:
+        raise RuntimeError(f"Unable to initialise persistent database: {_db_error}") from _db_error
+
+if _IS_PRODUCTION and not _RAILWAY_VOLUME:
+    print(
+        "[PERSISTENCE WARNING] No RAILWAY_VOLUME_MOUNT_PATH detected; "
+        "SQLite data may be lost on redeploy.",
+        flush=True,
+    )
 
 
 def _load_user_data() -> dict:
@@ -150,19 +222,30 @@ def _save_user_data(patch: dict):
     global _user_data_mem
     now_iso = datetime.now(timezone.utc).isoformat()
     with _user_data_lock:
-        _user_data_mem.update(patch)
+        patch = _strip_line_secrets(patch)
         try:
-            con = _sqlite3.connect(_USER_DATA_DB, check_same_thread=False)
+            con = _db_connect()
             for k, v in patch.items():
                 con.execute("INSERT OR REPLACE INTO kv(key,value,ts) VALUES(?,?,?)",
                             (k, json.dumps(v, ensure_ascii=False), now_iso))
             con.commit()
             con.close()
+            _user_data_mem.update(patch)
         except Exception:
             traceback.print_exc()
+            if _IS_PRODUCTION:
+                raise
 
 def _hash(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
+
+
+def _safe_next_url(value: str | None) -> str:
+    """Allow only same-site absolute paths after login."""
+    value = (value or "").strip()
+    if value.startswith("/") and not value.startswith("//"):
+        return value
+    return "/"
 
 def _parse_ua(ua: str) -> str:
     """Return human-readable device name from User-Agent string."""
@@ -185,10 +268,8 @@ def _parse_ua(ua: str) -> str:
     return f"{os_name} / {browser}"
 
 def _get_ip() -> str:
-    """Get real IP, respecting Railway's reverse proxy headers."""
-    return (request.headers.get("X-Forwarded-For") or
-            request.headers.get("X-Real-IP") or
-            request.remote_addr or "unknown").split(",")[0].strip()
+    """Get the client IP after ProxyFix consumes Railway's trusted hop."""
+    return (request.remote_addr or "unknown")[:64]
 
 def _append_log(ip: str, device: str, success: bool, note: str = ""):
     global _LOGIN_LOG
@@ -204,19 +285,170 @@ def _append_log(ip: str, device: str, success: bool, note: str = ""):
     status = "✅ 成功" if success else "❌ 失敗"
     print(f"[LOGIN] {status} | IP:{ip} | {device} | {note}", flush=True)
 
+
+_RATE_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
+_RATE_LOCK = _threading.Lock()
+
+
+def _rate_limit(bucket: str, limit: int, window_seconds: int) -> Response | None:
+    """Small in-process limiter for one-instance deployments.
+
+    This is intentionally a safety net, not a distributed quota. If the app is
+    scaled to multiple instances, move the buckets to Redis.
+    """
+    now = _time.monotonic()
+    key = f"{bucket}:{_get_ip()}"
+    with _RATE_LOCK:
+        hits = _RATE_BUCKETS[key]
+        while hits and now - hits[0] >= window_seconds:
+            hits.popleft()
+        if len(hits) >= limit:
+            retry_after = max(1, int(window_seconds - (now - hits[0])))
+            resp = jsonify(ok=False, error="請求過於頻繁，請稍後再試")
+            resp.status_code = 429
+            resp.headers["Retry-After"] = str(retry_after)
+            return resp
+        hits.append(now)
+    return None
+
+
+def _valid_hhmm(value) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value) is not None
+
+
+def _valid_timezone_name(value) -> bool:
+    if not isinstance(value, str) or not 1 <= len(value) <= 64:
+        return False
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(value)
+        return True
+    except Exception:
+        return False
+
+
+def _normalise_symbols(value, *, max_items: int = 50) -> list[str] | None:
+    if not isinstance(value, list) or len(value) > max_items:
+        return None
+    symbols: list[str] = []
+    for item in value:
+        symbol = str(item or "").upper().strip()
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,20}", symbol):
+            return None
+        if symbol not in symbols:
+            symbols.append(symbol)
+    return symbols
+
+
+def _normalise_holdings(value, *, max_items: int = 50) -> list[dict] | None:
+    if not isinstance(value, list) or not value or len(value) > max_items:
+        return None
+    holdings = []
+    for item in value:
+        if not isinstance(item, dict):
+            return None
+        symbol = str(item.get("symbol") or "").upper().strip()
+        try:
+            cost = float(item.get("cost", item.get("buyPrice", 0)) or 0)
+            qty = float(item.get("qty", item.get("shares", 0)) or 0)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if (
+            not re.fullmatch(r"[A-Z0-9.\-]{1,20}", symbol)
+            or not np.isfinite(cost)
+            or not np.isfinite(qty)
+            or not 0 < cost <= 10_000_000
+            or not 0 < qty <= 1_000_000_000
+        ):
+            return None
+        buy_date = str(item.get("buy_date") or item.get("buyDate") or "")[:10]
+        if buy_date:
+            try:
+                datetime.strptime(buy_date, "%Y-%m-%d")
+            except ValueError:
+                return None
+        holdings.append({"symbol": symbol, "cost": cost, "qty": qty, "buy_date": buy_date})
+    return holdings
+
+
+def _normalise_text_list(value, *, max_items: int = 50, max_length: int = 80) -> list[str] | None:
+    if not isinstance(value, list) or len(value) > max_items:
+        return None
+    result = []
+    for item in value:
+        if not isinstance(item, str):
+            return None
+        text = item.strip()[:max_length]
+        if text:
+            result.append(text)
+    return result
+
+
+_PUBLIC_ENDPOINTS = {"login", "logout", "static", "robots_txt", "healthz"}
+
 @app.before_request
 def _require_auth():
     """Block every request unless the session is authenticated or ACCESS_CODE is unset."""
-    if not _ACCESS_CODE:
-        return  # auth disabled
-    if request.endpoint in ("login", "logout", "admin_logins", "admin_dashboard", "static"):
+    if getattr(g, "auth_checked", False):
         return
-    if session.get("auth") == _hash(_ACCESS_CODE):
+    g.auth_checked = True
+    if request.endpoint in _PUBLIC_ENDPOINTS:
+        return
+    if request.path.startswith("/api/"):
+        limited = _rate_limit("api", 180, 60)
+        if limited is not None:
+            return limited
+    if not _ACCESS_CODE:
+        return  # explicitly permitted local/public mode
+    if hmac.compare_digest(str(session.get("auth", "")), _hash(_ACCESS_CODE)):
         return
     # API calls return JSON 401 instead of redirect
     if request.path.startswith("/api/"):
         return jsonify(ok=False, error="Unauthorized"), 401
     return redirect(url_for("login", next=request.path))
+
+
+@app.before_request
+def _reject_cross_site_mutations():
+    """Reject authenticated state changes initiated by another site."""
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return
+    if request.endpoint == "login":
+        return
+    origin = (request.headers.get("Origin") or "").rstrip("/")
+    origin_host = urlsplit(origin).netloc.lower() if origin else ""
+    if origin_host and origin_host != request.host.lower():
+        return jsonify(ok=False, error="Cross-site request blocked"), 403
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    resp.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
+        "img-src 'self' data:; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline'; "
+        "connect-src 'self' https://query1.finance.yahoo.com "
+        "https://query2.finance.yahoo.com https://www.twse.com.tw "
+        "https://openapi.twse.com.tw https://www.tpex.org.tw"
+    )
+    if _IS_PRODUCTION:
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if request.path.startswith("/api/") or request.path.startswith("/admin"):
+        resp.headers.setdefault("Cache-Control", "no-store")
+    return resp
+
+
+@app.route("/healthz")
+def healthz():
+    """Cheap public liveness probe; never calls market or broker APIs."""
+    return jsonify(ok=True, service="scott", ts=datetime.now(timezone.utc).isoformat())
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -232,12 +464,12 @@ def login():
             _append_log(ip, device, False, f"已鎖定 {secs}s")
         else:
             code = (request.form.get("code") or "").strip()
-            if _ACCESS_CODE and _hash(code) == _hash(_ACCESS_CODE):
+            if _ACCESS_CODE and hmac.compare_digest(_hash(code), _hash(_ACCESS_CODE)):
                 _reset_attempts(ip)
                 session.permanent = True
                 session["auth"] = _hash(_ACCESS_CODE)
                 _append_log(ip, device, True, "登入成功")
-                return redirect(request.args.get("next") or "/")
+                return redirect(_safe_next_url(request.args.get("next")))
             else:
                 _record_fail(ip)
                 rec = _login_attempts.get(ip, {})
@@ -278,7 +510,8 @@ def admin_dashboard():
         "ANTHROPIC_API_KEY": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "ALPHA_VANTAGE_KEY": bool(os.environ.get("ALPHA_VANTAGE_KEY")),
         "FINNHUB_KEY":    bool(os.environ.get("FINNHUB_KEY")),
-        "LINE_NOTIFY_TOKEN": bool(os.environ.get("LINE_NOTIFY_TOKEN")),
+        "LINE_CHANNEL_ACCESS_TOKEN": bool(os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")),
+        "LINE_USER_ID":    bool(os.environ.get("LINE_USER_ID")),
         "SMTP_HOST":      bool(os.environ.get("SMTP_HOST")),
         "SCHEDULER_ENABLE": os.environ.get("SCHEDULER_ENABLE", "false"),
         "RAILWAY_ENVIRONMENT": os.environ.get("RAILWAY_ENVIRONMENT", "—"),
@@ -340,6 +573,9 @@ def twse_api_test():
 @app.route("/api/admin/test-connections")
 def api_admin_test_connections():
     """Test external API connectivity — shows in admin dashboard."""
+    limited = _rate_limit("admin_connection_test", 2, 60)
+    if limited is not None:
+        return limited
     results = {}
     # Claude
     try:
@@ -390,9 +626,16 @@ def api_user_data():
     """Cross-device localStorage sync endpoint."""
     if request.method == "GET":
         return jsonify(ok=True, data=_load_user_data())
-    patch = request.get_json(force=True, silent=True) or {}
-    if patch:
-        _save_user_data(patch)
+    limited = _rate_limit("user_data_write", 30, 60)
+    if limited is not None:
+        return limited
+    raw_patch = request.get_json(force=True, silent=True) or {}
+    if not isinstance(raw_patch, dict):
+        return jsonify(ok=False, error="JSON object required"), 400
+    patch = {k: v for k, v in raw_patch.items() if k in _CLIENT_SYNC_KEYS}
+    if not patch:
+        return jsonify(ok=False, error="No supported sync keys"), 400
+    _save_user_data(patch)
     return jsonify(ok=True)
 
 @app.route("/robots.txt")
@@ -413,6 +656,14 @@ _sched.start_scheduler()
 # ── Module-level caches and settings ──────────────────────────────────────────
 _daily_report_cache: dict = {"report": None, "ts": 0}
 _alert_schedule_settings: dict = {"enabled": False, "time": "16:00", "timezone": "America/New_York"}
+_stored_alert_schedule = _load_user_data().get("alert_schedule_settings", {})
+if isinstance(_stored_alert_schedule, dict):
+    if isinstance(_stored_alert_schedule.get("enabled"), bool):
+        _alert_schedule_settings["enabled"] = _stored_alert_schedule["enabled"]
+    if _valid_hhmm(_stored_alert_schedule.get("time")):
+        _alert_schedule_settings["time"] = _stored_alert_schedule["time"]
+    if _valid_timezone_name(_stored_alert_schedule.get("timezone")):
+        _alert_schedule_settings["timezone"] = _stored_alert_schedule["timezone"]
 
 YAHOO_HEADERS = {
     "User-Agent": (
@@ -1339,81 +1590,82 @@ def _fetch_ohlcv_finnhub(symbol: str, fh_key: str) -> dict | None:
 @app.route("/api/chart/<symbol>")
 def chart_proxy(symbol):
     """Proxy Yahoo Finance chart API so the browser avoids CORS."""
-    params = {k: v for k, v in request.args.items()}
-    params.setdefault("range", "1y")
-    params.setdefault("interval", "1d")
-    params.setdefault("events", "history")
+    symbol = symbol.upper().strip()
+    if not re.fullmatch(r"[A-Z0-9.\-]{1,20}", symbol):
+        return jsonify({"chart": {"result": None, "error": {"description": "invalid symbol"}}}), 400
+    allowed_ranges = {"1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+    allowed_intervals = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d"}
+    requested_range = request.args.get("range", "1y")
+    requested_interval = request.args.get("interval", "1d")
+    params = {
+        "range": requested_range if requested_range in allowed_ranges else "1y",
+        "interval": requested_interval if requested_interval in allowed_intervals else "1d",
+        "events": "history",
+        "includePrePost": request.args.get("includePrePost", "false").lower() == "true",
+    }
     try:
         r = _req.get(
             f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
             params=params, headers=YAHOO_HEADERS, timeout=10,
         )
         if r.status_code == 200:
-            resp = Response(r.content, status=200, mimetype="application/json")
-            resp.headers["Access-Control-Allow-Origin"] = "*"
-            return resp
+            return Response(r.content, status=200, mimetype="application/json")
     except Exception:
         pass
 
-    # Taiwan stock fallback: TWSE / TPEX official API
-    sym_upper = symbol.upper()
-    if sym_upper.endswith(".TW") or sym_upper.endswith(".TWO"):
-        twse_result = _fetch_ohlcv_twse(sym_upper)
-        if twse_result:
-            resp = Response(json.dumps(twse_result), status=200, mimetype="application/json")
-            resp.headers["Access-Control-Allow-Origin"] = "*"
-            return resp
+    # Intraday data must remain intraday; substituting daily candles would make
+    # opening-range and extended-hours calculations invalid.
+    interval = str(params.get("interval", "1d"))
+    if interval != "1d":
+        return jsonify({
+            "chart": {
+                "result": None,
+                "error": {"description": "intraday data unavailable"},
+            }
+        }), 503
 
-    # Non-TW stocks: try Finnhub before Alpha Vantage
-    sym_upper = symbol.upper()
-    if not (sym_upper.endswith(".TW") or sym_upper.endswith(".TWO")):
-        fh_key = os.environ.get("FINNHUB_KEY", "")
-        if fh_key:
-            fh_result = _fetch_ohlcv_finnhub(symbol, fh_key)
-            if fh_result:
-                resp = Response(json.dumps(fh_result), status=200, mimetype="application/json")
-                resp.headers["Access-Control-Allow-Origin"] = "*"
-                return resp
+    period = str(params.get("range", "1y"))
+    normalised = _dp.get_ohlcv(symbol, period)
+    if not normalised or not normalised.get("closes"):
+        return jsonify({
+            "chart": {
+                "result": None,
+                "error": {"description": "live market data unavailable"},
+            }
+        }), 503
 
-    # Final structured fallback: Alpha Vantage
-    av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
-    if av_key:
-        av_result = _fetch_ohlcv_alpha_vantage(symbol, av_key)
-        if av_result:
-            resp = Response(json.dumps(av_result), status=200, mimetype="application/json")
-            resp.headers["Access-Control-Allow-Origin"] = "*"
-            return resp
-
-    # Final fallback: generate demo data
-    hist = _demo.generate(symbol)
-    name = _demo.name(symbol)
-    timestamps = [int(ts.timestamp()) for ts in hist.index]
-    result = {
+    closes = normalised["closes"]
+    timestamps = normalised.get("timestamps") or []
+    if len(timestamps) != len(closes) or not all(timestamps):
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        timestamps = [now_ts - (len(closes) - 1 - i) * 86400 for i in range(len(closes))]
+    return jsonify({
         "chart": {
             "result": [{
                 "meta": {
-                    "symbol": symbol.upper(),
-                    "longName": name,
-                    "regularMarketPrice": float(hist["Close"].iloc[-1]),
-                    "previousClose": float(hist["Close"].iloc[-2]),
-                    "currency": "USD",
-                    "_demo": True,
+                    "symbol": symbol,
+                    "longName": symbol,
+                    "regularMarketPrice": closes[-1],
+                    "previousClose": closes[-2] if len(closes) > 1 else closes[-1],
+                    "currency": "TWD" if symbol.endswith((".TW", ".TWO")) else "USD",
+                    "_source": normalised.get("source", "unknown"),
+                    "_demo": bool(normalised.get("is_demo", False)),
                 },
                 "timestamp": timestamps,
                 "indicators": {
                     "quote": [{
-                        "open":   hist["Open"].round(4).tolist(),
-                        "high":   hist["High"].round(4).tolist(),
-                        "low":    hist["Low"].round(4).tolist(),
-                        "close":  hist["Close"].round(4).tolist(),
-                        "volume": hist["Volume"].astype(int).tolist(),
-                    }]
-                }
+                        "open": normalised.get("opens", closes),
+                        "high": normalised.get("highs", closes),
+                        "low": normalised.get("lows", closes),
+                        "close": closes,
+                        "volume": normalised.get("volumes", [0] * len(closes)),
+                    }],
+                    "adjclose": [{"adjclose": closes}],
+                },
             }],
-            "error": None
+            "error": None,
         }
-    }
-    return jsonify(result)
+    })
 
 
 # ── AI Analysis endpoint ───────────────────────────────────────────────────────
@@ -1421,8 +1673,13 @@ def chart_proxy(symbol):
 @app.route("/api/analyze", methods=["POST"])
 def api_analyze():
     try:
+        limited = _rate_limit("analyze", 12, 60)
+        if limited is not None:
+            return limited
         payload = request.json or {}
         sym = str(payload.get("symbol", "")).upper().strip()
+        if sym and not re.fullmatch(r"[A-Z0-9.\-]{1,20}", sym):
+            return jsonify({"ok": False, "error": "invalid symbol"}), 400
 
         if sym:
             # Merge any pre-supplied decision_results from the frontend.
@@ -1515,36 +1772,118 @@ def api_signals():
 
 # ── Backtest endpoint ─────────────────────────────────────────────────────────
 
+def _normalised_ohlcv_rows(data: dict) -> list[dict]:
+    """Convert data_provider output to the row format used by backtest.py."""
+    closes = data.get("closes") or []
+    opens = data.get("opens") or closes
+    highs = data.get("highs") or closes
+    lows = data.get("lows") or closes
+    volumes = data.get("volumes") or [0] * len(closes)
+    timestamps = data.get("timestamps") or []
+    rows = []
+    for i, close in enumerate(closes):
+        if i < len(timestamps) and timestamps[i]:
+            date = datetime.fromtimestamp(timestamps[i], tz=timezone.utc).strftime("%Y-%m-%d")
+        else:
+            date = str(i)
+        rows.append({
+            "date": date,
+            "open": float(opens[i] if i < len(opens) else close),
+            "high": float(highs[i] if i < len(highs) else close),
+            "low": float(lows[i] if i < len(lows) else close),
+            "close": float(close),
+            "volume": int(volumes[i] if i < len(volumes) else 0),
+        })
+    return rows
+
+
+def _validated_ohlcv_rows(rows: list) -> list[dict] | None:
+    """Return bounded, finite OHLCV rows or None when any candle is invalid."""
+    if not 30 <= len(rows) <= 10_000:
+        return None
+    clean = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            return None
+        try:
+            open_price = float(row.get("open", row["close"]))
+            high = float(row.get("high", row["close"]))
+            low = float(row.get("low", row["close"]))
+            close = float(row["close"])
+            volume = max(0, int(float(row.get("volume", 0))))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return None
+        prices = (open_price, high, low, close)
+        if (
+            not all(np.isfinite(value) and value > 0 for value in prices)
+            or low > min(open_price, close)
+            or high < max(open_price, close)
+            or high < low
+        ):
+            return None
+        clean.append({
+            "date": str(row.get("date", index))[:40],
+            "open": open_price,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        })
+    return clean
+
+
 @app.route("/api/backtest", methods=["POST"])
 def api_backtest():
     try:
+        limited = _rate_limit("backtest", 10, 60)
+        if limited is not None:
+            return limited
         payload = request.json or {}
-        symbol   = payload.get("symbol", "NVDA").upper()
+        symbol   = str(payload.get("symbol", "NVDA")).upper().strip()
         strategy = payload.get("strategy", "rsi")
         params   = payload.get("params", {})
         ohlcv    = payload.get("ohlcv")   # sent from frontend
+        is_demo = bool(payload.get("is_demo", False))
+        data_source = "client"
+
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,20}", symbol):
+            return jsonify({"ok": False, "error": "invalid symbol"}), 400
+        if strategy not in _bt.STRATEGIES:
+            return jsonify({"ok": False, "error": "unknown strategy"}), 400
+        if not isinstance(params, dict):
+            return jsonify({"ok": False, "error": "params must be an object"}), 400
+        if ohlcv is not None and not isinstance(ohlcv, list):
+            return jsonify({"ok": False, "error": "ohlcv must be an array"}), 400
 
         if not ohlcv:
-            # Fall back to demo data when frontend doesn't send OHLCV
-            hist = _demo.generate(symbol)
-            ohlcv = [
-                {
-                    "date":   row.Index.strftime("%Y-%m-%d"),
-                    "open":   float(row.Open),
-                    "high":   float(row.High),
-                    "low":    float(row.Low),
-                    "close":  float(row.Close),
-                    "volume": int(row.Volume),
-                }
-                for row in hist.itertuples()
-            ]
+            normalised = _dp.get_ohlcv(symbol, str(payload.get("period", "5y")))
+            if not normalised:
+                return jsonify({
+                    "ok": False,
+                    "error": f"無法取得 {symbol} 的真實歷史資料，回測已停止",
+                }), 503
+            ohlcv = _normalised_ohlcv_rows(normalised)
+            is_demo = bool(normalised.get("is_demo", False))
+            data_source = normalised.get("source", "unknown")
 
-        cost_params = payload.get("cost_params") or {}
+        ohlcv = _validated_ohlcv_rows(ohlcv)
+        if ohlcv is None:
+            return jsonify({"ok": False, "error": "OHLCV 格式錯誤或資料量不合理"}), 400
+
+        raw_cost_params = payload.get("cost_params") or {}
+        if not isinstance(raw_cost_params, dict):
+            return jsonify({"ok": False, "error": "cost_params must be an object"}), 400
+        cost_params = dict(raw_cost_params)
         if cost_params and not cost_params.get("symbol"):
             cost_params["symbol"] = symbol
 
         result = _bt.run(ohlcv, strategy, params, cost_params=cost_params if cost_params.get("enabled") else None)
-        return jsonify({"ok": True, **result})
+        return jsonify({
+            "ok": True,
+            **result,
+            "is_demo": is_demo,
+            "data_source": data_source,
+        })
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -1744,13 +2083,22 @@ def api_news(symbol):
 @app.route("/api/walkforward", methods=["POST"])
 def api_walkforward():
     try:
+        limited = _rate_limit("walkforward", 4, 60)
+        if limited is not None:
+            return limited
         payload   = request.json or {}
         strategy  = payload.get("strategy", "decision_core")
         ohlcv     = payload.get("ohlcv")
         params    = payload.get("params", {})
         train_pct = float(payload.get("train_pct", 0.7))
-        if not ohlcv:
-            return jsonify({"ok": False, "error": "ohlcv required"}), 400
+        if strategy not in _bt.STRATEGIES:
+            return jsonify({"ok": False, "error": "unknown strategy"}), 400
+        if not isinstance(params, dict):
+            return jsonify({"ok": False, "error": "params must be an object"}), 400
+        if not isinstance(ohlcv, list) or (ohlcv := _validated_ohlcv_rows(ohlcv)) is None:
+            return jsonify({"ok": False, "error": "valid ohlcv required"}), 400
+        if not 0.5 <= train_pct <= 0.9:
+            return jsonify({"ok": False, "error": "train_pct must be between 0.5 and 0.9"}), 400
         result = _bt.walk_forward(ohlcv, strategy, train_pct, params)
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -1763,12 +2111,22 @@ def api_walkforward():
 @app.route("/api/optimize", methods=["POST"])
 def api_optimize():
     try:
+        limited = _rate_limit("optimize", 3, 60)
+        if limited is not None:
+            return limited
         payload  = request.json or {}
         strategy = payload.get("strategy", "decision_core_v2")
         metric   = payload.get("metric", "win_rate")
         ohlcv    = payload.get("ohlcv")
-        if not ohlcv:
-            return jsonify({"ok": False, "error": "ohlcv required"}), 400
+        if strategy not in _bt.STRATEGIES:
+            return jsonify({"ok": False, "error": "unknown strategy"}), 400
+        if metric not in {
+            "win_rate", "total_return", "sharpe", "sortino",
+            "calmar", "profit_factor", "expectancy",
+        }:
+            return jsonify({"ok": False, "error": "unknown metric"}), 400
+        if not isinstance(ohlcv, list) or (ohlcv := _validated_ohlcv_rows(ohlcv)) is None:
+            return jsonify({"ok": False, "error": "valid ohlcv required"}), 400
         result = _bt.optimize_parameters(ohlcv, strategy, metric)
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -1818,16 +2176,45 @@ def api_trade_orders():
 @app.route("/api/trade/execute", methods=["POST"])
 def api_trade_execute():
     try:
+        limited = _rate_limit("trade_execute", 10, 60)
+        if limited is not None:
+            return limited
         payload = request.json or {}
-        symbol  = payload.get("symbol", "").upper()
-        entry   = float(payload.get("entry", 0))
-        stop    = float(payload.get("stop",  0))
-        target  = float(payload.get("target", 0))
-        note    = payload.get("note", "")
-        if not symbol or not entry or not stop:
-            return jsonify({"ok": False, "error": "symbol / entry / stop required"}), 400
+        symbol  = str(payload.get("symbol", "")).upper().strip()
+        try:
+            entry   = float(payload.get("entry", 0))
+            stop    = float(payload.get("stop",  0))
+            target  = float(payload.get("target", 0))
+        except (TypeError, ValueError, OverflowError):
+            return jsonify({"ok": False, "error": "entry / stop / target 必須是數字"}), 400
+        note    = str(payload.get("note", ""))[:500]
+        if (
+            not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,14}", symbol)
+            or not all(np.isfinite(value) for value in (entry, stop, target))
+            or entry <= 0
+            or stop <= 0
+            or stop >= entry
+            or (target and target <= entry)
+        ):
+            return jsonify({
+                "ok": False,
+                "error": "需要有效的 symbol，且必須符合 stop < entry < target",
+            }), 400
 
         engine = _trader.get_engine()
+        confirm_live = (
+            payload.get("confirm_live") is True
+            and hmac.compare_digest(
+                str(payload.get("confirmation", "")),
+                "EXECUTE LIVE ORDER",
+            )
+        )
+        if not engine.simulation and not engine.is_paper and not confirm_live:
+            return jsonify({
+                "ok": False,
+                "blocked": True,
+                "error": "真實交易需要逐筆明確確認",
+            }), 403
         rm     = _rm.get_risk_manager()
         acct   = engine.get_account()
         equity = acct.get("equity", 0)
@@ -1843,8 +2230,17 @@ def api_trade_execute():
         if not ok:
             return jsonify({"ok": False, "blocked": True, "reason": details.get("reason"), "details": details})
 
-        result = engine.submit_order(symbol, shares, entry, stop, target or entry * 1.1, note)
-        return jsonify({"ok": True, **result, "risk_details": details})
+        result = engine.submit_order(
+            symbol,
+            shares,
+            entry,
+            stop,
+            target or entry * 1.1,
+            note,
+            confirm_live=confirm_live,
+        )
+        status = 200 if result.get("ok") else (403 if result.get("blocked") else 400)
+        return jsonify({**result, "risk_details": details}), status
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -1853,12 +2249,24 @@ def api_trade_execute():
 @app.route("/api/trade/close", methods=["POST"])
 def api_trade_close():
     try:
-        symbol = (request.json or {}).get("symbol", "").upper()
-        if not symbol:
-            return jsonify({"ok": False, "error": "symbol required"}), 400
+        limited = _rate_limit("trade_close", 10, 60)
+        if limited is not None:
+            return limited
+        payload = request.json or {}
+        symbol = str(payload.get("symbol", "")).upper().strip()
+        if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,14}", symbol):
+            return jsonify({"ok": False, "error": "valid symbol required"}), 400
         engine = _trader.get_engine()
-        result = engine.close_position(symbol)
-        return jsonify(result)
+        confirm_live = (
+            payload.get("confirm_live") is True
+            and hmac.compare_digest(
+                str(payload.get("confirmation", "")),
+                "EXECUTE LIVE ORDER",
+            )
+        )
+        result = engine.close_position(symbol, confirm_live=confirm_live)
+        status = 200 if result.get("ok") else (403 if result.get("blocked") else 400)
+        return jsonify(result), status
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -1867,11 +2275,20 @@ def api_trade_close():
 def api_risk_check():
     try:
         payload = request.json or {}
-        entry   = float(payload.get("entry", 0))
-        stop    = float(payload.get("stop",  0))
-        capital = float(payload.get("capital", 0))
-        if not entry or not stop or not capital:
-            return jsonify({"ok": False, "error": "entry / stop / capital required"}), 400
+        try:
+            entry   = float(payload.get("entry", 0))
+            stop    = float(payload.get("stop",  0))
+            capital = float(payload.get("capital", 0))
+        except (TypeError, ValueError, OverflowError):
+            return jsonify({"ok": False, "error": "entry / stop / capital 必須是數字"}), 400
+        if (
+            not all(np.isfinite(v) for v in (entry, stop, capital))
+            or entry <= 0
+            or stop <= 0
+            or stop >= entry
+            or capital <= 0
+        ):
+            return jsonify({"ok": False, "error": "需要符合 0 < stop < entry，且 capital > 0"}), 400
         rm = _rm.get_risk_manager()
         shares, details = rm.calc_shares(capital, entry, stop)
         return jsonify({"ok": True, "shares": shares, **details})
@@ -1892,8 +2309,17 @@ def api_scheduler_status():
 @app.route("/api/scheduler/scan", methods=["POST"])
 def api_scheduler_scan():
     try:
+        limited = _rate_limit("scheduler_scan", 2, 60)
+        if limited is not None:
+            return limited
         payload = request.json or {}
         syms    = payload.get("symbols")    # optional custom list
+        if syms is not None:
+            if not isinstance(syms, list) or len(syms) > 50:
+                return jsonify({"ok": False, "error": "symbols must be an array of at most 50"}), 400
+            syms = [str(s).upper().strip() for s in syms]
+            if any(not re.fullmatch(r"[A-Z0-9.\-]{1,20}", s) for s in syms):
+                return jsonify({"ok": False, "error": "invalid symbol"}), 400
         import threading
         t = threading.Thread(target=_sched.trigger_scan_now, args=(syms,), daemon=True)
         t.start()
@@ -1944,15 +2370,20 @@ def api_env_check():
     """
     Returns which environment variables are set (bool only, no values).
     Also checks OHLCV data source and Railway Volume path.
-    No auth required — safe, shows no secret values.
+    Shows presence only, never secret values.
     """
-    import shutil
-
     spy_ohlcv   = _get_ohlcv_norm("SPY")
     spy_source  = (spy_ohlcv or {}).get("source", "none")
     spy_is_demo = (spy_ohlcv or {}).get("is_demo", True)
 
     db_path = os.path.abspath(_USER_DATA_DB)
+    volume_path = os.path.abspath(_RAILWAY_VOLUME) if _RAILWAY_VOLUME else ""
+    try:
+        db_is_persistent = bool(
+            volume_path and os.path.commonpath([db_path, volume_path]) == volume_path
+        )
+    except ValueError:
+        db_is_persistent = False
     db_exists = os.path.isfile(db_path)
     db_size_kb = round(os.path.getsize(db_path) / 1024, 1) if db_exists else 0
 
@@ -1965,12 +2396,14 @@ def api_env_check():
             "ANTHROPIC_API_KEY": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "ALPHA_VANTAGE_KEY": bool(os.environ.get("ALPHA_VANTAGE_KEY")),
             "FINNHUB_KEY":       bool(os.environ.get("FINNHUB_KEY")),
-            "LINE_NOTIFY_TOKEN": bool(os.environ.get("LINE_NOTIFY_TOKEN")),
+            "LINE_CHANNEL_ACCESS_TOKEN": bool(os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")),
+            "LINE_USER_ID":      bool(os.environ.get("LINE_USER_ID")),
             "SMTP_HOST":         bool(os.environ.get("SMTP_HOST")),
             "SMTP_USER":         bool(os.environ.get("SMTP_USER")),
             "SMTP_PASS":         bool(os.environ.get("SMTP_PASS")),
             "USER_DATA_DB":      bool(os.environ.get("USER_DATA_DB")),
             "SCHEDULER_ENABLE":  os.environ.get("SCHEDULER_ENABLE", "false"),
+            "BACKGROUND_WORKERS_ENABLE": os.environ.get("BACKGROUND_WORKERS_ENABLE", "false"),
         },
         "data": {
             "spy_source":  spy_source,
@@ -1981,7 +2414,8 @@ def api_env_check():
             "path":      db_path,
             "exists":    db_exists,
             "size_kb":   db_size_kb,
-            "persistent": not db_path.startswith("/tmp"),
+            "persistent": db_is_persistent,
+            "volume_configured": bool(volume_path),
         },
     })
 
@@ -2076,13 +2510,25 @@ def api_stream():
 @app.route("/api/analyst/start", methods=["POST"])
 def api_analyst_start():
     try:
+        limited = _rate_limit("analyst_start", 3, 600)
+        if limited is not None:
+            return limited
         import analyst as _analyst
         payload  = request.json or {}
-        report   = payload.get("report", "").strip()
-        podcast  = payload.get("podcast", "").strip()
+        report_raw = payload.get("report", "")
+        podcast_raw = payload.get("podcast", "")
+        if not isinstance(report_raw, str) or not isinstance(podcast_raw, str):
+            return jsonify({"ok": False, "error": "report / podcast must be text"}), 400
+        report   = report_raw.strip()
+        podcast  = podcast_raw.strip()
         model    = payload.get("model", "claude-haiku-4-5-20251001")
+        allowed_models = {"claude-haiku-4-5-20251001", "claude-sonnet-4-6"}
+        if model not in allowed_models:
+            return jsonify({"ok": False, "error": "unsupported model"}), 400
         if not report and not podcast:
             return jsonify({"ok": False, "error": "請提供產業報告或 Podcast 內容"}), 400
+        if len(report) + len(podcast) > 40_000:
+            return jsonify({"ok": False, "error": "輸入內容過長（合計最多 40000 字元）"}), 400
         job_id = _analyst.start_job(report, podcast, model)
         return jsonify({"ok": True, "job_id": job_id})
     except Exception as e:
@@ -2102,9 +2548,15 @@ def api_analyst_config():
 def api_analyst_fetch():
     """Auto-fetch industry reports and Gooaye Podcast content."""
     try:
+        limited = _rate_limit("analyst_fetch", 2, 300)
+        if limited is not None:
+            return limited
         import fetcher as _fetcher
         payload = request.json or {}
-        topic   = payload.get("topic", "半導體 AI 科技").strip() or "半導體 AI 科技"
+        topic_raw = payload.get("topic", "半導體 AI 科技")
+        if not isinstance(topic_raw, str):
+            return jsonify({"ok": False, "error": "topic must be text"}), 400
+        topic = topic_raw.strip()[:120] or "半導體 AI 科技"
         result  = _fetcher.fetch_all(topic)
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -2116,6 +2568,8 @@ def api_analyst_fetch():
 def api_analyst_stream(job_id):
     import analyst as _analyst
     import queue as _queue
+    if not re.fullmatch(r"[0-9a-f]{8}", job_id):
+        return jsonify({"ok": False, "error": "invalid job id"}), 400
     q = _analyst.get_queue(job_id)
     if q is None:
         return jsonify({"ok": False, "error": "job not found"}), 404
@@ -2143,6 +2597,9 @@ def api_analyst_stream(job_id):
 @app.route("/api/optimizer/run", methods=["POST"])
 def api_optimizer_run():
     try:
+        limited = _rate_limit("advanced_optimizer", 2, 60)
+        if limited is not None:
+            return limited
         import optimizer as _opt
         payload  = request.json or {}
         analysis = payload.get("analysis", "rolling_wf")
@@ -2150,8 +2607,14 @@ def api_optimizer_run():
         strategy = payload.get("strategy", "decision_core_v3")
         trades   = payload.get("trades", [])
 
-        if not ohlcv:
-            return jsonify({"ok": False, "error": "ohlcv required"}), 400
+        if strategy not in _bt.STRATEGIES:
+            return jsonify({"ok": False, "error": "unknown strategy"}), 400
+        if not isinstance(ohlcv, list) or (ohlcv := _validated_ohlcv_rows(ohlcv)) is None:
+            return jsonify({"ok": False, "error": "valid ohlcv required"}), 400
+        if analysis not in {"rolling_wf", "monte_carlo", "regime", "stability"}:
+            return jsonify({"ok": False, "error": "unknown analysis"}), 400
+        if not isinstance(trades, list) or len(trades) > 10_000:
+            return jsonify({"ok": False, "error": "invalid trades"}), 400
 
         if analysis == "rolling_wf":
             result = _opt.rolling_walk_forward(ohlcv, strategy)
@@ -2182,10 +2645,20 @@ def api_optimizer_run():
 def api_translate_news():
     """Batch-translate English news headlines to Traditional Chinese using Claude Haiku."""
     try:
+        limited = _rate_limit("translate_news", 8, 60)
+        if limited is not None:
+            return limited
         import re as _re
-        titles = (request.json or {}).get("titles", [])[:20]
+        titles_raw = (request.json or {}).get("titles", [])
+        if not isinstance(titles_raw, list):
+            return jsonify({"ok": False, "error": "titles must be an array"}), 400
+        if any(not isinstance(title, str) for title in titles_raw[:20]):
+            return jsonify({"ok": False, "error": "titles must contain text only"}), 400
+        titles = [title.strip()[:300] for title in titles_raw[:20] if title.strip()]
         if not titles:
-            return jsonify({"ok": False, "error": "no titles"})
+            return jsonify({"ok": False, "error": "no titles"}), 400
+        if sum(map(len, titles)) > 4_000:
+            return jsonify({"ok": False, "error": "titles are too long"}), 400
         key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not key:
             return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"})
@@ -2308,24 +2781,24 @@ def api_batch_backtest_4d():
     Returns per-symbol stats + aggregate summary.
     """
     try:
+        limited = _rate_limit("batch_backtest", 3, 60)
+        if limited is not None:
+            return limited
         payload  = request.json or {}
-        symbols  = [s.upper() for s in (payload.get("symbols") or [])[:12]]
+        raw_symbols = payload.get("symbols") or []
+        if not isinstance(raw_symbols, list):
+            return jsonify({"ok": False, "error": "symbols must be an array"}), 400
+        symbols = list(dict.fromkeys(str(s).upper().strip() for s in raw_symbols[:12] if str(s).strip()))
         if not symbols:
             return jsonify({"ok": False, "error": "no symbols provided"}), 400
 
         results = []
 
         def _run_one(sym):
-            ohlcv = _fetch_ohlcv_server(sym)
-            if not ohlcv:
-                hist = _demo.generate(sym, n=1260)  # 5 years of trading days
-                ohlcv = [
-                    {"date": row.Index.strftime("%Y-%m-%d"),
-                     "open": float(row.Open), "high": float(row.High),
-                     "low":  float(row.Low),  "close": float(row.Close),
-                     "volume": int(row.Volume)}
-                    for row in hist.itertuples()
-                ]
+            normalised = _dp.get_ohlcv(sym, "5y")
+            if not normalised:
+                return {"symbol": sym, "error": "無法取得真實歷史資料"}
+            ohlcv = _normalised_ohlcv_rows(normalised)
             r = _bt.run(ohlcv, "decision_core", {})
             return {
                 "symbol":        sym,
@@ -2337,7 +2810,8 @@ def api_batch_backtest_4d():
                 "sharpe":        round(r.get("sharpe", 0), 2),
                 "expectancy":    round(r.get("expectancy", 0), 2),
                 "bh_return":     round(r.get("bh_return", 0), 2),
-                "is_demo":       len(ohlcv) > 0 and ohlcv[0].get("date","").startswith("20"),
+                "is_demo":       bool(normalised.get("is_demo", False)),
+                "data_source":   normalised.get("source", "unknown"),
             }
 
         with ThreadPoolExecutor(max_workers=4) as ex:
@@ -2372,6 +2846,9 @@ def api_batch_backtest_4d():
 def api_trump_picks():
     """Fetch Trump's Truth Social posts and extract stock signals."""
     try:
+        limited = _rate_limit("trump_picks", 2, 300)
+        if limited is not None:
+            return limited
         import trump as _trump
         result = _trump.fetch_and_analyze()
         return jsonify(result)
@@ -2387,12 +2864,17 @@ def api_catalyst(symbol):
     Returns structured JSON with theme, catalysts, bull/bear summary.
     """
     try:
+        limited = _rate_limit("catalyst", 6, 60)
+        if limited is not None:
+            return limited
         key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not key:
             return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"}), 400
         from anthropic import Anthropic
         client = Anthropic(api_key=key)
-        symbol = symbol.upper()[:10]
+        symbol = symbol.upper().strip()
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,10}", symbol):
+            return jsonify({"ok": False, "error": "invalid symbol"}), 400
         prompt = (
             f"請用繁體中文分析 {symbol} 這支股票的題材與催化劑，輸出 JSON（只輸出純 JSON，不加說明）：\n"
             "{\n"
@@ -2429,12 +2911,17 @@ def api_catalyst(symbol):
 def api_deep_news(symbol):
     """Deep news search for a symbol using Claude web search (requires API key)."""
     try:
+        limited = _rate_limit("deep_news", 6, 60)
+        if limited is not None:
+            return limited
         key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not key:
             return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"}), 400
         from anthropic import Anthropic
         client = Anthropic(api_key=key)
-        symbol = symbol.upper()[:10]
+        symbol = symbol.upper().strip()
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,10}", symbol):
+            return jsonify({"ok": False, "error": "invalid symbol"}), 400
         prompt = (
             f"請搜尋 {symbol} 這支股票的最新資訊，整理成簡潔的投資參考摘要：\n"
             "1. 最新重大新聞（近2週）\n"
@@ -2478,13 +2965,20 @@ def _claude_error_msg(e: Exception) -> str:
 def api_chat():
     """Conversational Claude endpoint for stock Q&A."""
     try:
+        limited = _rate_limit("chat", 12, 60)
+        if limited is not None:
+            return limited
         key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not key:
             return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"}), 400
         from anthropic import Anthropic
         payload = request.json or {}
-        message = (payload.get("message") or "").strip()[:1000]
-        context = (payload.get("context") or "").strip()[:200]
+        message_raw = payload.get("message") or ""
+        context_raw = payload.get("context") or ""
+        if not isinstance(message_raw, str) or not isinstance(context_raw, str):
+            return jsonify({"ok": False, "error": "message / context must be text"}), 400
+        message = message_raw.strip()[:1000]
+        context = context_raw.strip()[:200]
         if not message:
             return jsonify({"ok": False, "error": "message required"}), 400
         client = Anthropic(api_key=key)
@@ -2513,6 +3007,9 @@ def api_chat():
 def api_daily_report():
     """Generate a daily market summary. Cached 2 hours."""
     try:
+        limited = _rate_limit("market_daily_report", 2, 300)
+        if limited is not None:
+            return limited
         key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not key:
             return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"}), 400
@@ -2556,13 +3053,15 @@ def api_notes_get():
 @app.route("/api/notes/<symbol>", methods=["POST", "DELETE"])
 def api_note_update(symbol):
     symbol = symbol.upper()[:20]
+    if not re.fullmatch(r"[A-Z0-9.\-]{1,20}", symbol):
+        return jsonify(ok=False, error="invalid symbol"), 400
     data = _load_user_data()
     notes = data.get("stock_notes", {})
     if request.method == "DELETE":
         notes.pop(symbol, None)
     else:
         body = request.get_json(force=True, silent=True) or {}
-        note = (body.get("note") or "").strip()[:500]
+        note = str(body.get("note") or "").strip()[:500]
         if note:
             notes[symbol] = {"note": note, "updated": datetime.now().strftime("%Y-%m-%d %H:%M")}
         else:
@@ -2581,17 +3080,26 @@ def api_price_alerts_get():
 @app.route("/api/price-alerts", methods=["POST"])
 def api_price_alerts_add():
     body = request.get_json(force=True, silent=True) or {}
-    symbol  = (body.get("symbol") or "").upper().strip()[:20]
-    target  = float(body.get("target", 0))
+    symbol  = str(body.get("symbol") or "").upper().strip()[:20]
+    try:
+        target = float(body.get("target", 0))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="target 必須是數字"), 400
     direction = body.get("direction", "above")  # "above" | "below"
-    note    = (body.get("note") or "").strip()[:100]
-    if not symbol or target <= 0:
+    note    = str(body.get("note") or "").strip()[:100]
+    if (
+        not re.fullmatch(r"[A-Z0-9.\-]{1,20}", symbol)
+        or not np.isfinite(target)
+        or target <= 0
+        or direction not in {"above", "below"}
+    ):
         return jsonify(ok=False, error="需要 symbol 和 target"), 400
     data = _load_user_data()
     alerts = data.get("price_alerts", [])
     alerts = [a for a in alerts if not (a["symbol"] == symbol and a["direction"] == direction)]
     alerts.append({"symbol": symbol, "target": target, "direction": direction,
                    "note": note, "created": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    alerts = alerts[-100:]
     _save_user_data({"price_alerts": alerts})
     return jsonify(ok=True)
 
@@ -2642,6 +3150,47 @@ def api_earnings(symbol):
 
 # ── Price alert background checker ────────────────────────────────────────────
 
+_BACKGROUND_WORKERS_ENABLED = (
+    os.environ.get(
+        "BACKGROUND_WORKERS_ENABLE",
+        os.environ.get("SCHEDULER_ENABLE", "false"),
+    ).lower()
+    == "true"
+)
+
+
+def _line_configured() -> bool:
+    return bool(
+        os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
+        and os.environ.get("LINE_USER_ID", "").strip()
+    )
+
+
+def _send_line_message(message: str) -> tuple[bool, str]:
+    """Push a text message through LINE Messaging API using server secrets."""
+    token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
+    recipient = os.environ.get("LINE_USER_ID", "").strip()
+    if not token or not recipient:
+        return False, "LINE Messaging API 未設定"
+    try:
+        response = _req.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "to": recipient,
+                "messages": [{"type": "text", "text": str(message)[:5000]}],
+            },
+            timeout=10,
+        )
+        if response.status_code == 200:
+            return True, ""
+        return False, f"LINE HTTP {response.status_code}: {response.text[:100]}"
+    except Exception as exc:
+        return False, f"LINE error: {str(exc)[:80]}"
+
 def _run_price_alert_checker():
     """Check price alerts every 10 minutes and send notifications when triggered."""
     _time.sleep(30)  # wait for app to boot
@@ -2677,20 +3226,14 @@ def _run_price_alert_checker():
                         try: s = json.loads(s)
                         except Exception: s = {}
                     email = s.get("email", "")
-                    line_token = s.get("lineToken", "") or os.environ.get("LINE_NOTIFY_TOKEN", "")
                     signals = [{"symbol": a["symbol"],
                                 "note": f"價格警報：{'高於' if a['direction']=='above' else '低於'} "
                                         f"${a['target']} (現價 ${a['current_price']:.2f})"
                                         f"{' — '+a['note'] if a.get('note') else ''}"}
                                for a in triggered]
-                    if email or line_token:
-                        with app.app_context():
-                            _req.post(
-                                "http://localhost:" + str(int(os.environ.get("PORT", 8080))),
-                                timeout=5)
-                        # Use internal send logic directly
+                    if email or _line_configured():
                         try:
-                            _send_alerts_internal(signals, email, line_token)
+                            _send_alerts_internal(signals, email)
                         except Exception:
                             pass
                     print(f"[PRICE ALERT] Triggered: {[a['symbol'] for a in triggered]}", flush=True)
@@ -2698,14 +3241,12 @@ def _run_price_alert_checker():
             pass
         _time.sleep(600)  # 10 minutes
 
-def _send_alerts_internal(signals, email, line_token):
+def _send_alerts_internal(signals, email):
     """Shared alert sending logic (reused by price alert checker)."""
     msg_lines = ["📊 Scott 價格警報"] + [f"  • {s['symbol']}: {s['note']}" for s in signals]
     msg = "\n".join(msg_lines)
-    if line_token:
-        _req.post("https://notify-api.line.me/api/notify",
-                  headers={"Authorization": f"Bearer {line_token}"},
-                  data={"message": "\n" + msg}, timeout=10)
+    if _line_configured():
+        _send_line_message(msg)
     if email:
         smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
         smtp_port = int(os.environ.get("SMTP_PORT", 587))
@@ -2722,8 +3263,14 @@ def _send_alerts_internal(signals, email, line_token):
                 srv.login(smtp_user, smtp_pass)
                 srv.sendmail(smtp_user, [email], m.as_string())
 
-_price_alert_thread = _threading.Thread(target=_run_price_alert_checker, daemon=True)
-_price_alert_thread.start()
+_price_alert_thread = None
+if _BACKGROUND_WORKERS_ENABLED:
+    _price_alert_thread = _threading.Thread(
+        target=_run_price_alert_checker,
+        daemon=True,
+        name="price-alert-checker",
+    )
+    _price_alert_thread.start()
 
 
 # ── Decision-alert background scanner ─────────────────────────────────────────
@@ -2743,14 +3290,12 @@ def _send_decision_alert(alert):
             try: s = json.loads(s)
             except Exception: s = {}
         email_to   = s.get("email", "")
-        line_token = s.get("lineToken", "") or os.environ.get("LINE_NOTIFY_TOKEN", "")
-
-        if line_token:
+        if _line_configured():
             try:
                 msg = _af.format_line(alert)
-                _req.post("https://notify-api.line.me/api/notify",
-                          headers={"Authorization": f"Bearer {line_token}"},
-                          data={"message": msg}, timeout=10)
+                ok, error = _send_line_message(msg)
+                if not ok:
+                    raise RuntimeError(error)
             except Exception as _le:
                 print(f"[DECISION ALERT] LINE send failed: {_le}", flush=True)
 
@@ -2799,46 +3344,53 @@ def _run_decision_alert_scanner():
         _time.sleep(600)   # 10 minutes
 
 
-_decision_alert_thread = _threading.Thread(target=_run_decision_alert_scanner, daemon=True)
-_decision_alert_thread.start()
+_decision_alert_thread = None
+if _BACKGROUND_WORKERS_ENABLED:
+    _decision_alert_thread = _threading.Thread(
+        target=_run_decision_alert_scanner,
+        daemon=True,
+        name="decision-alert-scanner",
+    )
+    _decision_alert_thread.start()
 
 
 # ── Alerts endpoint ────────────────────────────────────────────────────────────
 
 @app.route("/api/alerts/send", methods=["POST"])
 def api_alerts_send():
-    """Send alerts via email and/or LINE Notify."""
+    """Send alerts via email and/or server-configured LINE Messaging API."""
     try:
+        limited = _rate_limit("alerts_send", 10, 60)
+        if limited is not None:
+            return limited
         payload     = request.json or {}
         signals     = payload.get("signals", [])
         alert_type  = payload.get("type", "both")
-        email_to    = payload.get("email") or os.environ.get("ALERT_EMAIL_TO", "")
-        line_token  = payload.get("lineToken") or os.environ.get("LINE_NOTIFY_TOKEN", "")
+        email_to    = str(payload.get("email") or os.environ.get("ALERT_EMAIL_TO", ""))[:254]
         sent = []
         errors = []
 
+        if alert_type not in {"line", "email", "both"}:
+            return jsonify({"ok": False, "error": "invalid alert type"}), 400
+        if not isinstance(signals, list) or not signals:
+            return jsonify({"ok": False, "error": "signals must be a non-empty array"}), 400
+
         msg_lines = ["📈 Scott 股票訊號提醒"]
         for s in signals[:10]:
-            sym  = s.get("symbol", "")
-            note = s.get("note", "")
+            if not isinstance(s, dict):
+                continue
+            sym  = str(s.get("symbol", ""))[:20]
+            note = str(s.get("note", ""))[:500]
             msg_lines.append(f"• {sym}: {note}" if note else f"• {sym}")
         plain_text = "\n".join(msg_lines)
 
-        # ── LINE Notify ───────────────────────────────────────────────────────
-        if alert_type in ("line", "both") and line_token:
-            try:
-                lr = _req.post(
-                    "https://notify-api.line.me/api/notify",
-                    headers={"Authorization": f"Bearer {line_token}"},
-                    data={"message": "\n" + plain_text},
-                    timeout=10,
-                )
-                if lr.status_code == 200:
-                    sent.append("line")
-                else:
-                    errors.append(f"LINE {lr.status_code}: {lr.text[:100]}")
-            except Exception as ex:
-                errors.append(f"LINE error: {str(ex)[:80]}")
+        # ── LINE Messaging API ────────────────────────────────────────────────
+        if alert_type in ("line", "both"):
+            ok, error = _send_line_message(plain_text)
+            if ok:
+                sent.append("line")
+            elif error:
+                errors.append(error)
 
         # ── Email ─────────────────────────────────────────────────────────────
         if alert_type in ("email", "both") and email_to:
@@ -2851,9 +3403,9 @@ def api_alerts_send():
 
                 subject = f"📈 Scott 訊號 {datetime.now().strftime('%m/%d')}"
                 rows_html = "".join(
-                    f"<tr><td style='padding:6px 10px;border-bottom:1px solid #333;font-weight:700;color:#58a6ff'>{s.get('symbol','')}</td>"
-                    f"<td style='padding:6px 10px;border-bottom:1px solid #333;color:#e6edf3'>{s.get('note','')}</td></tr>"
-                    for s in signals[:10]
+                    f"<tr><td style='padding:6px 10px;border-bottom:1px solid #333;font-weight:700;color:#58a6ff'>{_html.escape(str(s.get('symbol',''))[:20])}</td>"
+                    f"<td style='padding:6px 10px;border-bottom:1px solid #333;color:#e6edf3'>{_html.escape(str(s.get('note',''))[:500])}</td></tr>"
+                    for s in signals[:10] if isinstance(s, dict)
                 )
                 html_body = f"""<div style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:20px;border-radius:10px">
 <h2 style="color:#58a6ff">📈 Scott 股票訊號提醒</h2>
@@ -2894,9 +3446,19 @@ def api_alerts_send():
 def api_alerts_schedule_status():
     if request.method == "POST":
         data = request.json or {}
+        if not isinstance(data, dict):
+            return jsonify({"ok": False, "error": "JSON object required"}), 400
+        enabled = data.get("enabled", _alert_schedule_settings["enabled"])
+        alert_time = data.get("time", _alert_schedule_settings["time"])
+        timezone_name = data.get("timezone", _alert_schedule_settings["timezone"])
+        if not isinstance(enabled, bool) or not _valid_hhmm(alert_time) or not _valid_timezone_name(timezone_name):
+            return jsonify({"ok": False, "error": "invalid schedule settings"}), 400
         _alert_schedule_settings.update({
-            k: data[k] for k in ("enabled", "time", "timezone") if k in data
+            "enabled": enabled,
+            "time": alert_time,
+            "timezone": timezone_name,
         })
+        _save_user_data({"alert_schedule_settings": _alert_schedule_settings})
     return jsonify({"ok": True, "settings": _alert_schedule_settings})
 
 
@@ -3208,6 +3770,9 @@ def api_decision_alerts_scan():
     if auth:
         return auth
     try:
+        limited = _rate_limit("stress_test", 4, 60)
+        if limited is not None:
+            return limited
         body     = request.json or {}
         symbol   = str(body.get("symbol", "") or "").upper().strip()
         pos_list = body.get("positions") or []
@@ -3442,6 +4007,36 @@ _daily_report_settings: dict = {
     },
 }
 
+_REPORT_TYPES = {"pre_market", "intraday", "post_market"}
+_REPORT_BOOLEAN_SETTINGS = {"enabled", "send_email", "send_line", "only_sa_alerts"}
+
+
+def _normalise_schedule_map(value, current: dict) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    result = dict(current)
+    for key, fire_time in value.items():
+        if key not in current or not _valid_hhmm(fire_time):
+            return None
+        result[key] = fire_time
+    return result
+
+
+_stored_daily_settings = _load_user_data().get("daily_report_settings", {})
+if isinstance(_stored_daily_settings, dict):
+    for _key in _REPORT_BOOLEAN_SETTINGS:
+        if isinstance(_stored_daily_settings.get(_key), bool):
+            _daily_report_settings[_key] = _stored_daily_settings[_key]
+    if _valid_timezone_name(_stored_daily_settings.get("timezone")):
+        _daily_report_settings["timezone"] = _stored_daily_settings["timezone"]
+    for _key in ("schedules", "tw_schedules"):
+        _schedule = _normalise_schedule_map(
+            _stored_daily_settings.get(_key),
+            _daily_report_settings[_key],
+        )
+        if _schedule is not None:
+            _daily_report_settings[_key] = _schedule
+
 
 def _make_ai_fn():
     """Return a callable that calls Claude API, or None if API key not set."""
@@ -3466,7 +4061,7 @@ def _make_ai_fn():
         return None
 
 
-def _run_daily_report(report_type: str) -> dict:
+def _run_daily_report(report_type: str, *, dispatch: bool = False) -> dict:
     """Generate a report and optionally dispatch it."""
     data     = _load_user_data()
     pos_list = data.get("holdings", [])
@@ -3491,7 +4086,11 @@ def _run_daily_report(report_type: str) -> dict:
 
     # Dispatch if settings allow
     s = _daily_report_settings
-    if not s.get("only_sa_alerts") or report.get("alerts_summary", {}).get("sa_count", 0) > 0:
+    should_dispatch = dispatch and (
+        not s.get("only_sa_alerts")
+        or report.get("alerts_summary", {}).get("sa_count", 0) > 0
+    )
+    if should_dispatch:
         if s.get("send_line"):
             _dispatch_report_line(report)
         if s.get("send_email"):
@@ -3505,20 +4104,15 @@ def _dispatch_report_line(report: dict):
         # Block in production when using demo data
         if _IS_PRODUCTION and report.get("is_demo"):
             print("[REPORT] LINE blocked: demo data in production", flush=True)
-            return
-        settings = _load_user_data().get("settings", {})
-        token = settings.get("lineToken", "") or os.environ.get("LINE_NOTIFY_TOKEN", "")
-        if not token:
-            return
+            return False
         msg = _dre.format_line(report)
-        _req.post(
-            "https://notify-api.line.me/api/notify",
-            headers={"Authorization": f"Bearer {token}"},
-            data={"message": msg},
-            timeout=8,
-        )
+        ok, error = _send_line_message(msg)
+        if not ok and error:
+            print(f"[REPORT] LINE send failed: {error}", flush=True)
+        return ok
     except Exception as e:
         print(f"[REPORT] LINE send failed: {e}", flush=True)
+        return False
 
 
 def _dispatch_report_email(report: dict):
@@ -3526,7 +4120,7 @@ def _dispatch_report_email(report: dict):
         # Block in production when using demo data
         if _IS_PRODUCTION and report.get("is_demo"):
             print("[REPORT] Email blocked: demo data in production", flush=True)
-            return
+            return False
         settings  = _load_user_data().get("settings", {})
         email_to  = settings.get("email", "") or os.environ.get("SMTP_USER", "")
         smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
@@ -3534,7 +4128,7 @@ def _dispatch_report_email(report: dict):
         smtp_user = os.environ.get("SMTP_USER", "")
         smtp_pass = os.environ.get("SMTP_PASS", "")
         if not (smtp_user and smtp_pass and email_to):
-            return
+            return False
         import email.mime.multipart as _mmp
         subject = _dre.format_email_subject(report)
         body    = _dre.format_email_body(report)
@@ -3544,12 +4138,14 @@ def _dispatch_report_email(report: dict):
         m["To"]      = email_to
         import email.mime.text as _emt
         m.attach(_emt.MIMEText(body, "plain", "utf-8"))
-        with smtplib.SMTP(smtp_host, smtp_port) as srv:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as srv:
             srv.starttls()
             srv.login(smtp_user, smtp_pass)
             srv.sendmail(smtp_user, [email_to], m.as_string())
+        return True
     except Exception as e:
         print(f"[REPORT] Email send failed: {e}", flush=True)
+        return False
 
 
 def _start_daily_report_scheduler():
@@ -3582,7 +4178,7 @@ def _start_daily_report_scheduler():
                     if hm == fire_time and key not in _fired_today:
                         _fired_today[key] = hm
                         try:
-                            _run_daily_report(actual_type)
+                            _run_daily_report(actual_type, dispatch=True)
                             print(f"[REPORT SCHEDULER] fired {actual_type} at {hm}", flush=True)
                         except Exception as exc:
                             print(f"[REPORT SCHEDULER] {actual_type} failed: {exc}", flush=True)
@@ -3597,9 +4193,12 @@ def _start_daily_report_scheduler():
 
     t = threading.Thread(target=_loop, daemon=True, name="daily-report-scheduler")
     t.start()
+    return t
 
 
-_start_daily_report_scheduler()
+_daily_report_thread = (
+    _start_daily_report_scheduler() if _BACKGROUND_WORKERS_ENABLED else None
+)
 
 
 @app.route("/api/daily-report/latest")
@@ -3610,6 +4209,8 @@ def api_daily_report_latest():
         return auth
     try:
         rtype = request.args.get("type") or None
+        if rtype is not None and rtype not in _REPORT_TYPES:
+            return jsonify({"ok": False, "error": "invalid report type"}), 400
         report = _dre.get_latest(report_type=rtype)
         if not report:
             return jsonify({"ok": False, "error": "尚無報告，請先產生"}), 404
@@ -3626,9 +4227,12 @@ def api_daily_report_generate():
     if auth:
         return auth
     try:
+        limited = _rate_limit("daily_report_generate", 2, 300)
+        if limited is not None:
+            return limited
         body        = request.json or {}
         report_type = str(body.get("type", "pre_market"))
-        if report_type not in ("pre_market", "intraday", "post_market"):
+        if report_type not in _REPORT_TYPES:
             return jsonify({"ok": False, "error": "type 必須為 pre_market / intraday / post_market"}), 400
         report = _run_daily_report(report_type)
         return jsonify({"ok": True, "report": report})
@@ -3644,20 +4248,32 @@ def api_daily_report_send():
     if auth:
         return auth
     try:
+        limited = _rate_limit("daily_report_send", 5, 60)
+        if limited is not None:
+            return limited
         body        = request.json or {}
         report_type = str(body.get("type", "pre_market"))
         channels    = body.get("channels") or ["line", "email"]
+        if report_type not in _REPORT_TYPES:
+            return jsonify({"ok": False, "error": "invalid report type"}), 400
+        if (
+            not isinstance(channels, list)
+            or not channels
+            or len(channels) > 2
+            or any(channel not in {"line", "email"} for channel in channels)
+        ):
+            return jsonify({"ok": False, "error": "channels must contain line and/or email"}), 400
         report = _dre.get_latest(report_type=report_type)
         if not report:
             return jsonify({"ok": False, "error": "找不到報告，請先產生"}), 404
         sent = []
         if "line" in channels:
-            _dispatch_report_line(report)
-            sent.append("LINE")
+            if _dispatch_report_line(report):
+                sent.append("LINE")
         if "email" in channels:
-            _dispatch_report_email(report)
-            sent.append("Email")
-        return jsonify({"ok": True, "sent": sent})
+            if _dispatch_report_email(report):
+                sent.append("Email")
+        return jsonify({"ok": bool(sent), "sent": sent})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -3670,7 +4286,7 @@ def api_daily_report_history():
     if auth:
         return auth
     try:
-        limit = int(request.args.get("limit", 30))
+        limit = min(100, max(1, int(request.args.get("limit", 30))))
         rows  = _dre.get_history(limit=limit)
         return jsonify({"ok": True, "reports": rows, "count": len(rows)})
     except Exception as e:
@@ -3685,12 +4301,33 @@ def api_daily_report_schedule():
     if auth:
         return auth
     try:
+        limited = _rate_limit("daily_report_schedule", 10, 60)
+        if limited is not None:
+            return limited
         body = request.json or {}
-        allowed = {"enabled", "timezone", "send_email", "send_line",
-                   "only_sa_alerts", "schedules", "tw_schedules"}
-        for k, v in body.items():
-            if k in allowed:
-                _daily_report_settings[k] = v
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "JSON object required"}), 400
+        allowed = _REPORT_BOOLEAN_SETTINGS | {"timezone", "schedules", "tw_schedules"}
+        if any(key not in allowed for key in body):
+            return jsonify({"ok": False, "error": "unknown schedule setting"}), 400
+        updated = dict(_daily_report_settings)
+        for key in _REPORT_BOOLEAN_SETTINGS:
+            if key in body:
+                if not isinstance(body[key], bool):
+                    return jsonify({"ok": False, "error": f"{key} must be boolean"}), 400
+                updated[key] = body[key]
+        if "timezone" in body:
+            if not _valid_timezone_name(body["timezone"]):
+                return jsonify({"ok": False, "error": "invalid timezone"}), 400
+            updated["timezone"] = body["timezone"]
+        for key in ("schedules", "tw_schedules"):
+            if key in body:
+                schedule = _normalise_schedule_map(body[key], _daily_report_settings[key])
+                if schedule is None:
+                    return jsonify({"ok": False, "error": f"invalid {key}"}), 400
+                updated[key] = schedule
+        _daily_report_settings.update(updated)
+        _save_user_data({"daily_report_settings": _daily_report_settings})
         return jsonify({"ok": True, "settings": _daily_report_settings})
     except Exception as e:
         traceback.print_exc()
@@ -3719,13 +4356,21 @@ def api_stress_test_run():
         scenario  = str(body.get("scenario", "market_crash"))
         shock_pct = body.get("shock_pct")
         benchmark = str(body.get("benchmark", "QQQ") or "QQQ").upper()
-        include_wl = bool(body.get("include_watchlist", True))
+        include_wl = body.get("include_watchlist", True)
 
+        if scenario not in _ste.SCENARIOS:
+            return jsonify({"ok": False, "error": "unknown scenario"}), 400
+        if not isinstance(include_wl, bool):
+            return jsonify({"ok": False, "error": "include_watchlist must be boolean"}), 400
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,20}", benchmark):
+            return jsonify({"ok": False, "error": "invalid benchmark"}), 400
         if shock_pct is not None:
             try:
                 shock_pct = float(shock_pct)
-            except (ValueError, TypeError):
-                shock_pct = None
+            except (ValueError, TypeError, OverflowError):
+                return jsonify({"ok": False, "error": "shock_pct must be numeric"}), 400
+            if not np.isfinite(shock_pct) or not -100 <= shock_pct <= 100:
+                return jsonify({"ok": False, "error": "shock_pct must be between -100 and 100"}), 400
 
         # Fallback to stored data
         if not portfolio:
@@ -3734,6 +4379,9 @@ def api_stress_test_run():
 
         if not portfolio:
             return jsonify({"ok": False, "error": "尚未建立持倉資料"}), 400
+        portfolio = _normalise_holdings(portfolio)
+        if portfolio is None:
+            return jsonify({"ok": False, "error": "invalid portfolio"}), 400
 
         watchlist = []
         if include_wl:
@@ -3741,8 +4389,11 @@ def api_stress_test_run():
             wl_raw   = data.get("watchlist", [])
             if isinstance(wl_raw, str):
                 watchlist = [w.strip().upper() for w in wl_raw.split(",") if w.strip()]
-            else:
+            elif isinstance(wl_raw, list):
                 watchlist = wl_raw or []
+            else:
+                watchlist = []
+            watchlist = _normalise_symbols(watchlist[:50]) or []
 
         result = _ste.generate_stress_test(
             portfolio=portfolio,
@@ -3783,7 +4434,7 @@ def api_stress_test_history():
     if auth:
         return auth
     try:
-        limit = int(request.args.get("limit", 20))
+        limit = min(100, max(1, int(request.args.get("limit", 20))))
         rows  = _ste.get_history(limit=limit)
         return jsonify({"ok": True, "results": rows, "count": len(rows)})
     except Exception as e:
@@ -3800,6 +4451,8 @@ def api_stress_test_scenario():
     try:
         body     = request.json or {}
         scenario = str(body.get("scenario", "market_crash"))
+        if scenario not in _ste.SCENARIOS:
+            return jsonify({"ok": False, "error": "unknown scenario"}), 400
         return jsonify({
             "ok":      True,
             "scenario": scenario,
@@ -3857,6 +4510,9 @@ def api_capital_filter():
     if auth:
         return auth
     try:
+        limited = _rate_limit("capital_filter", 4, 60)
+        if limited is not None:
+            return limited
         body    = request.json or {}
         syms    = body.get("symbols") or []
         sort_by = str(body.get("sort_by", "score") or "score")
@@ -3870,6 +4526,11 @@ def api_capital_filter():
                 syms = [str(s).upper().strip() for s in (raw or []) if s]
         if not syms:
             return jsonify({"ok": False, "error": "請提供 symbols 或先設定自選清單"}), 400
+        syms = _normalise_symbols(syms, max_items=30)
+        if not syms:
+            return jsonify({"ok": False, "error": "symbols must contain at most 30 valid symbols"}), 400
+        if sort_by not in {"score", "gain5d", "vol_change", "breakout_dist", "rr_ratio"}:
+            return jsonify({"ok": False, "error": "invalid sort_by"}), 400
 
         result = _cfe.run_capital_filter(syms, _get_ohlcv_norm, sort_by=sort_by)
         return jsonify(result)
@@ -3881,7 +4542,7 @@ def api_capital_filter():
 # ── Live Observation Period — Phase 11 ────────────────────────────────────────
 import observation_engine as _obe
 
-_obe.init_db()
+_obe.init_db(_USER_DATA_DB)
 
 
 @app.route("/api/obs/record", methods=["POST"])
@@ -3891,15 +4552,37 @@ def api_obs_record():
     if auth:
         return auth
     try:
+        limited = _rate_limit("observation_record", 30, 60)
+        if limited is not None:
+            return limited
         body = request.json or {}
+        symbol = str(body.get("symbol", "") or "").upper().strip()
+        signal_type = str(body.get("signal_type", "") or "").strip()[:40]
+        signal_class = str(body.get("signal_class", "") or "").strip()[:40]
+        signal = str(body.get("signal", "") or "").strip()[:120]
+        market_state = str(body.get("market_state", "") or "").strip()[:40]
+        try:
+            score = float(body.get("score", 0) or 0)
+            price_at_signal = float(body.get("price_at_signal", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            return jsonify({"ok": False, "error": "score / price_at_signal must be numeric"}), 400
+        if (
+            not re.fullmatch(r"[A-Z0-9.\-]{1,20}", symbol)
+            or not signal_type
+            or not np.isfinite(score)
+            or not 0 <= score <= 100
+            or not np.isfinite(price_at_signal)
+            or price_at_signal < 0
+        ):
+            return jsonify({"ok": False, "error": "invalid observation"}), 400
         obs_id = _obe.record_signal(
-            symbol=str(body.get("symbol", "") or "").upper().strip(),
-            signal_type=str(body.get("signal_type", "") or ""),
-            signal_class=str(body.get("signal_class", "") or ""),
-            signal=str(body.get("signal", "") or ""),
-            score=float(body.get("score", 0) or 0),
-            price_at_signal=float(body.get("price_at_signal", 0) or 0),
-            market_state=str(body.get("market_state", "") or ""),
+            symbol=symbol,
+            signal_type=signal_type,
+            signal_class=signal_class,
+            signal=signal,
+            score=score,
+            price_at_signal=price_at_signal,
+            market_state=market_state,
             is_demo=bool(body.get("is_demo", False)),
         )
         return jsonify({"ok": True, "obs_id": obs_id,
@@ -3912,7 +4595,7 @@ def api_obs_record():
 @app.route("/api/obs/stats", methods=["GET"])
 def api_obs_stats():
     try:
-        days = int(request.args.get("days", 14))
+        days = min(365, max(1, int(request.args.get("days", 14))))
         return jsonify({"ok": True, **_obe.get_signal_stats(days)})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -3925,19 +4608,42 @@ def api_obs_daily_log():
         if auth:
             return auth
         try:
+            limited = _rate_limit("observation_daily_log", 20, 60)
+            if limited is not None:
+                return limited
             body = request.json or {}
+            log_date = body.get("date")
+            if log_date:
+                try:
+                    datetime.strptime(str(log_date), "%Y-%m-%d")
+                except ValueError:
+                    return jsonify({"ok": False, "error": "date must be YYYY-MM-DD"}), 400
+            list_fields = {}
+            for key in (
+                "sector_leaders", "top_picks", "kill_signals", "sell_signals",
+                "high_chase_risk", "rotation_recs",
+            ):
+                values = _normalise_text_list(body.get(key) or [], max_items=50, max_length=80)
+                if values is None:
+                    return jsonify({"ok": False, "error": f"invalid {key}"}), 400
+                list_fields[key] = values
+            try:
+                alert_s_count = min(10_000, max(0, int(body.get("alert_s_count", 0) or 0)))
+                alert_a_count = min(10_000, max(0, int(body.get("alert_a_count", 0) or 0)))
+            except (TypeError, ValueError, OverflowError):
+                return jsonify({"ok": False, "error": "alert counts must be integers"}), 400
             log = _obe.create_daily_log(
-                log_date=body.get("date"),
-                market_state=str(body.get("market_state", "") or ""),
-                sector_leaders=body.get("sector_leaders") or [],
-                top_picks=body.get("top_picks") or [],
-                kill_signals=body.get("kill_signals") or [],
-                sell_signals=body.get("sell_signals") or [],
-                high_chase_risk=body.get("high_chase_risk") or [],
-                rotation_recs=body.get("rotation_recs") or [],
-                alert_s_count=int(body.get("alert_s_count", 0) or 0),
-                alert_a_count=int(body.get("alert_a_count", 0) or 0),
-                notes=str(body.get("notes", "") or ""),
+                log_date=str(log_date) if log_date else None,
+                market_state=str(body.get("market_state", "") or "").strip()[:40],
+                sector_leaders=list_fields["sector_leaders"],
+                top_picks=list_fields["top_picks"],
+                kill_signals=list_fields["kill_signals"],
+                sell_signals=list_fields["sell_signals"],
+                high_chase_risk=list_fields["high_chase_risk"],
+                rotation_recs=list_fields["rotation_recs"],
+                alert_s_count=alert_s_count,
+                alert_a_count=alert_a_count,
+                notes=str(body.get("notes", "") or "").strip()[:500],
             )
             return jsonify({"ok": True, "log": log,
                             "disclaimer": "目前為實盤觀察期，不代表自動下單。"})
@@ -3946,8 +4652,13 @@ def api_obs_daily_log():
             return jsonify({"ok": False, "error": str(e)}), 500
     else:
         try:
-            days = int(request.args.get("days", 14))
+            days = min(365, max(1, int(request.args.get("days", 14))))
             log_date = request.args.get("date")
+            if log_date:
+                try:
+                    datetime.strptime(log_date, "%Y-%m-%d")
+                except ValueError:
+                    return jsonify({"ok": False, "error": "date must be YYYY-MM-DD"}), 400
             result = _obe.get_daily_log(days=days, log_date=log_date)
             return jsonify({"ok": True, "logs": result if isinstance(result, list) else [result],
                             "disclaimer": "目前為實盤觀察期，不代表自動下單。"})
@@ -3969,6 +4680,9 @@ def api_obs_update_outcomes():
     if auth:
         return auth
     try:
+        limited = _rate_limit("observation_update", 1, 300)
+        if limited is not None:
+            return limited
         result = _obe.update_outcomes(ohlcv_fn=_get_ohlcv_norm)
         return jsonify({"ok": True, **result,
                         "disclaimer": "目前為實盤觀察期，不代表自動下單。"})
@@ -4853,12 +5567,22 @@ def api_agent_chat():
     if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
         return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY 未設定"}), 400
     try:
+        limited = _rate_limit("agent_chat", 12, 60)
+        if limited is not None:
+            return limited
         payload = request.json or {}
         history = payload.get("messages") or []
-        message = (payload.get("message") or "").strip()
+        if not isinstance(history, list):
+            return jsonify({"ok": False, "error": "messages 必須是陣列"}), 400
+        message_raw = payload.get("message") or ""
+        if not isinstance(message_raw, str):
+            return jsonify({"ok": False, "error": "message 必須是文字"}), 400
+        message = message_raw.strip()
         if not message:
             return jsonify({"ok": False, "error": "訊息不可為空"}), 400
-        result = _web_agent.run_turn(history, message)
+        if len(message) > 4000:
+            return jsonify({"ok": False, "error": "訊息過長（最多 4000 字元）"}), 400
+        result = _web_agent.run_turn(history[-40:], message)
         return jsonify({"ok": True, **result})
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()

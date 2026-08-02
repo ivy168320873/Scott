@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 import time
 import logging
+import math
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -50,7 +52,14 @@ class TradeEngine:
     def __init__(self):
         self.api_key    = os.environ.get("ALPACA_API_KEY", "").strip()
         self.api_secret = os.environ.get("ALPACA_SECRET_KEY", "").strip()
-        self.is_paper   = os.environ.get("ALPACA_PAPER", "true").lower() != "false"
+        requested_live = os.environ.get("ALPACA_PAPER", "true").lower() == "false"
+        self.live_trading_enabled = (
+            requested_live
+            and os.environ.get("ENABLE_LIVE_TRADING", "").strip()
+            == "I_UNDERSTAND_LIVE_TRADING_RISK"
+        )
+        # A live Alpaca client is never created from ALPACA_PAPER alone.
+        self.is_paper = not self.live_trading_enabled
         self.client: Optional[object] = None
         self.simulation = True
 
@@ -178,6 +187,7 @@ class TradeEngine:
         stop_price:  float,
         take_profit: float,
         note:        str = "",
+        confirm_live: bool = False,
     ) -> dict:
         """
         Submit a bracket order:
@@ -187,9 +197,29 @@ class TradeEngine:
         Returns order dict with status.
         """
         symbol = symbol.upper().replace(".TW", "")  # Alpaca uses plain symbols
+        if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,14}", symbol):
+            return {"ok": False, "blocked": True, "error": "Invalid symbol"}
+        values = (entry, stop_price, take_profit)
+        if (
+            not isinstance(shares, int)
+            or shares <= 0
+            or not all(math.isfinite(float(v)) and float(v) > 0 for v in values)
+            or not stop_price < entry < take_profit
+        ):
+            return {
+                "ok": False,
+                "blocked": True,
+                "error": "Order must satisfy shares > 0 and stop < entry < target",
+            }
 
         if self.simulation:
             return self._sim_submit(symbol, shares, entry, stop_price, take_profit, note)
+        if not self.is_paper and not confirm_live:
+            return {
+                "ok": False,
+                "blocked": True,
+                "error": "Live order requires explicit per-order confirmation",
+            }
 
         try:
             req = LimitOrderRequest(
@@ -250,13 +280,22 @@ class TradeEngine:
 
     # ── Close position ────────────────────────────────────────────────────────
 
-    def close_position(self, symbol: str) -> dict:
+    def close_position(self, symbol: str, confirm_live: bool = False) -> dict:
         symbol = symbol.upper().replace(".TW", "")
+        if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,14}", symbol):
+            return {"ok": False, "blocked": True, "error": "Invalid symbol"}
         if self.simulation:
             if symbol in _sim_positions:
                 del _sim_positions[symbol]
                 return {"ok": True, "symbol": symbol, "simulation": True}
             return {"ok": False, "error": "Position not found"}
+
+        if not self.is_paper and not confirm_live:
+            return {
+                "ok": False,
+                "blocked": True,
+                "error": "Live close requires explicit per-order confirmation",
+            }
 
         try:
             self.client.close_position(symbol)
@@ -272,6 +311,7 @@ class TradeEngine:
             "connected":  not self.simulation,
             "simulation": self.simulation,
             "is_paper":   self.is_paper,
+            "live_trading_enabled": self.live_trading_enabled,
             "mode":       "模擬" if self.simulation else ("📄 Alpaca 模擬帳戶" if self.is_paper else "💰 Alpaca 真實帳戶"),
             "equity":     acct.get("equity", 0),
             "cash":       acct.get("cash", 0),
