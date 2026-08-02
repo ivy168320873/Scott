@@ -90,30 +90,74 @@ def _bb(closes: list, period=20, std_dev=2):
 COMMISSION = 0.001   # 0.1% per leg
 
 
-def _simulate(closes: list, dates: list, buy_sig: list, sell_sig: list,
+def _commission_rate(cost_params: dict | None) -> float:
+    if not cost_params or "base_commission" not in cost_params:
+        return COMMISSION
+    try:
+        return min(max(float(cost_params["base_commission"]), 0.0), 0.05)
+    except (TypeError, ValueError):
+        return COMMISSION
+
+
+def _simulate(opens: list, closes: list, dates: list, buy_sig: list, sell_sig: list,
               initial: float = 100_000.0,
               cost_params: dict | None = None) -> dict:
-    """Long-only. Signals at day i; execution at close i."""
+    """Long-only simulation with next-bar execution.
+
+    A signal calculated from bar ``i`` is filled at bar ``i + 1`` open.  This
+    prevents the strategy from using a closing price before that close exists.
+    """
     equity = [initial] * len(closes)
+    commission = _commission_rate(cost_params)
     cash = initial
     position = 0.0
     entry_price = 0.0
     entry_idx = 0
     trades = []
 
-    for i in range(len(closes)):
-        c = closes[i]
-        equity[i] = cash + position * c
+    for i, c in enumerate(closes):
+        open_price = opens[i] if i < len(opens) and opens[i] > 0 else c
 
-        if position == 0 and buy_sig[i]:
-            position = cash * (1 - COMMISSION) / c
-            entry_price = c
+        # Execute yesterday's decision at today's first tradable price.
+        if i > 0 and position > 0 and sell_sig[i - 1]:
+            proceeds = position * open_price * (1 - commission)
+            pnl_pct = (
+                open_price * (1 - commission)
+                / (entry_price * (1 + commission))
+                - 1
+            ) * 100
+            trades.append({
+                "entry_date":   dates[entry_idx],
+                "exit_date":    dates[i],
+                "entry_price":  round(entry_price, 4),
+                "exit_price":   round(open_price, 4),
+                "pnl_pct":      round(pnl_pct, 2),
+                "holding_days": i - entry_idx,
+                "win":          pnl_pct > 0,
+                "entry_idx":    entry_idx,
+                "exit_idx":     i,
+                "entry_signal_idx": entry_idx - 1,
+                "exit_signal_idx": i - 1,
+            })
+            cash = proceeds
+            position = 0.0
+
+        if i > 0 and position == 0 and buy_sig[i - 1]:
+            position = cash / (open_price * (1 + commission))
+            entry_price = open_price
             entry_idx = i
             cash = 0.0
 
-        elif position > 0 and (sell_sig[i] or i == len(closes) - 1):
-            proceeds = position * c * (1 - COMMISSION)
-            pnl_pct = (c / entry_price - 1) * 100 - COMMISSION * 200
+        equity[i] = cash + position * c
+
+        # A final close is explicit liquidation, not a signal fill.
+        if position > 0 and i == len(closes) - 1:
+            proceeds = position * c * (1 - commission)
+            pnl_pct = (
+                c * (1 - commission)
+                / (entry_price * (1 + commission))
+                - 1
+            ) * 100
             trades.append({
                 "entry_date":   dates[entry_idx],
                 "exit_date":    dates[i],
@@ -124,6 +168,9 @@ def _simulate(closes: list, dates: list, buy_sig: list, sell_sig: list,
                 "win":          pnl_pct > 0,
                 "entry_idx":    entry_idx,
                 "exit_idx":     i,
+                "entry_signal_idx": entry_idx - 1,
+                "exit_signal_idx": i,
+                "forced_exit": True,
             })
             cash = proceeds
             position = 0.0
@@ -133,7 +180,7 @@ def _simulate(closes: list, dates: list, buy_sig: list, sell_sig: list,
 
 
 def _simulate_partial(
-    closes: list, highs: list, lows: list, dates: list,
+    opens: list, closes: list, highs: list, lows: list, dates: list,
     entries: list,   # list of (idx, entry_price, stop, r1_target, r2_target)
     initial: float = 100_000.0,
     protect_r: float = 0.7,   # move stop to +0.15R when price reaches this R
@@ -149,12 +196,14 @@ def _simulate_partial(
     TIME_STOP_DAYS = 12
 
     equity = [initial] * len(closes)
+    commission = _commission_rate(cost_params)
     cash = initial
     trades = []
 
     pos1 = pos2 = 0.0       # shares in leg1, leg2
     ep = 0.0                 # entry price
-    stop = be_stop = 0.0    # current stop, breakeven stop
+    stop = 0.0              # current stop
+    initial_risk = 0.0
     r1 = r2 = 0.0           # targets
     entry_idx = 0
     leg1_closed = False
@@ -163,28 +212,63 @@ def _simulate_partial(
 
     for i in range(len(closes)):
         c = closes[i]
+        open_price = opens[i] if i < len(opens) and opens[i] > 0 else c
         lo, hi = lows[i], highs[i]
         equity[i] = cash + (pos1 + pos2) * c
 
         # ── Open new position ────────────────────────────────────────────────
-        if pos1 == 0 and i in entry_set:
-            _, ep, stp, tgt1, tgt2 = entry_set[i]
+        if pos1 == 0 and i > 0 and (i - 1) in entry_set:
+            _, signal_ep, stp, tgt1, tgt2 = entry_set[i - 1]
+            ep = open_price
+            initial_risk = max(signal_ep - stp, signal_ep * 0.001)
+            stop = ep - initial_risk
+            r1 = ep + max(tgt1 - signal_ep, initial_risk)
+            r2 = ep + max(tgt2 - signal_ep, initial_risk)
             budget = cash * 0.98
-            total_shares = budget * (1 - COMMISSION) / ep
+            total_shares = budget / (ep * (1 + commission))
             pos1 = total_shares / 2
             pos2 = total_shares / 2
-            stop = stp
-            be_stop = ep   # breakeven = entry
-            r1 = tgt1
-            r2 = tgt2
             entry_idx = i
             leg1_closed = False
-            cash -= (pos1 + pos2) * ep * (1 + COMMISSION)
+            cash -= (pos1 + pos2) * ep * (1 + commission)
             cash = max(cash, 0)
 
-        elif pos1 + pos2 > 0:
-            risk_amt = ep - stop if stop < ep else ep * 0.05
+        if pos1 + pos2 > 0:
+            risk_amt = initial_risk
             days_held = i - entry_idx
+
+            # When a stop and target are both touched in one daily candle, the
+            # event order is unknowable.  Assume the adverse event happened
+            # first, including gap-through slippage at the open.
+            if lo <= stop and stop > 0:
+                exit_p = min(open_price, stop)
+                for px, label in ((pos1, "L1"), (pos2, "L2")):
+                    if px > 0:
+                        proceeds = px * exit_p * (1 - commission)
+                        pnl = (
+                            exit_p * (1 - commission)
+                            / (ep * (1 + commission))
+                            - 1
+                        ) * 100
+                        cash += proceeds
+                        trades.append({
+                            "entry_date": dates[entry_idx],
+                            "exit_date": dates[i],
+                            "entry_price": round(ep, 4),
+                            "exit_price": round(exit_p, 4),
+                            "pnl_pct": round(pnl, 2),
+                            "holding_days": days_held,
+                            "win": pnl > 0,
+                            "leg": label,
+                            "entry_idx": entry_idx,
+                            "exit_idx": i,
+                            "entry_signal_idx": entry_idx - 1,
+                            "price_locked": True,
+                            "allocation_fraction": 0.49,
+                        })
+                pos1 = pos2 = 0.0
+                equity[i] = cash
+                continue
 
             # Profit protection: when price reaches protect_r × risk, lock in +0.15R
             if not leg1_closed and protect_r and risk_amt > 0:
@@ -196,8 +280,8 @@ def _simulate_partial(
 
             # Leg 1: exit at R1 target
             if not leg1_closed and hi >= r1 and pos1 > 0:
-                proceeds = pos1 * r1 * (1 - COMMISSION)
-                pnl1 = (r1 / ep - 1) * 100
+                proceeds = pos1 * r1 * (1 - commission)
+                pnl1 = (r1 * (1 - commission) / (ep * (1 + commission)) - 1) * 100
                 cash += proceeds
                 trades.append({
                     "entry_date":   dates[entry_idx],
@@ -210,6 +294,9 @@ def _simulate_partial(
                     "leg":          "L1",
                     "entry_idx":    entry_idx,
                     "exit_idx":     i,
+                    "entry_signal_idx": entry_idx - 1,
+                    "price_locked": True,
+                    "allocation_fraction": 0.49,
                 })
                 pos1 = 0.0
                 leg1_closed = True
@@ -225,16 +312,19 @@ def _simulate_partial(
             # Time stop: exit if < 0.3R gain after TIME_STOP_DAYS
             time_exit = days_held >= TIME_STOP_DAYS and (c - ep) < risk_amt * 0.3
 
-            # Stop hit or forced exit
-            stop_hit = lo <= stop and stop > 0
-            forced   = (i == len(closes) - 1)
+            # Close-based time exit or explicit final liquidation.
+            forced = i == len(closes) - 1
 
-            if stop_hit or time_exit or forced:
-                exit_p = stop if stop_hit else c
+            if time_exit or forced:
+                exit_p = c
                 for px, label in [(pos1, "L1"), (pos2, "L2")]:
                     if px > 0:
-                        proceeds = px * exit_p * (1 - COMMISSION)
-                        pnl = (exit_p / ep - 1) * 100
+                        proceeds = px * exit_p * (1 - commission)
+                        pnl = (
+                            exit_p * (1 - commission)
+                            / (ep * (1 + commission))
+                            - 1
+                        ) * 100
                         cash += proceeds
                         trades.append({
                             "entry_date":   dates[entry_idx],
@@ -247,6 +337,9 @@ def _simulate_partial(
                             "leg":          label,
                             "entry_idx":    entry_idx,
                             "exit_idx":     i,
+                            "entry_signal_idx": entry_idx - 1,
+                            "price_locked": True,
+                            "allocation_fraction": 0.49,
                         })
                 pos1 = pos2 = 0.0
                 equity[i] = cash
@@ -371,8 +464,9 @@ def _stats(trades: list, equity: list, initial: float, closes: list, dates: list
 
 def _run(ohlcv, buy_sig, sell_sig, initial=100_000.0, cost_params: dict | None = None):
     closes = [d["close"] for d in ohlcv]
+    opens  = [d.get("open", d["close"]) for d in ohlcv]
     dates  = [d["date"]  for d in ohlcv]
-    sim = _simulate(closes, dates, buy_sig, sell_sig, initial, cost_params=cost_params)
+    sim = _simulate(opens, closes, dates, buy_sig, sell_sig, initial, cost_params=cost_params)
     stats = _stats(sim["trades"], sim["equity"], initial, closes, dates)
     return {**sim, **stats}
 
@@ -750,7 +844,8 @@ def strategy_decision_core_v2(
         empty_sig = [False] * n
         return _run(ohlcv, empty_sig, empty_sig, cost_params=cost_params)
 
-    sim   = _simulate_partial(closes, highs, lows, dates, entries, cost_params=cost_params)
+    opens = [d.get("open", d["close"]) for d in ohlcv]
+    sim   = _simulate_partial(opens, closes, highs, lows, dates, entries, cost_params=cost_params)
     stats = _stats(sim["trades"], sim["equity"], 100_000.0, closes, dates)
     return {**sim, **stats}
 
@@ -971,7 +1066,8 @@ def strategy_decision_core_v3(
         return _run(ohlcv, empty, empty, cost_params=cost_params)
 
     # Use profit protection (protect_r=0.7) for V3
-    sim   = _simulate_partial(closes, highs, lows, dates, entries, protect_r=0.7, cost_params=cost_params)
+    opens = [d.get("open", d["close"]) for d in ohlcv]
+    sim   = _simulate_partial(opens, closes, highs, lows, dates, entries, protect_r=0.7, cost_params=cost_params)
     stats = _stats(sim["trades"], sim["equity"], 100_000.0, closes, dates)
     return {**sim, **stats}
 
@@ -982,8 +1078,8 @@ def optimize_parameters(
     metric: str = "win_rate",
 ) -> dict:
     """
-    Grid search over key parameters. Returns top-3 param sets ranked by `metric`.
-    Splits data 70/30 to avoid look-ahead; tests on out-of-sample only.
+    Grid search over key parameters. Parameter selection uses training data only;
+    the held-out period is evaluated once after the shortlist is frozen.
     For V3, also sweeps max_5d_gain and ema_slope_bars.
     """
     n = len(ohlcv)
@@ -1019,33 +1115,54 @@ def optimize_parameters(
         grid = base_grid
         fn = STRATEGIES.get(strategy, strategy_decision_core_v2)
 
-    results = []
+    allowed_metrics = {
+        "win_rate", "total_return", "sharpe", "sortino",
+        "calmar", "profit_factor", "expectancy",
+    }
+    if metric not in allowed_metrics:
+        metric = "win_rate"
+
+    candidates = []
     for p in grid:
         try:
-            tr  = fn(train, **p)
-            oos = fn(test,  **p)
-            if oos["num_trades"] < 2:
+            tr = fn(train, **p)
+            if tr["num_trades"] < 2:
                 continue
-            score = oos.get(metric, 0)
-            results.append({
-                "params":          p,
-                "oos_" + metric:   round(score, 2),
-                "oos_win_rate":    round(oos["win_rate"], 1),
-                "oos_total_ret":   round(oos["total_return"], 2),
-                "oos_trades":      oos["num_trades"],
-                "oos_sharpe":      oos.get("sharpe", 0),
-                "oos_profit_factor": oos.get("profit_factor", 0),
-                "is_win_rate":     round(tr["win_rate"], 1),
+            candidates.append({
+                "params": p,
+                "is_score": round(float(tr.get(metric, 0) or 0), 2),
+                "is_win_rate": round(tr["win_rate"], 1),
+                "is_total_ret": round(tr["total_return"], 2),
+                "is_trades": tr["num_trades"],
             })
         except Exception:
             continue
 
-    results.sort(key=lambda x: x.get("oos_" + metric, 0), reverse=True)
+    candidates.sort(key=lambda x: x["is_score"], reverse=True)
+    results = []
+    for candidate in candidates[:12]:
+        try:
+            oos = fn(test, **candidate["params"])
+            results.append({
+                **candidate,
+                "oos_" + metric: round(float(oos.get(metric, 0) or 0), 2),
+                "oos_win_rate": round(oos["win_rate"], 1),
+                "oos_total_ret": round(oos["total_return"], 2),
+                "oos_trades": oos["num_trades"],
+                "oos_sharpe": oos.get("sharpe", 0),
+                "oos_profit_factor": oos.get("profit_factor", 0),
+            })
+        except Exception:
+            continue
+
+    # Keep training rank.  Never re-sort by a held-out statistic.
     top3 = results[:3]
     return {
-        "metric":     metric,
+        "metric": metric,
+        "selection_basis": "in_sample_only",
         "top_params": top3,
-        "total_tested": len(results),
+        "total_tested": len(candidates),
+        "oos_evaluated": len(results),
         "test_period": f"{test[0]['date']} → {test[-1]['date']}",
     }
 
@@ -1117,7 +1234,8 @@ STRATEGY_NAMES = {
 def run(ohlcv: list[dict], strategy: str, params: dict, cost_params: dict | None = None) -> dict:
     fn = STRATEGIES.get(strategy, strategy_rsi)
     clean_params = {k: v for k, v in params.items() if isinstance(v, (int, float))}
-    result = fn(ohlcv, **clean_params)
+    simulation_costs = {"base_commission": 0.0} if cost_params and cost_params.get("enabled") else None
+    result = fn(ohlcv, **clean_params, cost_params=simulation_costs)
 
     # Apply trade costs if enabled
     if cost_params and cost_params.get("enabled"):

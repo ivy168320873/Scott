@@ -351,6 +351,12 @@ tbody tr:hover{background:var(--surface2)}
 </div>
 
 <script>
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  })[ch]);
+}
+
 function toast(msg, ok=true) {
   const t = document.getElementById('admin-toast');
   t.textContent = msg;
@@ -384,12 +390,12 @@ async function triggerScan() {
 
 async function testAlert() {
   const s = JSON.parse(localStorage.getItem('alertSettings_v1') || '{}');
-  if (!s.email && !s.lineToken) { alert('請先在主系統設定警報 Email 或 LINE Token'); return; }
+  if ('lineToken' in s) { delete s.lineToken; localStorage.setItem('alertSettings_v1', JSON.stringify(s)); }
   try {
     const r = await fetch('/api/alerts/send', { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ signals: [{ symbol: 'TEST', note: '後台測試警報 ✅' }],
-        type: 'both', email: s.email, lineToken: s.lineToken }) });
+        type: 'both', email: s.email || '' }) });
     const j = await r.json();
     toast(j.ok ? '✅ 測試警報已發送' : '❌ 發送失敗：' + (j.error || ''), j.ok);
   } catch(e) { toast('❌ 連線錯誤', false); }
@@ -409,13 +415,13 @@ async function runConnectionTest() {
         background:var(--surface2);border:1px solid ${v.ok?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'};
         border-radius:8px;margin-bottom:8px">
         <span style="font-size:1.1rem">${icons[k]||'🔌'}</span>
-        <span style="font-weight:600;flex:1">${names[k]||k}</span>
+        <span style="font-weight:600;flex:1">${esc(names[k]||k)}</span>
         <span style="color:${v.ok?'var(--bull)':'var(--bear)'};font-size:.78rem;font-weight:700">
           ${v.ok?'✅ 正常':'❌ 異常'}
         </span>
-        <span style="color:var(--muted);font-size:.72rem;font-family:monospace">${v.detail||''}</span>
+        <span style="color:var(--muted);font-size:.72rem;font-family:monospace">${esc(v.detail||'')}</span>
       </div>`).join('');
-  } catch(e) { el.innerHTML = `<span style="color:var(--bear)">❌ 連線失敗：${e.message}</span>`; }
+  } catch(e) { el.innerHTML = `<span style="color:var(--bear)">❌ 連線失敗：${esc(e.message)}</span>`; }
 }
 </script>
 </body>

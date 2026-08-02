@@ -133,6 +133,11 @@ _CORE_TOOL_FUNCTIONS = {
 TOOL_SCHEMAS = _CORE_TOOL_SCHEMAS + STOCK_TOOL_SCHEMAS + TW_TOOL_SCHEMAS
 TOOL_FUNCTIONS = {**_CORE_TOOL_FUNCTIONS, **STOCK_TOOL_FUNCTIONS, **TW_TOOL_FUNCTIONS}
 
+# 網頁版只允許無檔案／無 shell 副作用的投資資料工具。伺服器上的環境變數、
+# 原始碼與檔案系統不應透過聊天介面暴露給模型或瀏覽器使用者。
+SAFE_WEB_TOOL_SCHEMAS = STOCK_TOOL_SCHEMAS + TW_TOOL_SCHEMAS
+SAFE_WEB_TOOL_FUNCTIONS = {**STOCK_TOOL_FUNCTIONS, **TW_TOOL_FUNCTIONS}
+
 
 def execute_tool(name: str, tool_input: dict) -> str:
     """依名稱執行工具，永遠回傳字串。"""
@@ -143,4 +148,15 @@ def execute_tool(name: str, tool_input: dict) -> str:
         return func(**tool_input)
     except TypeError as e:
         # 參數不符（缺少必要欄位等）。
+        return f"錯誤：呼叫 '{name}' 的參數有誤：{e}"
+
+
+def execute_web_tool(name: str, tool_input: dict) -> str:
+    """Execute a tool from the web-agent allowlist only."""
+    func = SAFE_WEB_TOOL_FUNCTIONS.get(name)
+    if func is None:
+        return f"錯誤：網頁版不允許工具 '{name}'。"
+    try:
+        return func(**tool_input)
+    except TypeError as e:
         return f"錯誤：呼叫 '{name}' 的參數有誤：{e}"

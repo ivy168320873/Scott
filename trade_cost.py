@@ -169,8 +169,11 @@ def _check_liquidity(
         return True, ""
 
     avg_dollar_vol = sum(dollar_vols) / len(dollar_vols)
-    min_dv = params.get("min_dollar_volume", 1_000_000)
-    max_pct = params.get("max_position_pct_of_volume", 0.02)
+    try:
+        min_dv = min(max(float(params.get("min_dollar_volume", 1_000_000)), 0.0), 1e12)
+        max_pct = min(max(float(params.get("max_position_pct_of_volume", 0.02)), 0.0001), 1.0)
+    except (TypeError, ValueError):
+        min_dv, max_pct = 1_000_000.0, 0.02
 
     if avg_dollar_vol < min_dv:
         return False, "低成交金額"
@@ -242,14 +245,19 @@ def apply_costs(
             date_to_idx[str(d)] = i
 
     is_tw = params.get("is_tw", False)
+    price_modes = {"next_open", "next_close", "signal_close", "vwap_estimate"}
     entry_mode = params.get("entry_price_mode", "next_open")
     exit_mode = params.get("exit_price_mode", "next_open")
+    entry_mode = entry_mode if entry_mode in price_modes else "next_open"
+    exit_mode = exit_mode if exit_mode in price_modes else "next_open"
+    slip_modes = {"fixed_pct", "volume_based", "volatility_based"}
     slip_mode = params.get("slippage_mode", "fixed_pct")
-    slip_pct = float(params.get("slippage_pct", 0.001))
-    comm_buy = float(params.get("commission_buy", 0.0))
-    comm_sell = float(params.get("commission_sell", 0.0))
-    tax_rate = float(params.get("transaction_tax", 0.0))
-    min_comm = float(params.get("min_commission", 0.0))
+    slip_mode = slip_mode if slip_mode in slip_modes else "fixed_pct"
+    slip_pct = min(max(float(params.get("slippage_pct", 0.001)), 0.0), 0.10)
+    comm_buy = min(max(float(params.get("commission_buy", 0.0)), 0.0), 0.05)
+    comm_sell = min(max(float(params.get("commission_sell", 0.0)), 0.0), 0.05)
+    tax_rate = min(max(float(params.get("transaction_tax", 0.0)), 0.0), 0.05)
+    min_comm = min(max(float(params.get("min_commission", 0.0)), 0.0), 10_000.0)
     strict_limit = bool(params.get("strict_limit_mode", False))
     use_liq = bool(params.get("use_liquidity_filter", True))
 
@@ -266,7 +274,8 @@ def apply_costs(
     portfolio_value = initial
 
     for trade in trades:
-        # Resolve entry / exit indices
+        # Fill indices are used for liquidity/limit checks. Signal indices are
+        # used only for alternative price-mode modelling.
         entry_idx = trade.get("entry_idx")
         exit_idx = trade.get("exit_idx")
 
@@ -278,25 +287,25 @@ def apply_costs(
             exit_date = str(trade.get("exit_date", ""))
             exit_idx = date_to_idx.get(exit_date)
 
-        # Fallback: use signal_close prices if indices still not found
-        if entry_idx is None or exit_idx is None:
+        n = len(ohlcv)
+        entry_idx_use = max(0, min(int(entry_idx), n - 1)) if entry_idx is not None and n else None
+        exit_idx_use = max(0, min(int(exit_idx), n - 1)) if exit_idx is not None and n else None
+        entry_signal_idx = trade.get("entry_signal_idx", entry_idx_use)
+        exit_signal_idx = trade.get("exit_signal_idx", exit_idx_use)
+        price_locked = bool(trade.get("price_locked"))
+
+        # Stops, targets and forced liquidation already carry their exact fill.
+        if price_locked or trade.get("forced_exit"):
             entry_price_actual = float(trade.get("entry_price", 0.0))
             exit_price_actual = float(trade.get("exit_price", 0.0))
-            entry_idx_use = None
-            exit_idx_use = None
-            use_fallback = True
+        elif entry_signal_idx is None or exit_signal_idx is None or not n:
+            entry_price_actual = float(trade.get("entry_price", 0.0))
+            exit_price_actual = float(trade.get("exit_price", 0.0))
         else:
-            entry_idx_use = int(entry_idx)
-            exit_idx_use = int(exit_idx)
-            use_fallback = False
-
-        if not use_fallback:
-            # Clamp indices to valid range
-            n = len(ohlcv)
-            entry_idx_use = max(0, min(entry_idx_use, n - 1))
-            exit_idx_use = max(0, min(exit_idx_use, n - 1))
-            entry_price_actual = _get_entry_price(ohlcv, entry_idx_use, entry_mode)
-            exit_price_actual = _get_exit_price(ohlcv, exit_idx_use, exit_mode)
+            pricing_entry_idx = max(0, min(int(entry_signal_idx), n - 1))
+            pricing_exit_idx = max(0, min(int(exit_signal_idx), n - 1))
+            entry_price_actual = _get_entry_price(ohlcv, pricing_entry_idx, entry_mode)
+            exit_price_actual = _get_exit_price(ohlcv, pricing_exit_idx, exit_mode)
 
         if entry_price_actual <= 0:
             entry_price_actual = float(trade.get("entry_price", 1.0)) or 1.0
@@ -308,7 +317,7 @@ def apply_costs(
         execution_note = ""
 
         # Check TW circuit breaker on entry
-        if is_tw and not use_fallback:
+        if is_tw and entry_idx_use is not None and exit_idx_use is not None:
             if _is_limit_up(ohlcv, entry_idx_use, is_tw):
                 if strict_limit:
                     execution_status = "CANNOT_ENTER_LIMIT_UP"
@@ -327,12 +336,19 @@ def apply_costs(
                         execution_note = "跌停警告，部分成交"
 
         # Estimate trade value for liquidity check
-        trade_value = portfolio_value * 0.98
+        try:
+            allocation_fraction = min(
+                max(float(trade.get("allocation_fraction", 0.98)), 0.01),
+                1.0,
+            )
+        except (TypeError, ValueError):
+            allocation_fraction = 0.98
+        trade_value = portfolio_value * allocation_fraction
 
         # Liquidity check
         liq_ok = True
         liq_warn = ""
-        if use_liq and not use_fallback:
+        if use_liq and entry_idx_use is not None and exit_idx_use is not None:
             liq_ok_entry, liq_warn_entry = _check_liquidity(
                 ohlcv, entry_idx_use, trade_value, params
             )
@@ -380,19 +396,19 @@ def apply_costs(
                     execution_note = liq_warn
 
         # Compute slippage
-        slip_idx = entry_idx_use if not use_fallback else 0
-        slip_exit_idx = exit_idx_use if not use_fallback else 0
-        slippage_buy = _calc_slippage(
+        slip_idx = entry_idx_use if entry_idx_use is not None else 0
+        slip_exit_idx = exit_idx_use if exit_idx_use is not None else 0
+        slippage_buy_per_share = _calc_slippage(
             entry_price_actual, slip_mode, slip_pct,
             ohlcv, slip_idx
         )
-        slippage_sell = _calc_slippage(
+        slippage_sell_per_share = _calc_slippage(
             exit_price_actual, slip_mode, slip_pct,
             ohlcv, slip_exit_idx
         )
 
         # Compute fees and taxes
-        entry_value = portfolio_value * 0.98
+        entry_value = portfolio_value * allocation_fraction
         # Shares estimated (approximate, for fee purposes)
         shares = entry_value / entry_price_actual if entry_price_actual > 0 else 0.0
         actual_entry_value = shares * entry_price_actual
@@ -404,8 +420,10 @@ def apply_costs(
         tax_sell = max(0.0, tax_sell)
         fee_buy = max(0.0, fee_buy)
         fee_sell = max(0.0, fee_sell)
-        slippage_buy = max(0.0, slippage_buy)
-        slippage_sell = max(0.0, slippage_sell)
+        slippage_buy_per_share = max(0.0, slippage_buy_per_share)
+        slippage_sell_per_share = max(0.0, slippage_sell_per_share)
+        slippage_buy = slippage_buy_per_share * shares
+        slippage_sell = slippage_sell_per_share * shares
 
         total_cost_trade = fee_buy + fee_sell + tax_sell + slippage_buy + slippage_sell
 
@@ -415,7 +433,9 @@ def apply_costs(
         # Net pnl: price gain minus slippage per share, minus fee/tax as pct
         if entry_price_actual > 0:
             price_gain_pct = (exit_price_actual - entry_price_actual) / entry_price_actual * 100
-            slippage_pct_total = (slippage_buy + slippage_sell) / entry_price_actual * 100
+            slippage_pct_total = (
+                slippage_buy_per_share + slippage_sell_per_share
+            ) / entry_price_actual * 100
             # Fees and taxes as % of entry value
             fee_tax_pct = (fee_buy + fee_sell + tax_sell) / actual_entry_value * 100 if actual_entry_value > 0 else 0.0
             pnl_pct_net = price_gain_pct - slippage_pct_total - fee_tax_pct
@@ -425,7 +445,7 @@ def apply_costs(
         pnl_pct_net = round(pnl_pct_net, 4)
 
         # Update portfolio value
-        pnl_abs = portfolio_value * 0.98 * (pnl_pct_net / 100.0)
+        pnl_abs = portfolio_value * allocation_fraction * (pnl_pct_net / 100.0)
         portfolio_value = portfolio_value + pnl_abs
         portfolio_value = max(portfolio_value, 0.01)
 
@@ -444,6 +464,8 @@ def apply_costs(
             "tax_sell":           round(tax_sell, 4),
             "slippage_buy":       round(slippage_buy, 4),
             "slippage_sell":      round(slippage_sell, 4),
+            "slippage_buy_per_share": round(slippage_buy_per_share, 6),
+            "slippage_sell_per_share": round(slippage_sell_per_share, 6),
             "total_cost":         round(total_cost_trade, 4),
             "pnl_pct_gross":      round(pnl_pct_gross, 4),
             "pnl_pct_net":        round(pnl_pct_net, 4),
