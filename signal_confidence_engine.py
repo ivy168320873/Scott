@@ -63,6 +63,11 @@ CREATE TABLE IF NOT EXISTS signal_history (
     hit_stop_loss           INTEGER DEFAULT 0,
     was_correct             INTEGER,
     false_signal_reason     TEXT,
+    paper_trade_id          TEXT,
+    paper_return_pct        REAL,
+    paper_r_multiple        REAL,
+    paper_exit_reason       TEXT,
+    paper_closed_at         TEXT,
     is_demo                 INTEGER DEFAULT 0,
     created_at              TEXT    NOT NULL,
     updated_at              TEXT
@@ -71,6 +76,14 @@ CREATE INDEX IF NOT EXISTS sh_decision ON signal_history(decision);
 CREATE INDEX IF NOT EXISTS sh_symbol   ON signal_history(symbol);
 CREATE INDEX IF NOT EXISTS sh_date     ON signal_history(signal_date);
 """
+
+_PAPER_COLUMNS = {
+    "paper_trade_id": "TEXT",
+    "paper_return_pct": "REAL",
+    "paper_r_multiple": "REAL",
+    "paper_exit_reason": "TEXT",
+    "paper_closed_at": "TEXT",
+}
 
 
 # ── DB init ───────────────────────────────────────────────────────────────────
@@ -81,6 +94,14 @@ def init_db(db_path: str = _DB_PATH) -> None:
     try:
         with _LOCK, sqlite3.connect(_DB_PATH) as conn:
             conn.executescript(_DDL)
+            existing = {
+                row[1] for row in conn.execute("PRAGMA table_info(signal_history)").fetchall()
+            }
+            for column, sql_type in _PAPER_COLUMNS.items():
+                if column not in existing:
+                    conn.execute(
+                        f"ALTER TABLE signal_history ADD COLUMN {column} {sql_type}"
+                    )
     except Exception:
         import traceback
         traceback.print_exc()
@@ -365,6 +386,80 @@ def update_symbol_outcomes(
     return result
 
 
+def update_paper_outcome(signal_id: int, payload: dict) -> dict:
+    """Attach a closed paper trade to its originating signal.
+
+    Paper returns stay in dedicated columns; they are not mislabeled as a
+    fixed 1/3/5-day market outcome.  Calibration can use both datasets while
+    keeping their meanings separate.
+    """
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "payload must be a dict"}
+    try:
+        record_id = int(signal_id)
+        paper_return = float(payload.get("paper_return_pct"))
+        if not math.isfinite(paper_return):
+            raise ValueError("paper_return_pct must be finite")
+        r_multiple = payload.get("paper_r_multiple")
+        if r_multiple is not None:
+            r_multiple = float(r_multiple)
+            if not math.isfinite(r_multiple):
+                r_multiple = None
+    except (TypeError, ValueError, OverflowError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+    try:
+        with _LOCK, sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT decision FROM signal_history WHERE id=?", (record_id,)
+            ).fetchone()
+            if not row:
+                return {"ok": False, "error": f"signal id={record_id} not found"}
+            decision = str(row[0] or "").upper()
+            if decision in ("BUY", "STRONG_BUY", "HOLD"):
+                correct = int(paper_return > 0)
+            elif decision in ("SELL", "TRIM", "AVOID", "KILL_SIGNAL", "CHASE_RISK_HIGH"):
+                correct = int(paper_return < 0)
+            else:
+                correct = None
+            false_reason = None
+            if correct == 0:
+                false_reason = (
+                    f"模擬交易結果 {paper_return:+.2f}% 與 {decision} 訊號方向不一致"
+                )
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                """
+                UPDATE signal_history SET
+                    paper_trade_id=?, paper_return_pct=?, paper_r_multiple=?,
+                    paper_exit_reason=?, paper_closed_at=?, was_correct=?,
+                    false_signal_reason=COALESCE(?, false_signal_reason), updated_at=?
+                WHERE id=?
+                """,
+                (
+                    str(payload.get("paper_trade_id") or "")[:80] or None,
+                    paper_return,
+                    r_multiple,
+                    str(payload.get("paper_exit_reason") or "")[:40] or None,
+                    str(payload.get("paper_closed_at") or now_iso)[:64],
+                    correct,
+                    false_reason,
+                    now_iso,
+                    record_id,
+                ),
+            )
+            conn.commit()
+        return {
+            "ok": True,
+            "updated": 1,
+            "id": record_id,
+            "paper_return_pct": round(paper_return, 4),
+            "was_correct": correct,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 # ── Confidence statistics ─────────────────────────────────────────────────────
 
 def get_confidence_stats(signal_type: str | None = None):
@@ -438,7 +533,7 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
 
     rec    = stats.get("recommendation", "WATCH")
     conf   = stats.get("confidence_score", 50)
-    sample = stats.get("sample_size", 0)
+    sample = stats.get("outcome_sample_size", stats.get("sample_size", 0))
     notes  = list(stats.get("notes", []))
 
     max_decision = None
@@ -462,12 +557,12 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
     kill_weight_up  = (
         isinstance(kill_stats, dict)
         and (kill_stats.get("win_rate_3d") or 0) >= 60
-        and kill_stats.get("sample_size", 0) >= 5
+        and kill_stats.get("outcome_sample_size", kill_stats.get("sample_size", 0)) >= 5
     )
     chase_weight_up = (
         isinstance(chase_stats, dict)
         and (chase_stats.get("win_rate_3d") or 0) >= 60
-        and chase_stats.get("sample_size", 0) >= 5
+        and chase_stats.get("outcome_sample_size", chase_stats.get("sample_size", 0)) >= 5
     )
 
     return {
@@ -502,7 +597,12 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     with_1d = [r for r in rows if r.get("return_1d") is not None]
     with_3d = [r for r in rows if r.get("return_3d") is not None]
     with_5d = [r for r in rows if r.get("return_5d") is not None]
-    evaluated = len(with_5d)
+    with_paper = [r for r in rows if r.get("paper_return_pct") is not None]
+    evaluated_ids = {
+        r.get("id") for r in rows
+        if r.get("return_5d") is not None or r.get("paper_return_pct") is not None
+    }
+    evaluated = len(evaluated_ids)
 
     # Win rate: signal-type specific definition of "correct"
     def _correct(r, days: int) -> bool | None:
@@ -532,10 +632,28 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     wr3 = _win_rate(rows, 3)
     wr5 = _win_rate(rows, 5)
 
+    def _paper_correct(r) -> bool | None:
+        ret = r.get("paper_return_pct")
+        if ret is None:
+            return None
+        if signal_type in ("BUY", "STRONG_BUY", "HOLD"):
+            return ret > 0
+        if signal_type in ("SELL", "TRIM", "AVOID", "KILL_SIGNAL", "CHASE_RISK_HIGH"):
+            return ret < 0
+        return None
+
+    paper_judged = [r for r in with_paper if _paper_correct(r) is not None]
+    paper_win_rate = (
+        round(sum(1 for r in paper_judged if _paper_correct(r)) / len(paper_judged) * 100, 1)
+        if paper_judged else None
+    )
+
     avg_r1   = _avg(r.get("return_1d")          for r in with_1d)
     avg_r3   = _avg(r.get("return_3d")          for r in with_3d)
     avg_r5   = _avg(r.get("return_5d")          for r in with_5d)
     avg_rel5 = _avg(r.get("relative_return_5d") for r in with_5d)
+    avg_paper_return = _avg(r.get("paper_return_pct") for r in with_paper)
+    avg_paper_r = _avg(r.get("paper_r_multiple") for r in with_paper)
 
     # False signal rate (from was_correct field)
     judged_rows   = [r for r in rows if r.get("was_correct") is not None]
@@ -559,11 +677,12 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     # ── Confidence score ──────────────────────────────────────────────────────
     score = 50
 
-    if wr5 is not None:
-        if wr5 >= 65:   score += 20
-        elif wr5 >= 55: score += 10
-        elif wr5 < 35:  score -= 25
-        elif wr5 < 45:  score -= 15
+    calibrated_win_rate = paper_win_rate if paper_win_rate is not None else wr5
+    if calibrated_win_rate is not None:
+        if calibrated_win_rate >= 65:   score += 20
+        elif calibrated_win_rate >= 55: score += 10
+        elif calibrated_win_rate < 35:  score -= 25
+        elif calibrated_win_rate < 45:  score -= 15
 
     if avg_rel5 is not None:
         if avg_rel5 > 1:   score += 10
@@ -576,28 +695,28 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     score  = max(0, min(100, round(score)))
 
     # ── Hard cap by sample size ───────────────────────────────────────────────
-    if sample_size < 5:
+    if evaluated < 5:
         score = min(score, 40)
-        notes.append("樣本數 < 5，信心分數上限 40")
-    elif sample_size < 20:
+        notes.append("已評估樣本數 < 5，信心分數上限 40")
+    elif evaluated < 20:
         score = min(score, 60)
-        notes.append(f"樣本數 {sample_size} < 20，信心分數上限 60")
+        notes.append(f"已評估樣本數 {evaluated} < 20，信心分數上限 60")
 
     # ── Recommendation ────────────────────────────────────────────────────────
-    if sample_size < 5:
+    if evaluated < 5:
         rec = "WATCH"
-        notes.append("樣本數不足 5，暫不可信")
-    elif consec_false >= 5 and sample_size >= 20:
+        notes.append("已評估樣本數不足 5，暫不可信")
+    elif consec_false >= 5 and evaluated >= 20:
         rec = "DISABLE"
         notes.append(f"連續 {consec_false} 次錯誤訊號，建議停用")
-    elif score < 35 or (sample_size >= 10 and wr5 is not None and wr5 < 40):
+    elif score < 35 or (evaluated >= 10 and calibrated_win_rate is not None and calibrated_win_rate < 40):
         rec = "DISABLE"
         notes.append("信心分數過低或勝率過差，建議停用")
     elif signal_type in ("BUY", "STRONG_BUY"):
-        if wr5 is not None and wr5 < 50 and sample_size >= 10:
+        if calibrated_win_rate is not None and calibrated_win_rate < 50 and evaluated >= 10:
             rec = "REDUCE_WEIGHT"
-            notes.append(f"BUY 5日勝率 {wr5:.1f}% < 50%，降低倉位權重")
-        elif avg_rel5 is not None and avg_rel5 < 0 and sample_size >= 10:
+            notes.append(f"BUY 校準勝率 {calibrated_win_rate:.1f}% < 50%，降低倉位權重")
+        elif avg_rel5 is not None and avg_rel5 < 0 and evaluated >= 10:
             rec = "REDUCE_WEIGHT"
             notes.append(f"BUY 平均相對報酬 {avg_rel5:.2f}%，跑輸大盤，降低倉位")
         elif score >= 60:
@@ -631,6 +750,7 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     return {
         "signal_type":             signal_type,
         "sample_size":             sample_size,
+        "outcome_sample_size":     evaluated,
         "evaluated_size":          evaluated,
         "win_rate_1d":             wr1,
         "win_rate_3d":             wr3,
@@ -639,6 +759,9 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
         "avg_return_3d":           avg_r3,
         "avg_return_5d":           avg_r5,
         "avg_relative_return_5d":  avg_rel5,
+        "paper_win_rate":          paper_win_rate,
+        "avg_paper_return":        avg_paper_return,
+        "avg_paper_r_multiple":    avg_paper_r,
         "false_signal_rate":       false_rate,
         "stop_loss_rate":          stop_rate,
         "consecutive_false":       consec_false,
@@ -711,6 +834,7 @@ def _empty_stats(signal_type: str) -> dict:
     return {
         "signal_type":             signal_type,
         "sample_size":             0,
+        "outcome_sample_size":     0,
         "evaluated_size":          0,
         "win_rate_1d":             None,
         "win_rate_3d":             None,
@@ -719,6 +843,9 @@ def _empty_stats(signal_type: str) -> dict:
         "avg_return_3d":           None,
         "avg_return_5d":           None,
         "avg_relative_return_5d":  None,
+        "paper_win_rate":          None,
+        "avg_paper_return":        None,
+        "avg_paper_r_multiple":    None,
         "false_signal_rate":       0.0,
         "stop_loss_rate":          0.0,
         "consecutive_false":       0,

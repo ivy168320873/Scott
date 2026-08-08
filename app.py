@@ -2230,6 +2230,48 @@ def api_trade_execute():
         if not ok:
             return jsonify({"ok": False, "blocked": True, "reason": details.get("reason"), "details": details})
 
+        # Evolution v2 is the final pre-trade gate.  It re-fetches current data,
+        # builds the evidence scorecard, and applies the saved personal limits;
+        # clients cannot self-assert a confidence score to bypass this check.
+        from scott_evolution.service import evaluate as _evolution_evaluate
+        current_positions = engine.get_positions()
+        total_market_value = sum(
+            float(position.get("market_value") or 0)
+            for position in current_positions
+            if isinstance(position, dict)
+        )
+        evo = _evolution_evaluate(
+            symbol,
+            _get_ohlcv_norm,
+            portfolio={
+                "account_value": equity,
+                "total_exposure_pct": (
+                    total_market_value / equity * 100 if equity and equity > 0 else 0
+                ),
+                "sector_exposure_pct": 0,
+                "daily_pnl_pct": 0,
+                "drawdown_pct": 0,
+            },
+        )
+        personal_gate = evo["risk_gate"]
+        if not personal_gate.get("allowed"):
+            return jsonify({
+                "ok": False,
+                "blocked": True,
+                "reason": "；".join(personal_gate.get("blockers") or ["個人風險大腦未通過"]),
+                "personal_risk_gate": personal_gate,
+                "scorecard": evo["scorecard"],
+            }), 403
+        if personal_gate.get("max_shares") is not None:
+            shares = min(shares, int(personal_gate["max_shares"]))
+        if shares <= 0:
+            return jsonify({
+                "ok": False,
+                "blocked": True,
+                "reason": "個人風險預算不足 1 股",
+                "personal_risk_gate": personal_gate,
+            }), 403
+
         result = engine.submit_order(
             symbol,
             shares,
@@ -2240,7 +2282,12 @@ def api_trade_execute():
             confirm_live=confirm_live,
         )
         status = 200 if result.get("ok") else (403 if result.get("blocked") else 400)
-        return jsonify({**result, "risk_details": details}), status
+        return jsonify({
+            **result,
+            "risk_details": details,
+            "personal_risk_gate": personal_gate,
+            "scorecard": evo["scorecard"],
+        }), status
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -3242,26 +3289,21 @@ def _run_price_alert_checker():
         _time.sleep(600)  # 10 minutes
 
 def _send_alerts_internal(signals, email):
-    """Shared alert sending logic (reused by price alert checker)."""
+    """Queue price alerts in the durable outbox and attempt delivery now."""
     msg_lines = ["📊 Scott 價格警報"] + [f"  • {s['symbol']}: {s['note']}" for s in signals]
     msg = "\n".join(msg_lines)
+    from scott_evolution import notifications as _notifications
+    symbols = ",".join(sorted(str(s.get("symbol") or "") for s in signals if isinstance(s, dict)))
+    event_key = f"price:{symbols}:{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H')}"
     if _line_configured():
-        _send_line_message(msg)
+        _notifications.enqueue(event_key, "line", {"text": msg})
     if email:
-        smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-        smtp_port = int(os.environ.get("SMTP_PORT", 587))
-        smtp_user = os.environ.get("SMTP_USER", "")
-        smtp_pass = os.environ.get("SMTP_PASS", "")
-        if smtp_user and smtp_pass:
-            import smtplib, email.mime.text as _emt
-            m = _emt.MIMEText(msg, "plain", "utf-8")
-            m["Subject"] = "📊 Scott 價格警報"
-            m["From"] = smtp_user
-            m["To"] = email
-            with smtplib.SMTP(smtp_host, smtp_port) as srv:
-                srv.starttls()
-                srv.login(smtp_user, smtp_pass)
-                srv.sendmail(smtp_user, [email], m.as_string())
+        _notifications.enqueue(
+            event_key,
+            "email",
+            {"to": str(email), "subject": "📊 Scott 價格警報", "body": msg},
+        )
+    _notifications.deliver_due(_deliver_notification_payload)
 
 _price_alert_thread = None
 if _BACKGROUND_WORKERS_ENABLED:
@@ -3275,8 +3317,47 @@ if _BACKGROUND_WORKERS_ENABLED:
 
 # ── Decision-alert background scanner ─────────────────────────────────────────
 
+def _deliver_notification_payload(channel: str, payload: dict):
+    """Low-level sender used only by the durable Evolution outbox."""
+    channel = str(channel or "").lower()
+    if channel == "line":
+        if not _line_configured():
+            raise RuntimeError("LINE Messaging API 尚未設定")
+        ok, error = _send_line_message(str(payload.get("text") or "")[:5000])
+        if not ok:
+            raise RuntimeError(error or "LINE send failed")
+        return {"ok": True}
+    if channel == "email":
+        smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.environ.get("SMTP_PORT", 587))
+        smtp_user = os.environ.get("SMTP_USER", "")
+        smtp_pass = os.environ.get("SMTP_PASS", "")
+        from_addr = os.environ.get("ALERT_EMAIL_FROM", smtp_user)
+        email_to = str(payload.get("to") or "").strip()
+        if not (smtp_user and smtp_pass and from_addr and email_to):
+            raise RuntimeError("Email SMTP 或收件人尚未完整設定")
+        import smtplib as _smtp, email.mime.text as _emt
+        message = _emt.MIMEText(str(payload.get("body") or "")[:50_000], "plain", "utf-8")
+        message["Subject"] = str(payload.get("subject") or "Scott 通知")[:200]
+        message["From"] = from_addr
+        message["To"] = email_to
+        if smtp_port == 465:
+            with _smtp.SMTP_SSL(smtp_host, smtp_port, timeout=15) as server:
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_addr, [email_to], message.as_string())
+        else:
+            with _smtp.SMTP(smtp_host, smtp_port, timeout=15) as server:
+                server.ehlo(); server.starttls(); server.ehlo()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_addr, [email_to], message.as_string())
+        return {"ok": True}
+    if channel == "app":
+        _mon.alert_info(str(payload.get("text") or payload.get("body") or "Scott 通知")[:1000])
+        return {"ok": True}
+    raise RuntimeError(f"Unsupported notification channel: {channel}")
+
 def _send_decision_alert(alert):
-    """Dispatch a single decision Alert via LINE / email using stored settings."""
+    """Queue and immediately attempt a decision alert with retry protection."""
     try:
         # Block in production when underlying data is demo
         ohlcv_chk = _get_ohlcv_norm(getattr(alert, "symbol", "") or "")
@@ -3289,36 +3370,70 @@ def _send_decision_alert(alert):
         if isinstance(s, str):
             try: s = json.loads(s)
             except Exception: s = {}
-        email_to   = s.get("email", "")
+        email_to = str(s.get("email", "") or "").strip()
+        from scott_evolution import notifications as _notifications
+        bucket = str(getattr(alert, "created_at", "") or datetime.now(timezone.utc).isoformat())[:13]
+        event_key = (
+            f"decision:{getattr(alert, 'symbol', 'UNKNOWN')}:"
+            f"{getattr(alert, 'alert_type', 'ALERT')}:{getattr(alert, 'level', 'C')}:{bucket}"
+        )
         if _line_configured():
-            try:
-                msg = _af.format_line(alert)
-                ok, error = _send_line_message(msg)
-                if not ok:
-                    raise RuntimeError(error)
-            except Exception as _le:
-                print(f"[DECISION ALERT] LINE send failed: {_le}", flush=True)
+            _notifications.enqueue(
+                event_key,
+                "line",
+                {"text": _af.format_line(alert), "alert_id": alert.id},
+            )
 
         if email_to:
-            try:
-                smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-                smtp_port = int(os.environ.get("SMTP_PORT", 587))
-                smtp_user = os.environ.get("SMTP_USER", "")
-                smtp_pass = os.environ.get("SMTP_PASS", "")
-                if smtp_user and smtp_pass:
-                    import smtplib as _smtp, email.mime.text as _emt
-                    m = _emt.MIMEText(_af.format_email_body(alert), "plain", "utf-8")
-                    m["Subject"] = _af.format_email_subject(alert)
-                    m["From"]    = smtp_user
-                    m["To"]      = email_to
-                    with _smtp.SMTP(smtp_host, smtp_port) as srv:
-                        srv.starttls()
-                        srv.login(smtp_user, smtp_pass)
-                        srv.sendmail(smtp_user, [email_to], m.as_string())
-            except Exception as _ee:
-                print(f"[DECISION ALERT] email send failed: {_ee}", flush=True)
+            _notifications.enqueue(
+                event_key,
+                "email",
+                {
+                    "to": email_to,
+                    "subject": _af.format_email_subject(alert),
+                    "body": _af.format_email_body(alert),
+                    "alert_id": alert.id,
+                },
+            )
+        delivery = _notifications.deliver_due(_deliver_notification_payload)
+        if delivery.get("failed"):
+            print(
+                f"[DECISION ALERT] queued for retry: {delivery.get('errors', [])[:2]}",
+                flush=True,
+            )
     except Exception as _de2:
         print(f"[DECISION ALERT] outer error: {_de2}", flush=True)
+
+
+def _run_evolution_maintenance():
+    """Retry notifications and mark open paper trades from the latest bar."""
+    from scott_evolution import notifications as _notifications
+    from scott_evolution import paper_trading as _paper
+    from scott_evolution.service import sync_paper_outcome as _sync_paper_outcome
+
+    _notifications.deliver_due(_deliver_notification_payload)
+    prices = {}
+    for trade in _paper.list_trades(status="OPEN", limit=100):
+        symbol = trade.get("symbol")
+        if not symbol or symbol in prices:
+            continue
+        ohlcv = _get_ohlcv_norm(symbol)
+        if not isinstance(ohlcv, dict) or _is_demo_ohlcv(ohlcv):
+            continue
+        closes = ohlcv.get("closes", [])
+        opens = ohlcv.get("opens", [])
+        highs = ohlcv.get("highs", [])
+        lows = ohlcv.get("lows", [])
+        if not closes:
+            continue
+        prices[symbol] = {
+            "open": opens[-1] if opens else closes[-1],
+            "high": highs[-1] if highs else closes[-1],
+            "low": lows[-1] if lows else closes[-1],
+            "close": closes[-1],
+        }
+    if prices:
+        _paper.mark_to_market(prices, outcome_hook=_sync_paper_outcome)
 
 
 def _run_decision_alert_scanner():
@@ -3339,6 +3454,7 @@ def _run_decision_alert_scanner():
                     ohlcv_fn=_get_ohlcv_norm,
                     send_fn=_send_decision_alert,
                 )
+            _run_evolution_maintenance()
         except Exception as _exc:
             print(f"[DECISION ALERT SCANNER] {_exc}", flush=True)
         _time.sleep(600)   # 10 minutes
@@ -3383,60 +3499,41 @@ def api_alerts_send():
             note = str(s.get("note", ""))[:500]
             msg_lines.append(f"• {sym}: {note}" if note else f"• {sym}")
         plain_text = "\n".join(msg_lines)
+        from scott_evolution import notifications as _notifications
+        digest = hashlib.sha256(plain_text.encode()).hexdigest()[:16]
+        event_key = f"manual-signal:{digest}:{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H')}"
 
         # ── LINE Messaging API ────────────────────────────────────────────────
         if alert_type in ("line", "both"):
-            ok, error = _send_line_message(plain_text)
-            if ok:
-                sent.append("line")
-            elif error:
-                errors.append(error)
+            if _line_configured():
+                _notifications.enqueue(event_key, "line", {"text": plain_text})
+            else:
+                errors.append("LINE Messaging API 尚未設定")
 
         # ── Email ─────────────────────────────────────────────────────────────
         if alert_type in ("email", "both") and email_to:
-            try:
-                smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-                smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-                smtp_user = os.environ.get("SMTP_USER", "")
-                smtp_pass = os.environ.get("SMTP_PASS", "")
-                from_addr = os.environ.get("ALERT_EMAIL_FROM", smtp_user)
+            _notifications.enqueue(
+                event_key,
+                "email",
+                {
+                    "to": email_to,
+                    "subject": f"📈 Scott 訊號 {datetime.now().strftime('%m/%d')}",
+                    "body": plain_text + "\n\n⚠️ 此為量化模型訊號，不構成投資建議。",
+                },
+            )
+        elif alert_type in ("email", "both"):
+            errors.append("Email 收件人未設定")
 
-                subject = f"📈 Scott 訊號 {datetime.now().strftime('%m/%d')}"
-                rows_html = "".join(
-                    f"<tr><td style='padding:6px 10px;border-bottom:1px solid #333;font-weight:700;color:#58a6ff'>{_html.escape(str(s.get('symbol',''))[:20])}</td>"
-                    f"<td style='padding:6px 10px;border-bottom:1px solid #333;color:#e6edf3'>{_html.escape(str(s.get('note',''))[:500])}</td></tr>"
-                    for s in signals[:10] if isinstance(s, dict)
-                )
-                html_body = f"""<div style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:20px;border-radius:10px">
-<h2 style="color:#58a6ff">📈 Scott 股票訊號提醒</h2>
-<table style="border-collapse:collapse;width:100%"><thead>
-<tr><th style="text-align:left;padding:6px 10px;color:#8b949e">股票</th><th style="text-align:left;padding:6px 10px;color:#8b949e">訊號</th></tr>
-</thead><tbody>{rows_html}</tbody></table>
-<p style="color:#8b949e;font-size:12px;margin-top:16px">⚠️ 此為量化模型訊號，不構成投資建議。</p></div>"""
-
-                msg = email.mime.multipart.MIMEMultipart("alternative")
-                msg["Subject"] = subject
-                msg["From"]    = from_addr
-                msg["To"]      = email_to
-                msg.attach(email.mime.text.MIMEText(plain_text, "plain", "utf-8"))
-                msg.attach(email.mime.text.MIMEText(html_body,  "html",  "utf-8"))
-
-                if smtp_port == 465:
-                    with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as srv:
-                        if smtp_user and smtp_pass:
-                            srv.login(smtp_user, smtp_pass)
-                        srv.sendmail(from_addr, [email_to], msg.as_bytes())
-                else:
-                    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as srv:
-                        srv.ehlo(); srv.starttls(); srv.ehlo()
-                        if smtp_user and smtp_pass:
-                            srv.login(smtp_user, smtp_pass)
-                        srv.sendmail(from_addr, [email_to], msg.as_bytes())
-                sent.append("email")
-            except Exception as ex:
-                errors.append(f"Email error: {str(ex)[:120]}")
-
-        return jsonify({"ok": len(sent) > 0 or not errors, "sent": sent, "errors": errors})
+        delivery = _notifications.deliver_due(_deliver_notification_payload)
+        sent = ["queued"] if delivery.get("processed") or not errors else []
+        errors.extend(item.get("error", "delivery failed") for item in delivery.get("errors", []))
+        return jsonify({
+            "ok": bool(sent) and not errors,
+            "sent": sent,
+            "queued": delivery.get("processed", 0),
+            "delivered": delivery.get("delivered", 0),
+            "errors": errors,
+        })
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -3481,6 +3578,15 @@ def _get_ohlcv_norm(symbol: str):
     Returns normalised dict; is_demo=True when using synthetic data.
     """
     return _dp.get_ohlcv(symbol.upper())
+
+
+# Evolution v2 routes are isolated in a Blueprint so new workflows no longer
+# make this legacy module larger.  Global auth, CSRF and rate-limit hooks still
+# apply to every Blueprint endpoint.
+from evolution_api import create_evolution_blueprint as _create_evolution_blueprint
+app.register_blueprint(
+    _create_evolution_blueprint(_get_ohlcv_norm, _deliver_notification_payload)
+)
 
 
 @app.route("/api/market-state")

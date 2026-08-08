@@ -2,6 +2,32 @@
 
 Scott 是以 Flask 建置的美股／台股分析工具，包含技術訊號、回測、風險管理、投資組合、警報、每日報告與行動版 AI 助手。
 
+## Evolution v2 決策閉環
+
+登入後開啟 `/evolution` 可使用新的手機版決策中樞。流程固定為：
+
+1. 取得真實行情並執行頂級決策引擎。
+2. 產生「價格、趨勢、量能、風險、市場」五類證據。
+3. 以資料品質、歷史結果、證據覆蓋與市場環境建立單次訊號可信度評分卡。
+4. 套用可保存的個人風險限制（持倉、產業、總曝險、單筆風險、每日損失與回撤停機線）。
+5. 只有評分卡與風險閘門同時通過，才可建立持久化模擬交易。
+6. 背景維護會檢查停損／目標並把平倉結果回填訊號校準資料。
+
+通知改用 SQLite outbox：相同事件與管道會去重，失敗採指數退避重試，重新部署後仍可續送。手機 AI 對行情、估值、預測與買賣問題必須先取得工具證據；工具失敗時程式會直接阻擋無依據結論。
+
+主要 API：
+
+- `GET|PUT /api/evolution/risk-profile`
+- `POST /api/evolution/evaluate`
+- `POST /api/evolution/paper/open`
+- `GET /api/evolution/paper/trades`
+- `POST /api/evolution/paper/mark`
+- `POST /api/evolution/paper/<trade_id>/close`
+- `GET /api/evolution/notifications`
+- `POST /api/evolution/notifications/retry`
+
+`DEFAULT_RISK_PRESET` 可設為 `conservative`、`balanced` 或 `aggressive`；使用者在決策中樞儲存的設定優先。所有可信度與模擬績效均屬決策輔助，不是上漲機率、獲利保證或自動下單授權。
+
 ## 本機啟動
 
 需要 Python 3.11。

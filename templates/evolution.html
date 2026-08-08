@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>Scott 決策中樞</title>
+  <style>
+    :root{--bg:#090d13;--panel:#141b24;--panel2:#1b2531;--line:#2a3746;--text:#e6edf3;--muted:#91a0b2;--blue:#58a6ff;--green:#3fb950;--amber:#d29922;--red:#f85149}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Microsoft JhengHei",sans-serif}
+    header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;padding:13px 16px;background:rgba(20,27,36,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}
+    header a{color:var(--muted);text-decoration:none;font-size:14px}header strong{font-size:17px}main{max-width:820px;margin:auto;padding:14px 12px 40px}
+    .hero{padding:18px;border:1px solid #24496f;border-radius:16px;background:linear-gradient(135deg,#13273a,#151b24);margin-bottom:12px}.hero h1{font-size:21px;margin:0 0 7px}.hero p{margin:0;color:#aec4d8;font-size:13px;line-height:1.6}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin:11px 0}.card h2{font-size:16px;margin:0 0 12px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.full{grid-column:1/-1}
+    label{font-size:12px;color:var(--muted);display:block;margin-bottom:5px}input,select{width:100%;border:1px solid var(--line);border-radius:9px;background:#0c121a;color:var(--text);font-size:16px;padding:10px 11px;outline:none}input:focus,select:focus{border-color:var(--blue)}
+    button{border:0;border-radius:10px;background:var(--blue);color:#06111d;font-size:14px;font-weight:700;padding:11px 14px;cursor:pointer}button.secondary{background:var(--panel2);color:var(--text);border:1px solid var(--line)}button.good{background:var(--green);color:#06140a}button.warn{background:var(--amber);color:#170e00}button:disabled{opacity:.45}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+    .status{display:none;padding:10px 12px;border-radius:9px;margin-top:10px;font-size:13px;line-height:1.5}.status.show{display:block}.status.info{background:#12263b;color:#b9dcff}.status.err{background:#35191b;color:#ffb6b1}.status.ok{background:#14301d;color:#a9e6b8}
+    .score-row{display:grid;grid-template-columns:100px 1fr;gap:12px;align-items:center}.score{width:92px;height:92px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--blue) calc(var(--p)*1%),#253140 0);position:relative}.score:after{content:"";position:absolute;inset:8px;border-radius:50%;background:var(--panel)}.score b{z-index:1;font-size:27px}.score small{z-index:1;position:absolute;bottom:21px;font-size:10px;color:var(--muted)}
+    .badge{display:inline-block;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:700;margin:2px 3px 2px 0;background:#263444;color:#c9d7e5}.badge.good{background:#153821;color:#73d989}.badge.bad{background:#421d20;color:#ff9b95}.badge.warn{background:#3c3015;color:#eec861}
+    .kv{display:grid;grid-template-columns:1fr auto;gap:8px;padding:7px 0;border-bottom:1px solid #202b37;font-size:13px}.kv:last-child{border:0}.kv span{color:var(--muted)}ul{margin:7px 0;padding-left:20px;font-size:13px;line-height:1.6}.evidence{font-size:12px;color:#b3c0cf;background:#0d131b;padding:9px;border-radius:8px;margin-top:7px}
+    .trade{background:#0d141d;border:1px solid #253343;border-radius:10px;padding:10px;margin:8px 0;font-size:13px}.trade-head{display:flex;justify-content:space-between;gap:8px}.muted{color:var(--muted)}.hidden{display:none!important}
+    @media(max-width:560px){.grid{grid-template-columns:1fr}.full{grid-column:auto}.score-row{grid-template-columns:86px 1fr}.score{width:82px;height:82px}.score b{font-size:24px}}
+  </style>
+</head>
+<body>
+<header><a href="/">← 首頁</a><strong>🧠 Scott 決策中樞</strong></header>
+<main>
+  <section class="hero"><h1>先驗證，再決策，再模擬</h1><p>每次分析都會同時產生可信度評分卡、五類證據、個人風險閘門；只有全部通過，才允許加入持久化模擬交易。</p></section>
+
+  <section class="card">
+    <h2>1. 分析標的</h2>
+    <div class="grid">
+      <div><label>股票代號</label><input id="symbol" value="NVDA" maxlength="20" autocapitalize="characters"></div>
+      <div><label>帳戶資金</label><input id="account" type="number" min="0" value="100000" step="1000"></div>
+      <div><label>目前總曝險 %</label><input id="exposure" type="number" min="0" max="100" value="0" step="0.1"></div>
+      <div><label>同產業曝險 %</label><input id="sectorExposure" type="number" min="0" max="100" value="0" step="0.1"></div>
+      <div><label>今日損益 %</label><input id="dailyPnl" type="number" value="0" step="0.1"></div>
+      <div><label>目前回撤 %</label><input id="drawdown" type="number" min="0" value="0" step="0.1"></div>
+    </div>
+    <div class="actions"><button id="analyzeBtn" onclick="analyze()">產生完整評分卡</button></div>
+    <div id="analyzeStatus" class="status"></div>
+  </section>
+
+  <section id="resultCard" class="card hidden">
+    <h2>2. 決策結果</h2>
+    <div class="score-row">
+      <div class="score" id="scoreRing" style="--p:0"><b id="score">—</b><small>可信度</small></div>
+      <div><div id="decisionBadges"></div><p id="mainReason" style="font-size:13px;line-height:1.55;margin:8px 0"></p><div id="riskLine" class="muted" style="font-size:12px"></div></div>
+    </div>
+    <div id="proposal" style="margin-top:12px"></div>
+    <div id="warnings"></div>
+    <details style="margin-top:10px"><summary style="font-size:13px;color:var(--blue)">查看五類證據</summary><div id="evidence"></div></details>
+    <div class="actions"><button id="paperBtn" class="good" onclick="openPaper()">加入模擬交易</button></div>
+  </section>
+
+  <section class="card">
+    <h2>3. 個人風險大腦</h2>
+    <div class="grid">
+      <div><label>風險模式</label><select id="preset" onchange="presetChanged()"><option value="conservative">保守</option><option value="balanced">平衡</option><option value="aggressive">積極</option><option value="custom">自訂</option></select></div>
+      <div><label>單一持倉上限 %</label><input id="maxPosition" type="number" min="0.1" max="50" step="0.1"></div>
+      <div><label>單一產業上限 %</label><input id="maxSector" type="number" min="1" max="100" step="0.1"></div>
+      <div><label>總曝險上限 %</label><input id="maxExposure" type="number" min="1" max="100" step="0.1"></div>
+      <div><label>單筆風險上限 %</label><input id="riskPerTrade" type="number" min="0.1" max="5" step="0.1"></div>
+      <div><label>最低可信度</label><input id="minConfidence" type="number" min="0" max="100" step="1"></div>
+      <div><label>最低報酬風險比</label><input id="minRewardRisk" type="number" min="0.5" max="10" step="0.1"></div>
+      <div><label>每日停機線 %</label><input id="maxDailyLoss" type="number" min="0.5" max="20" step="0.1"></div>
+      <div><label>最大回撤 %</label><input id="maxDrawdown" type="number" min="1" max="50" step="0.1"></div>
+      <div class="full"><label>禁止交易代號（逗號分隔）</label><input id="blockedSymbols" placeholder="例如：TSLA, SQQQ"></div>
+    </div>
+    <div class="actions"><button class="secondary" onclick="saveRisk()">儲存風險設定</button></div>
+    <div id="riskStatus" class="status"></div>
+  </section>
+
+  <section class="card">
+    <h2>4. 模擬交易閉環</h2>
+    <div id="paperSummary" class="muted" style="font-size:13px">載入中…</div>
+    <div class="grid" style="margin-top:10px"><div><label>更新標的</label><input id="markSymbol" placeholder="NVDA"></div><div><label>最新價格</label><input id="markPrice" type="number" step="0.01" placeholder="100.00"></div></div>
+    <div class="actions"><button class="secondary" onclick="markPrice()">更新價格並檢查停損／目標</button></div>
+    <div id="trades"></div>
+  </section>
+
+  <section class="card">
+    <h2>5. 通知可靠度</h2>
+    <div id="notifySummary" class="muted" style="font-size:13px">載入中…</div>
+    <div class="actions"><button class="secondary" onclick="retryNotifications()">重試失敗通知</button></div>
+  </section>
+</main>
+<script>
+const $=id=>document.getElementById(id);let lastEvaluation=null;
+const presets={conservative:{max_position_pct:5,max_sector_pct:20,max_total_exposure_pct:55,risk_per_trade_pct:.5,min_signal_confidence:72,min_reward_risk:2,max_daily_loss_pct:1.5,max_drawdown_pct:8},balanced:{max_position_pct:10,max_sector_pct:30,max_total_exposure_pct:75,risk_per_trade_pct:1,min_signal_confidence:65,min_reward_risk:1.8,max_daily_loss_pct:2.5,max_drawdown_pct:12},aggressive:{max_position_pct:15,max_sector_pct:40,max_total_exposure_pct:95,risk_per_trade_pct:1.5,min_signal_confidence:58,min_reward_risk:1.5,max_daily_loss_pct:4,max_drawdown_pct:18}};
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function status(id,text,type='info'){const el=$(id);el.className='status show '+type;el.textContent=text}
+async function api(url,opts={}){const r=await fetch(url,{headers:{'Content-Type':'application/json'},...opts});if(r.status===401){location.href='/login?next=/evolution';throw new Error('需要登入')}const j=await r.json();if(!r.ok||j.ok===false)throw new Error(j.error||'請求失敗');return j}
+function portfolio(){return{account_value:+$('account').value||0,total_exposure_pct:+$('exposure').value||0,sector_exposure_pct:+$('sectorExposure').value||0,daily_pnl_pct:+$('dailyPnl').value||0,drawdown_pct:+$('drawdown').value||0}}
+async function analyze(){const btn=$('analyzeBtn');btn.disabled=true;status('analyzeStatus','正在取得行情、校準歷史訊號並執行風控…');try{const symbol=$('symbol').value.trim().toUpperCase();const j=await api('/api/evolution/evaluate',{method:'POST',body:JSON.stringify({symbol,portfolio:portfolio()})});lastEvaluation=j;renderEvaluation(j);status('analyzeStatus','分析完成','ok')}catch(e){status('analyzeStatus',e.message,'err')}finally{btn.disabled=false}}
+function renderEvaluation(j){$('resultCard').classList.remove('hidden');const s=j.scorecard,d=j.decision,g=j.risk_gate,p=j.proposal;$('score').textContent=s.confidence_score;$('scoreRing').style.setProperty('--p',s.confidence_score);$('decisionBadges').innerHTML=`<span class="badge ${s.actionable?'good':'warn'}">${esc(d.decision)}</span><span class="badge">可信度 ${esc(s.confidence_grade)}</span><span class="badge ${g.allowed?'good':'bad'}">風控 ${esc(g.status)}</span><span class="badge">證據 ${Math.round(s.evidence_coverage*100)}%</span>`;$('mainReason').textContent=d.main_reason||'';$('riskLine').textContent=`市場 ${d.market_regime} · 追高風險 ${(d.chase_risk||{}).score??'—'} · 最大 ${g.max_shares??'—'} 股`;$('proposal').innerHTML=`<div class="kv"><span>參考進場</span><b>${p.entry_price}</b></div><div class="kv"><span>停損</span><b style="color:var(--red)">${p.stop_price}</b></div><div class="kv"><span>目標</span><b style="color:var(--green)">${p.target_price}</b></div><div class="kv"><span>報酬風險比</span><b>${g.reward_risk_ratio}</b></div>`;const problems=[...(s.blockers||[]),...(s.warnings||[]),...(g.blockers||[]),...(g.warnings||[])];$('warnings').innerHTML=problems.length?`<ul>${problems.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:'';$('evidence').innerHTML=(s.evidence||[]).map(e=>`<div class="evidence"><b>${esc(e.category)}</b> · ${esc(e.source)}<br>${esc(e.statement)}</div>`).join('');$('paperBtn').disabled=!j.paper_trade_ready}
+function fillRisk(p){$('maxPosition').value=p.max_position_pct;$('maxSector').value=p.max_sector_pct;$('maxExposure').value=p.max_total_exposure_pct;$('riskPerTrade').value=p.risk_per_trade_pct;$('minConfidence').value=p.min_signal_confidence;$('minRewardRisk').value=p.min_reward_risk;$('maxDailyLoss').value=p.max_daily_loss_pct;$('maxDrawdown').value=p.max_drawdown_pct}
+function presetChanged(){const p=presets[$('preset').value];if(p)fillRisk(p)}
+async function loadRisk(){try{const j=await api('/api/evolution/risk-profile');const p=j.profile;$('preset').value=p.preset;fillRisk(p);$('blockedSymbols').value=(p.blocked_symbols||[]).join(', ');if(p.account_size)$('account').value=p.account_size}catch(e){status('riskStatus',e.message,'err')}}
+async function saveRisk(){try{const payload={preset:$('preset').value,account_size:+$('account').value||0,max_position_pct:+$('maxPosition').value,max_sector_pct:+$('maxSector').value,max_total_exposure_pct:+$('maxExposure').value,risk_per_trade_pct:+$('riskPerTrade').value,min_signal_confidence:+$('minConfidence').value,min_reward_risk:+$('minRewardRisk').value,max_daily_loss_pct:+$('maxDailyLoss').value,max_drawdown_pct:+$('maxDrawdown').value,blocked_symbols:$('blockedSymbols').value.split(',').map(x=>x.trim().toUpperCase()).filter(Boolean)};await api('/api/evolution/risk-profile',{method:'PUT',body:JSON.stringify(payload)});status('riskStatus','已儲存，後續每筆交易都會套用','ok')}catch(e){status('riskStatus',e.message,'err')}}
+async function openPaper(){if(!lastEvaluation)return;const btn=$('paperBtn');btn.disabled=true;try{const symbol=lastEvaluation.symbol;await api('/api/evolution/paper/open',{method:'POST',body:JSON.stringify({symbol,portfolio:portfolio(),client_order_id:`ui-${symbol}-${Date.now()}`})});status('analyzeStatus','已建立持久化模擬交易；觸及停損或目標後會回填訊號績效','ok');await loadPaper()}catch(e){status('analyzeStatus',e.message,'err')}finally{btn.disabled=false}}
+async function loadPaper(){try{const j=await api('/api/evolution/paper/trades?limit=50');const s=j.summary;$('paperSummary').textContent=`未平倉 ${s.open_trades} · 已平倉 ${s.closed_trades} · 勝率 ${s.win_rate??'—'}% · 已實現損益 ${s.realized_pnl}`;$('trades').innerHTML=(j.trades||[]).map(t=>`<div class="trade"><div class="trade-head"><b>${esc(t.symbol)} · ${esc(t.status)}</b><span>${t.qty} 股</span></div><div class="muted">進場 ${t.entry_price} · 現價 ${t.current_price} · 停損 ${t.stop_price} · 目標 ${t.target_price}</div>${t.status==='OPEN'?`<div class="actions"><button class="secondary" onclick="closeTrade('${t.id}')">手動平倉</button></div>`:`<div>結果 ${t.return_pct}% · ${t.r_multiple??'—'}R · ${esc(t.exit_reason)}</div>`}</div>`).join('')||'<p class="muted">尚無模擬交易</p>'}catch(e){$('paperSummary').textContent=e.message}}
+async function markPrice(){try{const sym=$('markSymbol').value.trim().toUpperCase(),price=+$('markPrice').value;if(!sym||!price)throw new Error('請輸入標的與價格');await api('/api/evolution/paper/mark',{method:'POST',body:JSON.stringify({prices:{[sym]:price}})});await loadPaper()}catch(e){alert(e.message)}}
+async function closeTrade(id){const price=prompt('請輸入模擬平倉價格');if(!price)return;try{await api(`/api/evolution/paper/${id}/close`,{method:'POST',body:JSON.stringify({exit_price:+price,reason:'MANUAL'})});await loadPaper()}catch(e){alert(e.message)}}
+async function loadNotify(){try{const j=await api('/api/evolution/notifications?limit=10'),s=j.summary;$('notifySummary').textContent=`已送達 ${s.delivered} · 等待 ${s.pending} · 重試中 ${s.failed} · 已停止 ${s.dead}` }catch(e){$('notifySummary').textContent=e.message}}
+async function retryNotifications(){try{await api('/api/evolution/notifications/retry',{method:'POST',body:'{}'});await loadNotify()}catch(e){alert(e.message)}}
+loadRisk();loadPaper();loadNotify();
+</script>
+</body>
+</html>

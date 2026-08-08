@@ -1,7 +1,7 @@
 """
 Backtesting engine.
 Receives OHLCV list from the frontend and simulates multiple strategies.
-No look-ahead bias: signals generated from day i are executed at close of day i.
+No look-ahead bias: signals generated from day i are executed at day i+1 open.
 Commission: 0.1% per trade (buy + sell).
 """
 from __future__ import annotations
