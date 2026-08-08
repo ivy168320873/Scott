@@ -1344,6 +1344,8 @@ body{padding-bottom:52px}
   <div class="hdr-right">
     <button class="hdr-settings-btn" id="hdr-settings-btn" onclick="_toggleHdrMenu()" title="選單">⋯</button>
     <div class="hdr-menu" id="hdr-menu">
+      <a href="/evolution">🧠 決策中樞</a>
+      <a href="/agent">💬 AI 投資助理</a>
       <a href="/admin">⚙️ 後台管理</a>
       <div class="hdr-menu-div"></div>
       <a href="/logout" style="color:var(--bear)">🚪 登出</a>
@@ -13200,6 +13202,7 @@ if ('serviceWorker' in navigator) {
     <div class="sdb-val" id="sdb-mood">—</div>
   </div>
   <div class="sdb-btns">
+    <button class="sdb-btn" onclick="location.href='/evolution'">🧠 決策中樞</button>
     <button class="sdb-btn" onclick="location.href='/momentum'">🚀 動能榜</button>
     <button class="sdb-btn" onclick="switchOppTab('buy-now');document.getElementById('ar-cards')?.scrollIntoView({behavior:'smooth'})">✅ 買入機會</button>
     <button class="sdb-btn pri" id="sdb-analyze-btn" onclick="_sdbAnalyzeTop()">📊 分析</button>

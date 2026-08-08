@@ -15,6 +15,7 @@ from typing import Any
 import anthropic
 
 import tools
+from scott_evolution.evidence import enforce_market_evidence, tool_evidence
 
 MODEL = os.environ.get("CLI_AGENT_MODEL", "claude-opus-4-8")
 EFFORT = os.environ.get("CLI_AGENT_EFFORT", "medium")
@@ -42,6 +43,8 @@ SYSTEM_PROMPT = (
     "（TWSE 開放資料、收盤後）；美股無免費法人即時資料，系統的『機構資金流』是價量"
     "推估的代理指標，回答時要照實說明，不可把推估講成真實籌碼。"
     "回答精簡、直接，適合在手機上閱讀。"
+    "任何行情、估值、預測、買賣或風險結論都必須先呼叫適合的資料工具；"
+    "最後清楚列出資料依據與查詢時間。工具失敗時必須說無法驗證，不可憑印象補答案。"
     "提供投資相關資訊時，若為示範資料要明確告知，並提醒這不構成投資建議。"
 )
 
@@ -84,6 +87,7 @@ def run_turn(history: list[dict], user_message: str) -> dict:
     safe_message = user_message.strip()[:MAX_MESSAGE_CHARS]
     messages: list[dict[str, Any]] = list(clean_history)
     messages.append({"role": "user", "content": safe_message})
+    evidence: list[dict] = []
 
     for _ in range(MAX_ITERS):
         response = client.messages.create(
@@ -107,25 +111,49 @@ def run_turn(history: list[dict], user_message: str) -> dict:
                 if block.type == "tool_use":
                     output = tools.execute_web_tool(block.name, block.input)
                     output = output[:MAX_TOOL_RESULT_CHARS]
+                    is_error = output.startswith("錯誤")
+                    evidence.append(
+                        tool_evidence(block.name, block.input, output, is_error=is_error)
+                    )
                     results.append(
                         {
                             "type": "tool_result",
                             "tool_use_id": block.id,
                             "content": output,
-                            "is_error": output.startswith("錯誤"),
+                            "is_error": is_error,
                         }
                     )
             messages.append({"role": "user", "content": results})
             continue
 
         reply = "".join(b.text for b in response.content if b.type == "text")
+        guarded = enforce_market_evidence(safe_message, reply, evidence)
+        reply = guarded["reply"]
         safe_messages = clean_history + [
             {"role": "user", "content": safe_message},
             {"role": "assistant", "content": reply},
         ]
-        return {"reply": reply, "messages": safe_messages[-MAX_HISTORY_MESSAGES:]}
+        return {
+            "reply": reply,
+            "messages": safe_messages[-MAX_HISTORY_MESSAGES:],
+            "evidence": guarded["evidence"],
+            "evidence_guard": {
+                "required": guarded["required"],
+                "blocked": guarded["blocked"],
+            },
+        }
 
+    guarded = enforce_market_evidence(
+        safe_message,
+        "（已達工具呼叫上限，請換個問法或重試）",
+        evidence,
+    )
     return {
-        "reply": "（已達工具呼叫上限，請換個問法或重試）",
+        "reply": guarded["reply"],
         "messages": clean_history + [{"role": "user", "content": safe_message}],
+        "evidence": guarded["evidence"],
+        "evidence_guard": {
+            "required": guarded["required"],
+            "blocked": guarded["blocked"],
+        },
     }
