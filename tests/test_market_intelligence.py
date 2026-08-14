@@ -7,6 +7,7 @@ from flask import Flask
 
 import top_tier_decision_engine as ttde
 from market_intelligence import service
+from market_intelligence import sources as intelligence_sources
 from market_intelligence.analysis import (
     aggregate_catalysts,
     analyze_articles,
@@ -14,7 +15,7 @@ from market_intelligence.analysis import (
 )
 from market_intelligence.config import IntelligenceConfig
 from market_intelligence.reporting import format_html
-from market_intelligence.sources import _safe_error
+from market_intelligence.sources import _safe_error, fetch_alpha_vantage
 from market_intelligence.storage import (
     get_symbol_catalyst,
     latest_report,
@@ -132,6 +133,34 @@ def test_service_persists_deduplicates_and_builds_portfolio_report(
     monkeypatch.setattr(
         service, "collect_news", lambda *_args, **_kwargs: ([dict(article)], health)
     )
+    ai_calls = {"count": 0}
+
+    def _ai_create(**_kwargs):
+        ai_calls["count"] += 1
+        return SimpleNamespace(
+            content=[
+                SimpleNamespace(
+                    text=json.dumps(
+                        [
+                            {
+                                "id": article["dedupe_key"][:16],
+                                "direction": "BULLISH",
+                                "importance": 90,
+                                "confidence": 90,
+                                "relevance": 100,
+                                "time_horizon": "DAYS",
+                                "fact": article["summary"],
+                                "inference": "需等待價格確認。",
+                                "affected_symbols": ["NVDA"],
+                                "score_adjustment": 6,
+                            }
+                        ]
+                    )
+                )
+            ]
+        )
+
+    ai_client = SimpleNamespace(messages=SimpleNamespace(create=_ai_create))
     data = {
         "portfolio_v1": [
             {"symbol": "NVDA", "shares": 2, "buyPrice": 100, "status": "open"}
@@ -139,16 +168,18 @@ def test_service_persists_deduplicates_and_builds_portfolio_report(
     }
 
     first = service.run_intelligence(
-        "manual", user_data=data, config=config, force=True, ai_client=False
+        "manual", user_data=data, config=config, force=True, ai_client=ai_client
     )
     second = service.run_intelligence(
-        "manual", user_data=data, config=config, force=True, ai_client=False
+        "manual", user_data=data, config=config, force=True, ai_client=ai_client
     )
 
     assert first["_run"]["status"] == "SUCCESS"
     assert first["summary"]["new_count"] == 1
     assert first["summary"]["holding_impacts"] == 1
     assert second["summary"]["new_count"] == 0
+    assert ai_calls["count"] == 1
+    assert second["top_events"][0]["analysis_method"] == "AI_GROUNDED"
     assert status(db)["article_count"] == 1
     assert len(recent_articles(db)) == 1
     assert latest_report(db)["portfolio"]["holding_symbols"] == ["NVDA"]
@@ -338,3 +369,62 @@ def test_provider_errors_redact_api_credentials():
 
     assert "secret-token" not in error
     assert "[redacted]" in error
+
+
+def test_alpha_vantage_batches_symbols_into_one_request():
+    calls = []
+    payload = {
+        "feed": [
+            {
+                "title": "Chip companies publish material business update",
+                "summary": "A supplied summary.",
+                "source": "Example Wire",
+                "url": "https://example.test/chips",
+                "time_published": "20260814T010000",
+                "overall_sentiment_score": "0.1",
+                "ticker_sentiment": [
+                    {"ticker": "NVDA", "ticker_sentiment_score": "0.2"},
+                    {"ticker": "AAPL", "ticker_sentiment_score": "-0.4"},
+                ],
+            }
+        ]
+    }
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return payload
+
+    def _get(_url, **kwargs):
+        calls.append(kwargs["params"])
+        return _Response()
+
+    articles = fetch_alpha_vantage(
+        ["NVDA", "AAPL"], api_key="test-key", session=SimpleNamespace(get=_get)
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["tickers"] == "NVDA,AAPL"
+    assert articles[0]["symbols"] == ["NVDA", "AAPL"]
+    assert articles[0]["provider_sentiment"] == -0.4
+
+
+def test_breaking_collection_does_not_spend_alpha_quota(monkeypatch, tmp_path):
+    config = _config(str(tmp_path / "news.db"), alpha_vantage_key="configured")
+    monkeypatch.setattr(intelligence_sources, "fetch_yahoo", lambda *_a, **_kw: [])
+    monkeypatch.setattr(
+        intelligence_sources,
+        "fetch_alpha_vantage",
+        lambda *_a, **_kw: (_ for _ in ()).throw(
+            AssertionError("breaking poll must skip Alpha Vantage")
+        ),
+    )
+
+    _articles, health = intelligence_sources.collect_news(
+        ["NVDA"], config, include_slow_sources=False
+    )
+
+    assert health["alpha_vantage"]["configured"] is True
+    assert health["alpha_vantage"]["attempted"] == 0

@@ -12,6 +12,7 @@ from .delivery import queue_report
 from .sources import collect_news
 from .storage import (
     acquire_lease,
+    article_analyses,
     finish_run,
     release_lease,
     save_catalyst,
@@ -78,16 +79,39 @@ def run_intelligence(
             raw_user_data, max_symbols=config.max_symbols
         )
         articles, provider_health = collect_news(
-            user_context["symbols"], config, session=session
+            user_context["symbols"],
+            config,
+            session=session,
+            include_slow_sources=run_type != "breaking",
         )
         fetched_count = len(articles)
+        prior_analyses = article_analyses(
+            config.db_path, [article["dedupe_key"] for article in articles]
+        )
+        # Rules are deterministic and cheap. Only genuinely new items may call
+        # Claude; unchanged stories retain their earlier validated result.
         analyzed = analyze_articles(
             articles,
             holding_symbols=user_context["holding_symbols"],
             watchlist_symbols=user_context["watchlist"],
             model=config.anthropic_model,
+            client=False,
+        )
+        new_articles = [
+            article
+            for article in analyzed
+            if article["dedupe_key"] not in prior_analyses
+        ]
+        analyze_articles(
+            new_articles,
+            holding_symbols=user_context["holding_symbols"],
+            watchlist_symbols=user_context["watchlist"],
+            model=config.anthropic_model,
             client=ai_client,
         )
+        for article in analyzed:
+            if article["dedupe_key"] in prior_analyses:
+                article["analysis"] = prior_analyses[article["dedupe_key"]]
         analyzed_count = len(analyzed)
         new_keys = upsert_articles(config.db_path, analyzed)
         catalysts = aggregate_catalysts(analyzed, user_context["symbols"])

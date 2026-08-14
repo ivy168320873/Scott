@@ -196,18 +196,21 @@ def fetch_finnhub(
 
 
 def fetch_alpha_vantage(
-    symbol: str,
+    symbols: list[str] | str,
     *,
     api_key: str,
     limit: int = 8,
     session=None,
 ) -> list[dict]:
+    requested = _symbols(symbols)
+    if not requested:
+        return []
     data = _get(
         session,
         "https://www.alphavantage.co/query",
         params={
             "function": "NEWS_SENTIMENT",
-            "tickers": symbol,
+            "tickers": ",".join(requested),
             "sort": "LATEST",
             "limit": max(1, min(50, limit)),
             "apikey": api_key,
@@ -218,14 +221,14 @@ def fetch_alpha_vantage(
     result = []
     for raw in data.get("feed", [])[:limit]:
         tickers = []
-        selected_score = None
+        selected_scores = []
         for ticker in raw.get("ticker_sentiment", []) or []:
             ticker_symbol = str(ticker.get("ticker") or "").upper().strip()
             if _SYMBOL_RE.fullmatch(ticker_symbol):
                 tickers.append(ticker_symbol)
-            if ticker_symbol == symbol:
+            if ticker_symbol in requested:
                 try:
-                    selected_score = float(ticker.get("ticker_sentiment_score"))
+                    selected_scores.append(float(ticker.get("ticker_sentiment_score")))
                 except (TypeError, ValueError):
                     pass
         try:
@@ -239,10 +242,10 @@ def fetch_alpha_vantage(
             summary=raw.get("summary"),
             url=raw.get("url"),
             published_at=_alpha_time(raw.get("time_published")),
-            symbols=tickers or [symbol],
-            provider_sentiment=selected_score
-            if selected_score is not None
-            else overall,
+            symbols=tickers or requested,
+            provider_sentiment=(
+                max(selected_scores, key=abs) if selected_scores else overall
+            ),
             raw={"topics": raw.get("topics") or []},
         )
         if item:
@@ -269,6 +272,7 @@ def collect_news(
     *,
     session=None,
     now: datetime | None = None,
+    include_slow_sources: bool = True,
 ) -> tuple[list[dict], dict]:
     """Collect and deduplicate news from configured providers."""
     now = now or datetime.now(timezone.utc)
@@ -303,19 +307,22 @@ def collect_news(
                     ),
                 )
             )
-    if config.alpha_vantage_key:
-        # Free plans are deliberately treated as scarce; focus on the first
-        # five holdings/watchlist names and let Yahoo cover the rest.
-        for symbol in provider_symbols[:5]:
-            jobs.append(
-                (
-                    "alpha_vantage",
-                    symbol,
-                    lambda s=symbol: fetch_alpha_vantage(
-                        s, api_key=config.alpha_vantage_key, session=session
-                    ),
-                )
+    if config.alpha_vantage_key and include_slow_sources and provider_symbols:
+        # NEWS_SENTIMENT accepts multiple tickers. Use one daily/manual request
+        # instead of spending scarce free-plan quota on every breaking poll.
+        alpha_symbols = provider_symbols[:5]
+        jobs.append(
+            (
+                "alpha_vantage",
+                ",".join(alpha_symbols),
+                lambda: fetch_alpha_vantage(
+                    alpha_symbols,
+                    api_key=config.alpha_vantage_key,
+                    limit=min(20, config.max_articles),
+                    session=session,
+                ),
             )
+        )
 
     health = {
         "yahoo": {"configured": True, "attempted": 0, "succeeded": 0, "errors": []},

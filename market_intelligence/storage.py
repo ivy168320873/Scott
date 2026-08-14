@@ -208,6 +208,30 @@ def recent_articles(db_path: str, *, limit: int = 100) -> list[dict]:
     return result
 
 
+def article_analyses(db_path: str, keys: list[str]) -> dict[str, dict]:
+    """Return prior validated analyses so unchanged news never spends AI twice."""
+    init_db(db_path)
+    clean_keys = [str(key)[:128] for key in dict.fromkeys(keys) if str(key).strip()]
+    if not clean_keys:
+        return {}
+    placeholders = ",".join("?" for _ in clean_keys)
+    with connect(db_path) as con:
+        rows = con.execute(
+            f"SELECT dedupe_key,analysis_json FROM mi_articles "
+            f"WHERE dedupe_key IN ({placeholders})",
+            clean_keys,
+        ).fetchall()
+    result = {}
+    for row in rows:
+        try:
+            analysis = json.loads(row["analysis_json"])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(analysis, dict) and analysis:
+            result[row["dedupe_key"]] = analysis
+    return result
+
+
 def latest_report(db_path: str, run_type: str | None = None) -> dict | None:
     init_db(db_path)
     with connect(db_path) as con:
