@@ -130,6 +130,8 @@ def heuristic_analysis(
     positive_hits = sum(1 for word in _POSITIVE if word in text)
     negative_hits = sum(1 for word in _NEGATIVE if word in text)
     provider_sentiment = article.get("provider_sentiment")
+    raw_meta = article.get("raw") if isinstance(article.get("raw"), dict) else {}
+    filing_risk = str(raw_meta.get("risk_category") or "")
     try:
         provider_value = float(provider_sentiment)
         if provider_value >= 0.15:
@@ -151,6 +153,9 @@ def heuristic_analysis(
     else:
         direction = "NEUTRAL"
         direction_sign = 0
+    if filing_risk == "DILUTION_RISK":
+        direction = "BEARISH"
+        direction_sign = -1
 
     importance = 36
     for keyword, boost in _HIGH_IMPACT.items():
@@ -162,6 +167,10 @@ def heuristic_analysis(
         importance += 8
     if len(article.get("corroborating_providers") or []) > 1:
         importance += 8
+    if filing_risk == "DILUTION_RISK":
+        importance += 24
+    elif filing_risk in {"INSIDER_TRANSACTION", "STRUCTURED_FILING"}:
+        importance += 12
     age = _age_hours(article.get("published_at", ""), now)
     if age <= 2:
         importance += 8
@@ -176,6 +185,8 @@ def heuristic_analysis(
         confidence += 7
     if article.get("publisher"):
         confidence += 5
+    if raw_meta.get("is_primary_source"):
+        confidence += 18
     confidence += min(12, (len(article.get("corroborating_providers") or []) - 1) * 8)
     confidence = _clamp(confidence)
 
@@ -219,7 +230,7 @@ def heuristic_analysis(
         "affected_symbols": holdings_hit
         + [s for s in watchlist_hit if s not in holdings_hit],
         "score_adjustment": score_adjustment,
-        "risk_flags": [],
+        "risk_flags": [filing_risk] if filing_risk else [],
         "analysis_method": "RULES",
     }
 
@@ -580,6 +591,8 @@ def build_report(
         gaps.append("FINNHUB_KEY 未設定；目前由 Yahoo Finance 補足公司新聞。")
     if not provider_health.get("alpha_vantage", {}).get("configured"):
         gaps.append("ALPHA_VANTAGE_KEY 未設定；缺少第二個新聞情緒來源交叉驗證。")
+    if not provider_health.get("sec_edgar", {}).get("configured"):
+        gaps.append("SEC_USER_AGENT 未設定；美股 S-3／424B5 稀釋與 Form 4 監控尚未啟用。")
     if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
         gaps.append("ANTHROPIC_API_KEY 未設定；目前只使用可解釋規則分類。")
     successful_providers = [

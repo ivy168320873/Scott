@@ -16,10 +16,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from market_breadth_engine import run_market_breadth
+
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def run_market_regime(ohlcv_fn) -> dict:
+def run_market_regime(ohlcv_fn, *, market: str = "US", include_breadth: bool = True) -> dict:
     """
     ohlcv_fn: callable(symbol: str) -> normalized OHLCV dict
               (must have 'closes', 'volumes', 'is_demo' keys)
@@ -34,13 +36,27 @@ def run_market_regime(ohlcv_fn) -> dict:
       indices                : dict        — per-index detail (SPY / QQQ)
       is_demo                : bool
     """
-    spy_raw = _safe_fetch(ohlcv_fn, "SPY")
-    qqq_raw = _safe_fetch(ohlcv_fn, "QQQ")
+    market = "TW" if str(market).upper() == "TW" else "US"
+    primary_symbol, growth_symbol = (
+        ("^TWII", "0050.TW") if market == "TW" else ("SPY", "QQQ")
+    )
+    spy_raw = _safe_fetch(ohlcv_fn, primary_symbol)
+    qqq_raw = _safe_fetch(ohlcv_fn, growth_symbol)
 
     is_demo = spy_raw.get("is_demo", True) or qqq_raw.get("is_demo", True)
 
-    spy = _index_stats(spy_raw, "SPY", ma_periods=[20, 50, 200])
-    qqq = _index_stats(qqq_raw, "QQQ", ma_periods=[20, 50])
+    spy = _index_stats(spy_raw, primary_symbol, ma_periods=[20, 50, 200])
+    qqq = _index_stats(qqq_raw, growth_symbol, ma_periods=[20, 50])
+
+    breadth = (
+        run_market_breadth(ohlcv_fn, market=market)
+        if include_breadth
+        else {
+            "status": "DISABLED",
+            "breadth_score": 50,
+            "warnings": ["市場廣度未啟用"],
+        }
+    )
 
     reasons:  list[str] = []
     invalid:  list[str] = []
@@ -60,34 +76,41 @@ def run_market_regime(ohlcv_fn) -> dict:
 
     # ── Classify regime ───────────────────────────────────────────────────────
     if spy_above_ma200 is False:
-        invalid.append("SPY 跌破 MA200：禁止主動買進（熊市環境）")
+        invalid.append(f"{primary_symbol} 跌破 MA200：禁止主動買進（熊市環境）")
         if both_below_ma20 and (big_daily_drop or crash_drop):
             regime = "CRASH_RISK"
-            invalid.append("SPY+QQQ 同跌破 MA20 且單日大跌：崩跌風險模式")
+            invalid.append(f"{primary_symbol}+{growth_symbol} 同跌破 MA20 且單日大跌：崩跌風險模式")
         else:
             regime = "RISK_OFF"
 
     elif both_below_ma20:
         if big_daily_drop:
             regime = "RISK_OFF"
-            invalid.append("SPY+QQQ 同時跌破 MA20 且單日大跌：進入防守")
+            invalid.append(f"{primary_symbol}+{growth_symbol} 同時跌破 MA20 且單日大跌：進入防守")
         else:
             regime = "NEUTRAL"
-            reasons.append("SPY+QQQ 同時位於 MA20 以下，市場偏弱震盪")
+            reasons.append(f"{primary_symbol}+{growth_symbol} 同時位於 MA20 以下，市場偏弱震盪")
 
     elif big_daily_drop:
         regime = "NEUTRAL"
-        reasons.append(f"QQQ/SPY 單日跌幅超過 2.5%（QQQ {qqq_1d:+.1f}%），暫時防守")
+        weak_symbol, weak_return = (
+            (growth_symbol, qqq_1d)
+            if qqq_1d is not None and qqq_1d < -2.5
+            else (primary_symbol, spy_1d)
+        )
+        reasons.append(
+            f"大盤單日跌幅超過 2.5%（{weak_symbol} {weak_return:+.1f}%），暫時防守"
+        )
 
     elif qqq_above_ma20 and spy_above_ma50:
         regime = "RISK_ON"
-        reasons.append("QQQ > MA20 且 SPY > MA50：市場處於進攻型環境")
+        reasons.append(f"{growth_symbol} > MA20 且 {primary_symbol} > MA50：市場處於進攻型環境")
         if spy_above_ma200:
-            reasons.append("SPY 站穩 MA200：中長期趨勢健康")
+            reasons.append(f"{primary_symbol} 站穩 MA200：中長期趨勢健康")
 
     elif qqq_above_ma20 and not spy_above_ma50:
         regime = "NEUTRAL"
-        reasons.append("QQQ 站上 MA20 但 SPY 仍在 MA50 以下：進攻力道不足")
+        reasons.append(f"{growth_symbol} 站上 MA20 但 {primary_symbol} 仍在 MA50 以下：進攻力道不足")
 
     else:
         regime = "NEUTRAL"
@@ -96,12 +119,12 @@ def run_market_regime(ohlcv_fn) -> dict:
     # ── QQQ < MA20 降低新倉權重（即使 regime 不是 RISK_OFF）────────────────
     if qqq_above_ma20 is False and regime == "RISK_ON":
         regime = "NEUTRAL"
-        reasons.append("QQQ 跌破 MA20：降低新倉權重")
+        reasons.append(f"{growth_symbol} 跌破 MA20：降低新倉權重")
 
     # ── SPY/QQQ 同時跌破 MA20 硬規則 ─────────────────────────────────────────
     if both_below_ma20 and regime == "RISK_ON":
         regime = "NEUTRAL"
-        invalid.append("SPY+QQQ 同跌破 MA20：最少降至 NEUTRAL")
+        invalid.append(f"{primary_symbol}+{growth_symbol} 同跌破 MA20：最少降至 NEUTRAL")
 
     # ── Score ─────────────────────────────────────────────────────────────────
     score = 50
@@ -116,6 +139,22 @@ def run_market_regime(ohlcv_fn) -> dict:
     if qqq_1d is not None:
         score += max(-5, min(5, qqq_1d * 1.5))
     score = max(0, min(100, round(score)))
+
+    # Cross-sectional confirmation: only covered, non-demo breadth may alter
+    # the regime.  Weak breadth can downgrade a headline-index rally; proxy
+    # strength alone never upgrades a weak primary trend to RISK_ON.
+    if breadth.get("status") == "OK":
+        breadth_score = int(breadth.get("breadth_score", 50))
+        score = max(0, min(100, round(score * 0.72 + breadth_score * 0.28)))
+        above50 = (breadth.get("metrics") or {}).get("pct_above_ma50")
+        if regime == "RISK_ON" and above50 is not None and above50 < 45:
+            regime = "NEUTRAL"
+            invalid.append(f"代表性市場廣度僅 {above50:.0f}% 站上 MA50：指數上漲缺乏擴散")
+        if breadth_score < 25 and regime not in {"CRASH_RISK", "RISK_OFF"}:
+            regime = "RISK_OFF"
+            invalid.append(f"市場廣度分數 {breadth_score} < 25：進入防守")
+    else:
+        reasons.append("市場廣度覆蓋不足，本次只採用主要指數，不加分")
 
     # ── Allowed actions ───────────────────────────────────────────────────────
     if regime == "CRASH_RISK":
@@ -139,6 +178,7 @@ def run_market_regime(ohlcv_fn) -> dict:
 
     return {
         "ok":                    True,
+        "market":                market,
         "market_regime":         regime,
         "market_score":          score,
         "risk_budget_multiplier": round(budget, 2),
@@ -147,9 +187,10 @@ def run_market_regime(ohlcv_fn) -> dict:
         "invalid_conditions":    invalid,
         "is_demo":               is_demo,
         "indices": {
-            "SPY": spy,
-            "QQQ": qqq,
+            primary_symbol: spy,
+            growth_symbol: qqq,
         },
+        "breadth":                breadth,
     }
 
 

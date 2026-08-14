@@ -458,6 +458,9 @@ def run_institutional_flow(
         "symbol": symbol,
         "is_demo": is_demo,
         "bar_count": n,
+        "method": "PRICE_VOLUME_PROXY",
+        "is_direct_institutional_data": False,
+        "data_scope": "OHLCV_INFERENCE",
     }
 
     if n < 10:
@@ -476,7 +479,10 @@ def run_institutional_flow(
             "flow_direction": "NEUTRAL",
             "confidence": 20 if not is_demo else min(20, 30),
             "reasons": [],
-            "warnings": ["數據不足（少於10根K棒），無法進行機構流向分析"],
+            "warnings": [
+                "數據不足（少於10根K棒），無法進行資金流代理分析",
+                "本模組由價格與成交量推論，並非交易所機構逐筆流向",
+            ],
             "breakout_detail": {"has_breakout": False},
         }
 
@@ -567,12 +573,16 @@ def run_institutional_flow(
 
     if all_zero_vol:
         warnings.append("成交量全為零，計算結果僅供參考")
+    warnings.append("PRICE_VOLUME_PROXY：由 OHLCV 推論，非直接機構持倉或逐筆成交資料")
 
     return {
         "ok": True,
         "symbol": symbol,
         "is_demo": is_demo,
         "bar_count": n,
+        "method": "PRICE_VOLUME_PROXY",
+        "is_direct_institutional_data": False,
+        "data_scope": "OHLCV_INFERENCE",
         "relative_strength_vs_QQQ": rs_qqq,
         "relative_strength_vs_sector": rs_sector,
         "volume_accumulation_score": vol_acc_score,

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import os
+import json
 import sqlite3
 import threading
 from datetime import date, datetime, timezone
@@ -46,12 +47,19 @@ CREATE TABLE IF NOT EXISTS signal_history (
     sector_leadership       TEXT,
     position_size_level     TEXT,
     entry_price             REAL,
+    entry_fill_price        REAL,
+    entry_fill_date         TEXT,
+    entry_gap_pct           REAL,
+    round_trip_cost_pct     REAL,
     price_1d                REAL,
     price_3d                REAL,
     price_5d                REAL,
     return_1d               REAL,
     return_3d               REAL,
     return_5d               REAL,
+    net_return_1d           REAL,
+    net_return_3d           REAL,
+    net_return_5d           REAL,
     benchmark_return_1d     REAL,
     benchmark_return_3d     REAL,
     benchmark_return_5d     REAL,
@@ -68,6 +76,13 @@ CREATE TABLE IF NOT EXISTS signal_history (
     paper_r_multiple        REAL,
     paper_exit_reason       TEXT,
     paper_closed_at         TEXT,
+    prediction_probability  REAL,
+    quote_source            TEXT,
+    quote_timestamp         TEXT,
+    quote_age_seconds       REAL,
+    data_snapshot_json      TEXT,
+    calibration_regime      TEXT,
+    outcome_model           TEXT,
     is_demo                 INTEGER DEFAULT 0,
     created_at              TEXT    NOT NULL,
     updated_at              TEXT
@@ -85,6 +100,23 @@ _PAPER_COLUMNS = {
     "paper_closed_at": "TEXT",
 }
 
+_INSTITUTIONAL_COLUMNS = {
+    "entry_fill_price": "REAL",
+    "entry_fill_date": "TEXT",
+    "entry_gap_pct": "REAL",
+    "round_trip_cost_pct": "REAL",
+    "net_return_1d": "REAL",
+    "net_return_3d": "REAL",
+    "net_return_5d": "REAL",
+    "prediction_probability": "REAL",
+    "quote_source": "TEXT",
+    "quote_timestamp": "TEXT",
+    "quote_age_seconds": "REAL",
+    "data_snapshot_json": "TEXT",
+    "calibration_regime": "TEXT",
+    "outcome_model": "TEXT",
+}
+
 
 # ── DB init ───────────────────────────────────────────────────────────────────
 
@@ -97,7 +129,10 @@ def init_db(db_path: str = _DB_PATH) -> None:
             existing = {
                 row[1] for row in conn.execute("PRAGMA table_info(signal_history)").fetchall()
             }
-            for column, sql_type in _PAPER_COLUMNS.items():
+            for column, sql_type in {
+                **_PAPER_COLUMNS,
+                **_INSTITUTIONAL_COLUMNS,
+            }.items():
                 if column not in existing:
                     conn.execute(
                         f"ALTER TABLE signal_history ADD COLUMN {column} {sql_type}"
@@ -126,48 +161,56 @@ def record_signal(payload: dict) -> dict:
     now_iso     = datetime.now(timezone.utc).isoformat()
     signal_date = str(payload.get("signal_date") or now_iso[:10])
 
-    row = (
-        sym, signal_date, decision,
-        payload.get("top_tier_score"),
-        payload.get("market_regime"),
-        payload.get("market_score"),
-        payload.get("data_quality_status"),
-        payload.get("chase_risk_score"),
+    snapshot = payload.get("data_snapshot")
+    if isinstance(snapshot, (dict, list)):
+        snapshot = json.dumps(snapshot, ensure_ascii=False, default=str)[:20000]
+    elif snapshot is not None:
+        snapshot = str(snapshot)[:20000]
+
+    columns = [
+        "symbol", "signal_date", "decision", "top_tier_score",
+        "market_regime", "market_score", "data_quality_status",
+        "chase_risk_score", "sell_signal", "kill_signal_triggered",
+        "sector_leadership", "position_size_level", "entry_price",
+        "entry_fill_price", "entry_fill_date", "entry_gap_pct",
+        "round_trip_cost_pct", "price_1d", "price_3d", "price_5d",
+        "return_1d", "return_3d", "return_5d", "net_return_1d",
+        "net_return_3d", "net_return_5d", "benchmark_return_1d",
+        "benchmark_return_3d", "benchmark_return_5d", "relative_return_1d",
+        "relative_return_3d", "relative_return_5d",
+        "max_favorable_excursion", "max_adverse_excursion",
+        "hit_stop_loss", "was_correct", "false_signal_reason",
+        "prediction_probability", "quote_source", "quote_timestamp",
+        "quote_age_seconds", "data_snapshot_json", "calibration_regime",
+        "outcome_model", "is_demo", "created_at", "updated_at",
+    ]
+    values = [
+        sym, signal_date, decision, payload.get("top_tier_score"),
+        payload.get("market_regime"), payload.get("market_score"),
+        payload.get("data_quality_status"), payload.get("chase_risk_score"),
         payload.get("sell_signal"),
         int(bool(payload.get("kill_signal_triggered", False))),
-        payload.get("sector_leadership"),
-        payload.get("position_size_level"),
-        payload.get("entry_price"),
-        None, None, None,   # price_1d/3d/5d
-        None, None, None,   # return_1d/3d/5d
-        None, None, None,   # benchmark_return_1d/3d/5d
-        None, None, None,   # relative_return_1d/3d/5d
-        None, None,         # MFE, MAE
-        int(bool(payload.get("hit_stop_loss", False))),
-        None,               # was_correct
-        None,               # false_signal_reason
-        int(bool(payload.get("is_demo", False))),
-        now_iso,
-        None,               # updated_at
-    )
+        payload.get("sector_leadership"), payload.get("position_size_level"),
+        payload.get("entry_price"), None, None, None, None,
+        None, None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
+        int(bool(payload.get("hit_stop_loss", False))), None, None,
+        _normalized_probability(payload.get("prediction_probability")),
+        str(payload.get("quote_source") or "")[:80] or None,
+        str(payload.get("quote_timestamp") or "")[:64] or None,
+        payload.get("quote_age_seconds"), snapshot,
+        str(payload.get("calibration_regime") or payload.get("market_regime") or "")[:40] or None,
+        "NEXT_OPEN_COST_ADJUSTED_V1",
+        int(bool(payload.get("is_demo", False))), now_iso, None,
+    ]
 
     try:
         with _LOCK, sqlite3.connect(_DB_PATH) as conn:
-            cur = conn.execute("""
-                INSERT INTO signal_history (
-                    symbol, signal_date, decision,
-                    top_tier_score, market_regime, market_score, data_quality_status,
-                    chase_risk_score, sell_signal, kill_signal_triggered, sector_leadership,
-                    position_size_level, entry_price,
-                    price_1d, price_3d, price_5d,
-                    return_1d, return_3d, return_5d,
-                    benchmark_return_1d, benchmark_return_3d, benchmark_return_5d,
-                    relative_return_1d, relative_return_3d, relative_return_5d,
-                    max_favorable_excursion, max_adverse_excursion,
-                    hit_stop_loss, was_correct, false_signal_reason,
-                    is_demo, created_at, updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, row)
+            placeholders = ",".join("?" for _ in columns)
+            cur = conn.execute(
+                f"INSERT INTO signal_history ({','.join(columns)}) VALUES ({placeholders})",
+                values,
+            )
             conn.commit()
             return {"ok": True, "id": cur.lastrowid, "symbol": sym, "decision": decision}
     except Exception as e:
@@ -258,23 +301,39 @@ def update_outcomes(updates) -> dict:
 
             with _LOCK, sqlite3.connect(_DB_PATH) as conn:
                 base = conn.execute(
-                    "SELECT entry_price, decision, kill_signal_triggered FROM signal_history WHERE id=?",
+                    """SELECT entry_price, entry_fill_price, decision,
+                              kill_signal_triggered, round_trip_cost_pct
+                       FROM signal_history WHERE id=?""",
                     (rec_id,),
                 ).fetchone()
                 if not base:
                     errors.append(f"Record id={rec_id} not found")
                     continue
 
-                entry_price, decision, kill_trig = base
-                entry = float(entry_price) if entry_price else None
+                entry_price, stored_fill, decision, kill_trig, stored_cost = base
+                entry_fill = u.get("entry_fill_price") or stored_fill
+                entry = float(entry_fill or entry_price) if (entry_fill or entry_price) else None
 
                 p1d = u.get("price_1d")
                 p3d = u.get("price_3d")
                 p5d = u.get("price_5d")
 
-                r1d = _pct_change(entry, p1d)
-                r3d = _pct_change(entry, p3d)
-                r5d = _pct_change(entry, p5d)
+                r1d = u.get("return_1d")
+                r3d = u.get("return_3d")
+                r5d = u.get("return_5d")
+                r1d = _pct_change(entry, p1d) if r1d is None else r1d
+                r3d = _pct_change(entry, p3d) if r3d is None else r3d
+                r5d = _pct_change(entry, p5d) if r5d is None else r5d
+
+                round_trip_cost = u.get("round_trip_cost_pct")
+                if round_trip_cost is None:
+                    round_trip_cost = stored_cost or 0.0
+                n1d = u.get("net_return_1d")
+                n3d = u.get("net_return_3d")
+                n5d = u.get("net_return_5d")
+                n1d = _directional_net_return(decision, r1d, round_trip_cost) if n1d is None else n1d
+                n3d = _directional_net_return(decision, r3d, round_trip_cost) if n3d is None else n3d
+                n5d = _directional_net_return(decision, r5d, round_trip_cost) if n5d is None else n5d
 
                 b1d = u.get("benchmark_return_1d")
                 b3d = u.get("benchmark_return_3d")
@@ -288,26 +347,40 @@ def update_outcomes(updates) -> dict:
                 mfe = u.get("max_favorable_excursion")
                 mae = u.get("max_adverse_excursion")
 
-                was_correct = _determine_was_correct(decision, r1d, r3d, r5d, rel5d, hit_stop)
-                false_reason = _determine_false_reason(decision, was_correct, r1d, r3d, r5d, rel5d)
+                was_correct = _determine_was_correct(
+                    decision, n1d, n3d, n5d, rel5d, hit_stop
+                )
+                false_reason = _determine_false_reason(
+                    decision, was_correct, r1d, r3d, r5d, rel5d
+                )
 
                 conn.execute("""
                     UPDATE signal_history SET
                         price_1d=?, price_3d=?, price_5d=?,
                         return_1d=?, return_3d=?, return_5d=?,
+                        net_return_1d=?, net_return_3d=?, net_return_5d=?,
                         benchmark_return_1d=?, benchmark_return_3d=?, benchmark_return_5d=?,
                         relative_return_1d=?, relative_return_3d=?, relative_return_5d=?,
                         max_favorable_excursion=?, max_adverse_excursion=?,
                         hit_stop_loss=?, was_correct=?, false_signal_reason=?,
+                        entry_fill_price=COALESCE(?, entry_fill_price),
+                        entry_fill_date=COALESCE(?, entry_fill_date),
+                        entry_gap_pct=COALESCE(?, entry_gap_pct),
+                        round_trip_cost_pct=COALESCE(?, round_trip_cost_pct),
+                        outcome_model=COALESCE(?, outcome_model),
                         updated_at=?
                     WHERE id=?
                 """, (
                     p1d, p3d, p5d,
                     r1d, r3d, r5d,
+                    n1d, n3d, n5d,
                     b1d, b3d, b5d,
                     rel1d, rel3d, rel5d,
                     mfe, mae,
                     hit_stop, was_correct, false_reason,
+                    u.get("entry_fill_price"), u.get("entry_fill_date"),
+                    u.get("entry_gap_pct"), u.get("round_trip_cost_pct"),
+                    u.get("outcome_model"),
                     now_iso, rec_id,
                 ))
                 conn.commit()
@@ -336,16 +409,16 @@ def update_symbol_outcomes(
     if not isinstance(ohlcv, dict) or ohlcv.get("is_demo"):
         return {"ok": True, "updated": 0, "skipped": "demo_or_missing_data"}
 
-    bars = _dated_closes(ohlcv)
+    bars = _dated_bars(ohlcv)
     if len(bars) < 2:
         return {"ok": True, "updated": 0, "skipped": "insufficient_bars"}
-    benchmark_bars = _dated_closes(benchmark_ohlcv or {})
+    benchmark_bars = _dated_bars(benchmark_ohlcv or {})
 
     try:
         with sqlite3.connect(_DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             pending = [dict(row) for row in conn.execute(
-                """SELECT id, signal_date, entry_price
+                """SELECT id, signal_date, entry_price, decision
                    FROM signal_history
                    WHERE symbol=? AND is_demo=0 AND return_5d IS NULL
                    ORDER BY signal_date ASC""",
@@ -359,24 +432,46 @@ def update_symbol_outcomes(
         signal_day = _parse_day(row.get("signal_date"))
         if signal_day is None:
             continue
-        anchor = _anchor_index(bars, signal_day)
-        if anchor is None or anchor + 1 >= len(bars):
+        entry_idx = _next_bar_index(bars, signal_day)
+        if entry_idx is None:
             continue
 
-        entry = _positive_float(row.get("entry_price")) or bars[anchor][1]
-        update: dict = {"id": row["id"]}
+        entry_bar = bars[entry_idx]
+        raw_entry = _positive_float(entry_bar.get("open")) or entry_bar["close"]
+        signal_reference = _positive_float(row.get("entry_price"))
+        if signal_reference is None and entry_idx > 0:
+            signal_reference = bars[entry_idx - 1]["close"]
+        decision = str(row.get("decision") or "").upper()
+        round_trip_cost = _round_trip_cost_pct(sym)
+        modeled_fill = _modeled_entry_fill(raw_entry, decision, sym)
+        update: dict = {
+            "id": row["id"],
+            "entry_fill_price": modeled_fill,
+            "entry_fill_date": entry_bar["date"].isoformat(),
+            "entry_gap_pct": _pct_change(signal_reference, raw_entry),
+            "round_trip_cost_pct": round_trip_cost,
+            "outcome_model": "NEXT_OPEN_COST_ADJUSTED_V1",
+        }
         for horizon in (1, 3, 5):
-            idx = anchor + horizon
+            idx = entry_idx + horizon - 1
             if idx < len(bars):
-                update[f"price_{horizon}d"] = bars[idx][1]
-                benchmark_return = _forward_return(benchmark_bars, signal_day, horizon)
+                exit_price = bars[idx]["close"]
+                gross_return = _pct_change(raw_entry, exit_price)
+                update[f"price_{horizon}d"] = exit_price
+                update[f"return_{horizon}d"] = gross_return
+                update[f"net_return_{horizon}d"] = _directional_net_return(
+                    decision, gross_return, round_trip_cost
+                )
+                benchmark_return = _forward_return_from_next_open(
+                    benchmark_bars, signal_day, horizon
+                )
                 if benchmark_return is not None:
                     update[f"benchmark_return_{horizon}d"] = benchmark_return
 
-        forward = [price for _, price in bars[anchor + 1:min(len(bars), anchor + 6)]]
-        if forward and entry > 0:
-            update["max_favorable_excursion"] = round((max(forward) - entry) / entry * 100, 4)
-            update["max_adverse_excursion"] = round((min(forward) - entry) / entry * 100, 4)
+        forward = bars[entry_idx:min(len(bars), entry_idx + 5)]
+        mfe, mae = _directional_excursions(forward, raw_entry, decision)
+        update["max_favorable_excursion"] = mfe
+        update["max_adverse_excursion"] = mae
         updates.append(update)
 
     if not updates:
@@ -411,12 +506,16 @@ def update_paper_outcome(signal_id: int, payload: dict) -> dict:
     try:
         with _LOCK, sqlite3.connect(_DB_PATH) as conn:
             row = conn.execute(
-                "SELECT decision FROM signal_history WHERE id=?", (record_id,)
+                "SELECT decision, return_5d, was_correct FROM signal_history WHERE id=?",
+                (record_id,),
             ).fetchone()
             if not row:
                 return {"ok": False, "error": f"signal id={record_id} not found"}
             decision = str(row[0] or "").upper()
-            if decision in ("BUY", "STRONG_BUY", "HOLD"):
+            fixed_horizon_exists = row[1] is not None
+            if fixed_horizon_exists:
+                correct = row[2]
+            elif decision in ("BUY", "STRONG_BUY", "HOLD"):
                 correct = int(paper_return > 0)
             elif decision in ("SELL", "TRIM", "AVOID", "KILL_SIGNAL", "CHASE_RISK_HIGH"):
                 correct = int(paper_return < 0)
@@ -432,8 +531,13 @@ def update_paper_outcome(signal_id: int, payload: dict) -> dict:
                 """
                 UPDATE signal_history SET
                     paper_trade_id=?, paper_return_pct=?, paper_r_multiple=?,
-                    paper_exit_reason=?, paper_closed_at=?, was_correct=?,
-                    false_signal_reason=COALESCE(?, false_signal_reason), updated_at=?
+                    paper_exit_reason=?, paper_closed_at=?,
+                    was_correct=CASE WHEN return_5d IS NULL THEN ? ELSE was_correct END,
+                    false_signal_reason=CASE
+                        WHEN return_5d IS NULL THEN COALESCE(?, false_signal_reason)
+                        ELSE false_signal_reason
+                    END,
+                    updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -462,7 +566,9 @@ def update_paper_outcome(signal_id: int, payload: dict) -> dict:
 
 # ── Confidence statistics ─────────────────────────────────────────────────────
 
-def get_confidence_stats(signal_type: str | None = None):
+def get_confidence_stats(
+    signal_type: str | None = None, regime: str | None = None
+):
     """
     Returns:
       signal_type=None  → list[dict] for every SIGNAL_TYPE
@@ -471,21 +577,36 @@ def get_confidence_stats(signal_type: str | None = None):
     try:
         with sqlite3.connect(_DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
+            regime_value = str(regime or "").upper().strip()
             if signal_type:
                 stype = signal_type.upper()
-                rows = [dict(r) for r in conn.execute(
-                    "SELECT * FROM signal_history WHERE decision=? AND is_demo=0 ORDER BY signal_date DESC",
-                    (stype,),
-                ).fetchall()]
-                return _compute_stats(stype, rows)
+                sql = "SELECT * FROM signal_history WHERE decision=? AND is_demo=0"
+                params: list = [stype]
+                if regime_value:
+                    sql += " AND UPPER(COALESCE(calibration_regime, market_regime, ''))=?"
+                    params.append(regime_value)
+                sql += " ORDER BY signal_date DESC"
+                rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+                result = _compute_stats(stype, rows)
+                result["calibration_scope"] = (
+                    f"REGIME:{regime_value}" if regime_value else "ALL_REGIMES"
+                )
+                return result
             else:
                 result = []
                 for stype in SIGNAL_TYPES:
-                    rows = [dict(r) for r in conn.execute(
-                        "SELECT * FROM signal_history WHERE decision=? AND is_demo=0 ORDER BY signal_date DESC",
-                        (stype,),
-                    ).fetchall()]
-                    result.append(_compute_stats(stype, rows))
+                    sql = "SELECT * FROM signal_history WHERE decision=? AND is_demo=0"
+                    params = [stype]
+                    if regime_value:
+                        sql += " AND UPPER(COALESCE(calibration_regime, market_regime, ''))=?"
+                        params.append(regime_value)
+                    sql += " ORDER BY signal_date DESC"
+                    rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+                    stats = _compute_stats(stype, rows)
+                    stats["calibration_scope"] = (
+                        f"REGIME:{regime_value}" if regime_value else "ALL_REGIMES"
+                    )
+                    result.append(stats)
                 return result
     except Exception:
         if signal_type:
@@ -524,7 +645,14 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
       chase_weight_up  : bool  — True when chase risk confidence is high
     """
     try:
-        stats = get_confidence_stats(decision.upper())
+        regime_stats = get_confidence_stats(decision.upper(), regime=regime)
+        global_stats = get_confidence_stats(decision.upper())
+        stats = (
+            regime_stats
+            if isinstance(regime_stats, dict)
+            and regime_stats.get("evaluated_size", 0) >= 5
+            else global_stats
+        )
     except Exception:
         return _no_override()
 
@@ -535,6 +663,8 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
     conf   = stats.get("confidence_score", 50)
     sample = stats.get("outcome_sample_size", stats.get("sample_size", 0))
     notes  = list(stats.get("notes", []))
+    if stats.get("calibration_scope") == "ALL_REGIMES" and regime:
+        notes.append(f"{regime} 分層樣本不足，暫採全市場狀態校準")
 
     max_decision = None
     can_use      = True
@@ -582,6 +712,13 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
         "avg_relative_return_5d": stats.get("avg_relative_return_5d"),
         "false_signal_rate": stats.get("false_signal_rate"),
         "stop_loss_rate":   stats.get("stop_loss_rate"),
+        "probability_5d_pct": stats.get("probability_5d_pct"),
+        "probability_sample_size": stats.get("probability_sample_size", 0),
+        "credible_interval_95": stats.get("credible_interval_95"),
+        "brier_score": stats.get("brier_score"),
+        "calibration_gap_pct": stats.get("calibration_gap_pct"),
+        "calibration_scope": stats.get("calibration_scope", "ALL_REGIMES"),
+        "outcome_model": "NEXT_OPEN_COST_ADJUSTED_V1",
     }
 
 
@@ -606,14 +743,20 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
 
     # Win rate: signal-type specific definition of "correct"
     def _correct(r, days: int) -> bool | None:
-        ret = r.get(f"return_{days}d")
-        if ret is None:
+        gross = r.get(f"return_{days}d")
+        net = r.get(f"net_return_{days}d")
+        if gross is None and net is None:
             return None
         st = signal_type
+        if net is not None and st in (
+            "BUY", "STRONG_BUY", "SELL", "TRIM", "AVOID",
+            "KILL_SIGNAL", "CHASE_RISK_HIGH",
+        ):
+            return net > 0
         if st in ("BUY", "STRONG_BUY"):
-            return ret > 0
+            return gross > 0
         if st in ("SELL", "TRIM", "AVOID"):
-            return ret < 0
+            return gross < 0
         if st == "KILL_SIGNAL":
             r3 = r.get("return_3d")
             return (r3 < 0) if r3 is not None else None
@@ -631,6 +774,28 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     wr1 = _win_rate(rows, 1)
     wr3 = _win_rate(rows, 3)
     wr5 = _win_rate(rows, 5)
+
+    judged_5d = [r for r in rows if _correct(r, 5) is not None]
+    wins_5d = sum(1 for row in judged_5d if _correct(row, 5) is True)
+    posterior = _beta_posterior(wins_5d, len(judged_5d))
+
+    brier_rows = []
+    for row in rows:
+        probability = _normalized_probability(row.get("prediction_probability"))
+        outcome = _correct(row, 5)
+        if probability is not None and outcome is not None:
+            brier_rows.append((probability, 1.0 if outcome else 0.0))
+    brier_score = (
+        round(sum((prob - outcome) ** 2 for prob, outcome in brier_rows) / len(brier_rows), 4)
+        if brier_rows else None
+    )
+    calibration_gap = (
+        round(abs(
+            sum(prob for prob, _ in brier_rows) / len(brier_rows)
+            - sum(outcome for _, outcome in brier_rows) / len(brier_rows)
+        ) * 100, 2)
+        if brier_rows else None
+    )
 
     def _paper_correct(r) -> bool | None:
         ret = r.get("paper_return_pct")
@@ -651,6 +816,7 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     avg_r1   = _avg(r.get("return_1d")          for r in with_1d)
     avg_r3   = _avg(r.get("return_3d")          for r in with_3d)
     avg_r5   = _avg(r.get("return_5d")          for r in with_5d)
+    avg_net5 = _avg(r.get("net_return_5d")      for r in with_5d)
     avg_rel5 = _avg(r.get("relative_return_5d") for r in with_5d)
     avg_paper_return = _avg(r.get("paper_return_pct") for r in with_paper)
     avg_paper_r = _avg(r.get("paper_r_multiple") for r in with_paper)
@@ -677,7 +843,11 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     # ── Confidence score ──────────────────────────────────────────────────────
     score = 50
 
-    calibrated_win_rate = paper_win_rate if paper_win_rate is not None else wr5
+    # The fixed 5-day target is the primary calibration objective.  A paper
+    # trade can have a different exit horizon, so it is only a fallback when
+    # no fixed-horizon outcomes exist; it must never replace them after one
+    # convenient paper win.
+    calibrated_win_rate = wr5 if wr5 is not None else paper_win_rate
     if calibrated_win_rate is not None:
         if calibrated_win_rate >= 65:   score += 20
         elif calibrated_win_rate >= 55: score += 10
@@ -701,6 +871,11 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     elif evaluated < 20:
         score = min(score, 60)
         notes.append(f"已評估樣本數 {evaluated} < 20，信心分數上限 60")
+    if judged_5d:
+        low, high = posterior["credible_interval_95"]
+        notes.append(
+            f"成本後 5 日成功機率 {posterior['probability_pct']:.1f}%（95% 區間 {low:.1f}–{high:.1f}%）"
+        )
 
     # ── Recommendation ────────────────────────────────────────────────────────
     if evaluated < 5:
@@ -758,6 +933,7 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
         "avg_return_1d":           avg_r1,
         "avg_return_3d":           avg_r3,
         "avg_return_5d":           avg_r5,
+        "avg_net_return_5d":       avg_net5,
         "avg_relative_return_5d":  avg_rel5,
         "paper_win_rate":          paper_win_rate,
         "avg_paper_return":        avg_paper_return,
@@ -767,6 +943,14 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
         "consecutive_false":       consec_false,
         "confidence_score":        score,
         "recommendation":          rec,
+        "probability_5d_pct":      posterior["probability_pct"],
+        "probability_sample_size": len(judged_5d),
+        "credible_interval_95":    posterior["credible_interval_95"],
+        "bayesian_prior":          "Beta(1,1)",
+        "brier_score":             brier_score,
+        "calibration_gap_pct":     calibration_gap,
+        "calibration_sample_size": len(brier_rows),
+        "outcome_model":           "NEXT_OPEN_COST_ADJUSTED_V1",
         "notes":                   notes,
     }
 
@@ -798,16 +982,16 @@ def _determine_was_correct(decision, r1d, r3d, r5d, rel5d, hit_stop) -> int | No
     d = decision.upper()
     if d in ("BUY", "STRONG_BUY"):
         if r5d is not None:
-            return 1 if (r5d > 0 and (rel5d is None or rel5d >= -2)) else 0
+            return 1 if (r5d > 0 and (rel5d is None or rel5d >= 0)) else 0
     elif d in ("SELL", "TRIM", "AVOID"):
         if r5d is not None:
-            return 1 if r5d < 0 else 0
+            return 1 if r5d > 0 else 0
     elif d in ("KILL_SIGNAL",):
         if r3d is not None:
-            return 1 if r3d < 0 else 0
+            return 1 if r3d > 0 else 0
     elif d == "CHASE_RISK_HIGH":
         if r3d is not None:
-            return 1 if r3d < 0 else 0
+            return 1 if r3d > 0 else 0
     return None
 
 
@@ -842,6 +1026,7 @@ def _empty_stats(signal_type: str) -> dict:
         "avg_return_1d":           None,
         "avg_return_3d":           None,
         "avg_return_5d":           None,
+        "avg_net_return_5d":       None,
         "avg_relative_return_5d":  None,
         "paper_win_rate":          None,
         "avg_paper_return":        None,
@@ -851,6 +1036,15 @@ def _empty_stats(signal_type: str) -> dict:
         "consecutive_false":       0,
         "confidence_score":        50,
         "recommendation":          "WATCH",
+        "probability_5d_pct":      50.0,
+        "probability_sample_size": 0,
+        "credible_interval_95":    [2.5, 97.5],
+        "bayesian_prior":          "Beta(1,1)",
+        "brier_score":             None,
+        "calibration_gap_pct":     None,
+        "calibration_sample_size": 0,
+        "calibration_scope":       "ALL_REGIMES",
+        "outcome_model":           "NEXT_OPEN_COST_ADJUSTED_V1",
         "notes":                   ["尚無歷史資料"],
     }
 
@@ -873,19 +1067,134 @@ def _no_override() -> dict:
         "avg_relative_return_5d": None,
         "false_signal_rate": 0.0,
         "stop_loss_rate":   0.0,
+        "probability_5d_pct": 50.0,
+        "probability_sample_size": 0,
+        "credible_interval_95": [2.5, 97.5],
+        "brier_score": None,
+        "calibration_gap_pct": None,
+        "calibration_scope": "ALL_REGIMES",
+        "outcome_model": "NEXT_OPEN_COST_ADJUSTED_V1",
     }
 
 
-def _dated_closes(ohlcv: dict) -> list[tuple[date, float]]:
+def _normalized_probability(value) -> float | None:
+    try:
+        result = float(value)
+        if result > 1:
+            result /= 100
+        if 0 <= result <= 1 and math.isfinite(result):
+            return round(result, 6)
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return None
+
+
+def _betacf(a: float, b: float, x: float) -> float:
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < 3e-14:
+        d = 3e-14
+    d = 1.0 / d
+    h = d
+    for m in range(1, 201):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < 3e-14:
+            d = 3e-14
+        c = 1.0 + aa / c
+        if abs(c) < 3e-14:
+            c = 3e-14
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < 3e-14:
+            d = 3e-14
+        c = 1.0 + aa / c
+        if abs(c) < 3e-14:
+            c = 3e-14
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 3e-10:
+            break
+    return h
+
+
+def _regularized_beta(x: float, a: float, b: float) -> float:
+    if x <= 0:
+        return 0.0
+    if x >= 1:
+        return 1.0
+    front = math.exp(
+        math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+        + a * math.log(x) + b * math.log1p(-x)
+    )
+    if x < (a + 1) / (a + b + 2):
+        return front * _betacf(a, b, x) / a
+    return 1 - front * _betacf(b, a, 1 - x) / b
+
+
+def _beta_quantile(probability: float, a: float, b: float) -> float:
+    low, high = 0.0, 1.0
+    for _ in range(70):
+        middle = (low + high) / 2
+        if _regularized_beta(middle, a, b) < probability:
+            low = middle
+        else:
+            high = middle
+    return (low + high) / 2
+
+
+def _beta_posterior(wins: int, total: int) -> dict:
+    wins = max(0, min(int(wins), int(total)))
+    total = max(0, int(total))
+    alpha, beta = 1 + wins, 1 + total - wins
+    mean = alpha / (alpha + beta)
+    return {
+        "probability_pct": round(mean * 100, 2),
+        "credible_interval_95": [
+            round(_beta_quantile(0.025, alpha, beta) * 100, 2),
+            round(_beta_quantile(0.975, alpha, beta) * 100, 2),
+        ],
+        "wins": wins,
+        "trials": total,
+    }
+
+
+def _dated_bars(ohlcv: dict) -> list[dict]:
     timestamps = ohlcv.get("timestamps") or []
+    dates = ohlcv.get("dates") or []
     closes = ohlcv.get("closes") or []
-    by_day: dict[date, float] = {}
-    for raw_ts, raw_close in zip(timestamps, closes):
+    opens = ohlcv.get("opens") or []
+    highs = ohlcv.get("highs") or []
+    lows = ohlcv.get("lows") or []
+    by_day: dict[date, dict] = {}
+    for index, raw_close in enumerate(closes):
         close = _positive_float(raw_close)
-        day = _timestamp_day(raw_ts)
-        if day is not None and close is not None:
-            by_day[day] = close
-    return sorted(by_day.items(), key=lambda item: item[0])
+        day = _parse_day(dates[index]) if index < len(dates) else None
+        if day is None and index < len(timestamps):
+            day = _timestamp_day(timestamps[index])
+        if day is None or close is None:
+            continue
+        open_price = _positive_float(opens[index]) if index < len(opens) else close
+        high = _positive_float(highs[index]) if index < len(highs) else close
+        low = _positive_float(lows[index]) if index < len(lows) else close
+        by_day[day] = {
+            "date": day,
+            "open": open_price or close,
+            "high": max(high or close, open_price or close, close),
+            "low": min(low or close, open_price or close, close),
+            "close": close,
+        }
+    return [by_day[day] for day in sorted(by_day)]
+
+
+def _dated_closes(ohlcv: dict) -> list[tuple[date, float]]:
+    """Backward-compatible close view used by older callers/tests."""
+    return [(bar["date"], bar["close"]) for bar in _dated_bars(ohlcv)]
 
 
 def _timestamp_day(value) -> date | None:
@@ -922,6 +1231,98 @@ def _forward_return(bars: list[tuple[date, float]], signal_day: date, horizon: i
     if anchor is None or anchor + horizon >= len(bars):
         return None
     return _pct_change(bars[anchor][1], bars[anchor + horizon][1])
+
+
+def _next_bar_index(bars: list[dict], signal_day: date) -> int | None:
+    for index, bar in enumerate(bars):
+        if bar["date"] > signal_day:
+            return index
+    return None
+
+
+def _forward_return_from_next_open(
+    bars: list[dict], signal_day: date, horizon: int
+) -> float | None:
+    entry_idx = _next_bar_index(bars, signal_day)
+    if entry_idx is None:
+        return None
+    exit_idx = entry_idx + int(horizon) - 1
+    if exit_idx >= len(bars):
+        return None
+    return _pct_change(bars[entry_idx]["open"], bars[exit_idx]["close"])
+
+
+def _round_trip_cost_pct(symbol: str) -> float:
+    try:
+        from trade_cost import default_params
+
+        params = default_params(symbol)
+        result = (
+            float(params.get("slippage_pct", 0.001)) * 2
+            + float(params.get("commission_buy", 0))
+            + float(params.get("commission_sell", 0))
+            + float(params.get("transaction_tax", 0))
+        ) * 100
+        return round(max(0.0, result), 4)
+    except Exception:
+        return 0.2
+
+
+def _modeled_entry_fill(raw_open: float, decision: str, symbol: str) -> float:
+    try:
+        from trade_cost import default_params
+
+        params = default_params(symbol)
+        slip = float(params.get("slippage_pct", 0.001))
+        direction = -1 if str(decision).upper() in {
+            "SELL", "TRIM", "AVOID", "KILL_SIGNAL", "CHASE_RISK_HIGH"
+        } else 1
+        commission = float(
+            params.get("commission_sell" if direction < 0 else "commission_buy", 0)
+        )
+        fill = raw_open * (1 + direction * (slip + commission))
+        return round(fill, 6)
+    except Exception:
+        return round(raw_open, 6)
+
+
+def _directional_net_return(
+    decision: str, gross_return: float | None, round_trip_cost_pct: float
+) -> float | None:
+    if gross_return is None:
+        return None
+    value = str(decision or "").upper()
+    if value in {"BUY", "STRONG_BUY"}:
+        direction = 1
+    elif value in {"SELL", "TRIM", "AVOID", "KILL_SIGNAL", "CHASE_RISK_HIGH"}:
+        direction = -1
+    else:
+        return None
+    try:
+        return round(direction * float(gross_return) - float(round_trip_cost_pct or 0), 4)
+    except (TypeError, ValueError):
+        return None
+
+
+def _directional_excursions(
+    bars: list[dict], entry: float, decision: str
+) -> tuple[float | None, float | None]:
+    if not bars or entry <= 0:
+        return None, None
+    highs = [bar["high"] for bar in bars if bar.get("high")]
+    lows = [bar["low"] for bar in bars if bar.get("low")]
+    if not highs or not lows:
+        return None, None
+    bearish = str(decision or "").upper() in {
+        "SELL", "TRIM", "AVOID", "KILL_SIGNAL", "CHASE_RISK_HIGH"
+    }
+    if bearish:
+        favorable = (entry - min(lows)) / entry * 100
+        adverse = (entry - max(highs)) / entry * 100
+    else:
+        favorable = (max(highs) - entry) / entry * 100
+        adverse = (min(lows) - entry) / entry * 100
+    return round(favorable, 4), round(adverse, 4)
 
 
 def _positive_float(value) -> float | None:

@@ -62,6 +62,20 @@ def init_db(db_path: str | None = None) -> None:
             );
             """
         )
+        existing = {
+            row[1] for row in conn.execute("PRAGMA table_info(paper_trades_v2)").fetchall()
+        }
+        for column, sql_type in {
+            "signal_price": "REAL",
+            "fill_model": "TEXT",
+            "entry_filled_at": "TEXT",
+            "entry_cost_pct": "REAL",
+            "exit_cost_pct": "REAL",
+        }.items():
+            if column not in existing:
+                conn.execute(
+                    f"ALTER TABLE paper_trades_v2 ADD COLUMN {column} {sql_type}"
+                )
 
 
 def _finite(value, field: str) -> float:
@@ -133,6 +147,17 @@ def open_trade(
     now = utc_now()
     trade_id = uuid.uuid4().hex
     meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    fill_model = str(payload.get("fill_model") or "IMMEDIATE_REFERENCE").upper()
+    if fill_model not in {"IMMEDIATE_REFERENCE", "NEXT_OPEN"}:
+        raise ValueError("不支援的 fill_model")
+    status = "PENDING" if fill_model == "NEXT_OPEN" else "OPEN"
+    meta = dict(meta)
+    meta.update({
+        "signal_stop_pct": round((entry - stop) / entry * 100, 6),
+        "signal_target_pct": round((target - entry) / entry * 100, 6),
+        "signal_risk_amount": round((entry - stop) * qty, 6),
+        "round_trip_cost_pct": payload.get("round_trip_cost_pct"),
+    })
     init_db(db_path)
     with connect(db_path) as conn:
         if client_order_id:
@@ -149,8 +174,9 @@ def open_trade(
                 id,client_order_id,signal_record_id,scorecard_id,symbol,status,
                 decision,confidence_score,risk_profile,evidence_coverage,is_demo,
                 entry_price,stop_price,target_price,qty,opened_at,current_price,
-                unrealized_pnl,meta_json,created_at,updated_at
-            ) VALUES(?,?,?,?,?,'OPEN',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                unrealized_pnl,meta_json,created_at,updated_at,signal_price,
+                fill_model,entry_filled_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 trade_id,
@@ -158,6 +184,7 @@ def open_trade(
                 payload.get("signal_record_id"),
                 str(payload.get("scorecard_id") or "")[:80] or None,
                 symbol,
+                status,
                 decision,
                 confidence,
                 str(payload.get("risk_profile") or "balanced")[:30],
@@ -173,12 +200,15 @@ def open_trade(
                 dumps(meta),
                 now,
                 now,
+                entry,
+                fill_model,
+                now if status == "OPEN" else None,
             ),
         )
         _event(
             conn,
             trade_id,
-            "OPEN",
+            "QUEUE" if status == "PENDING" else "OPEN",
             entry,
             {
                 "qty": qty,
@@ -241,8 +271,8 @@ def close_trade(
     outcome_hook: Callable[[dict], object] | None = None,
     db_path: str | None = None,
 ) -> dict:
-    price = _finite(exit_price, "exit_price")
-    if price <= 0:
+    observed_price = _finite(exit_price, "exit_price")
+    if observed_price <= 0:
         raise ValueError("exit_price 必須大於 0")
     reason = str(reason or "MANUAL").upper().strip()
     if reason not in _EXIT_REASONS:
@@ -261,6 +291,11 @@ def close_trade(
         entry = float(row["entry_price"])
         stop = float(row["stop_price"])
         qty = int(row["qty"])
+        exit_cost_pct = 0.0
+        price = observed_price
+        if str(row["fill_model"] or "").upper() == "NEXT_OPEN":
+            _, exit_cost_pct = _execution_cost_rates(row["symbol"])
+            price = observed_price * (1 - exit_cost_pct / 100)
         pnl = (price - entry) * qty
         return_pct = (price / entry - 1) * 100
         initial_risk = max((entry - stop) * qty, 0.0)
@@ -271,7 +306,7 @@ def close_trade(
             UPDATE paper_trades_v2
             SET status='CLOSED', current_price=?, unrealized_pnl=0,
                 exit_price=?, exit_reason=?, closed_at=?, realized_pnl=?,
-                return_pct=?, r_multiple=?, updated_at=?
+                return_pct=?, r_multiple=?, exit_cost_pct=?, updated_at=?
             WHERE id=? AND status='OPEN'
             """,
             (
@@ -282,6 +317,7 @@ def close_trade(
                 round(pnl, 4),
                 round(return_pct, 4),
                 round(r_multiple, 4) if r_multiple is not None else None,
+                round(exit_cost_pct, 6),
                 now,
                 trade_id,
             ),
@@ -291,7 +327,14 @@ def close_trade(
             trade_id,
             "CLOSE",
             price,
-            {"reason": reason, "realized_pnl": pnl, "return_pct": return_pct},
+            {
+                "reason": reason,
+                "observed_price": observed_price,
+                "effective_exit": price,
+                "exit_cost_pct": exit_cost_pct,
+                "realized_pnl": pnl,
+                "return_pct": return_pct,
+            },
         )
         closed = conn.execute(
             "SELECT * FROM paper_trades_v2 WHERE id=?", (trade_id,)
@@ -310,7 +353,7 @@ def close_trade(
     return result
 
 
-def _bar_values(value) -> tuple[float, float, float, float]:
+def _bar_values(value) -> tuple[float, float, float, float, str | None, bool]:
     if isinstance(value, dict):
         close = _finite(value.get("close", value.get("price")), "close")
         open_price = _finite(value.get("open", close), "open")
@@ -318,11 +361,79 @@ def _bar_values(value) -> tuple[float, float, float, float]:
         low = _finite(value.get("low", close), "low")
         if min(open_price, high, low, close) <= 0 or high < low:
             raise ValueError("OHLC 價格無效")
-        return open_price, high, low, close
+        bar_date = str(value.get("date") or "")[:10] or None
+        return open_price, high, low, close, bar_date, "open" in value
     price = _finite(value, "price")
     if price <= 0:
         raise ValueError("price 必須大於 0")
-    return price, price, price, price
+    return price, price, price, price, None, False
+
+
+def _execution_cost_rates(symbol: str) -> tuple[float, float]:
+    """Return modeled entry/exit cost percentages for a shadow fill."""
+    try:
+        from trade_cost import default_params
+
+        params = default_params(symbol)
+        entry = (
+            float(params.get("slippage_pct", 0.001))
+            + float(params.get("commission_buy", 0))
+        ) * 100
+        exit_ = (
+            float(params.get("slippage_pct", 0.001))
+            + float(params.get("commission_sell", 0))
+            + float(params.get("transaction_tax", 0))
+        ) * 100
+        return max(0.0, entry), max(0.0, exit_)
+    except Exception:
+        return 0.1, 0.1
+
+
+def _fill_pending_trade(
+    trade: dict, raw_open: float, *, db_path: str | None = None
+) -> dict:
+    meta = trade.get("meta") if isinstance(trade.get("meta"), dict) else {}
+    entry_cost_pct, _ = _execution_cost_rates(trade["symbol"])
+    fill = raw_open * (1 + entry_cost_pct / 100)
+    stop_pct = max(0.1, float(meta.get("signal_stop_pct") or 8.0))
+    target_pct = max(0.1, float(meta.get("signal_target_pct") or 16.0))
+    stop = fill * (1 - stop_pct / 100)
+    target = fill * (1 + target_pct / 100)
+    risk_amount = float(meta.get("signal_risk_amount") or 0)
+    qty = int(trade["qty"])
+    if risk_amount > 0 and fill > stop:
+        qty = max(1, min(qty, int(risk_amount / (fill - stop))))
+    now = utc_now()
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE paper_trades_v2
+            SET status='OPEN', entry_price=?, stop_price=?, target_price=?, qty=?,
+                current_price=?, entry_filled_at=?, entry_cost_pct=?, updated_at=?
+            WHERE id=? AND status='PENDING'
+            """,
+            (
+                round(fill, 6), round(stop, 6), round(target, 6), qty,
+                round(fill, 6), now, round(entry_cost_pct, 6), now, trade["id"],
+            ),
+        )
+        _event(
+            conn,
+            trade["id"],
+            "FILL",
+            fill,
+            {
+                "raw_open": raw_open,
+                "entry_cost_pct": entry_cost_pct,
+                "qty": qty,
+                "stop": stop,
+                "target": target,
+            },
+        )
+        row = conn.execute(
+            "SELECT * FROM paper_trades_v2 WHERE id=?", (trade["id"],)
+        ).fetchone()
+    return _trade_dict(row)
 
 
 def mark_to_market(
@@ -341,11 +452,18 @@ def mark_to_market(
     }
     updated: list[dict] = []
     closed: list[dict] = []
-    for trade in list_trades(status="OPEN", limit=500, db_path=db_path):
+    trades = list_trades(status="PENDING", limit=500, db_path=db_path)
+    trades.extend(list_trades(status="OPEN", limit=500, db_path=db_path))
+    for trade in trades:
         bar = normalised.get(trade["symbol"])
         if not bar:
             continue
-        open_price, high, low, close = bar
+        open_price, high, low, close, bar_date, has_open = bar
+        if trade["status"] == "PENDING":
+            signal_date = str((trade.get("meta") or {}).get("signal_date") or "")[:10]
+            if not has_open or not bar_date or (signal_date and bar_date <= signal_date):
+                continue
+            trade = _fill_pending_trade(trade, open_price, db_path=db_path)
         if low <= trade["stop_price"]:
             fill = min(open_price, trade["stop_price"])
             closed.append(
@@ -393,6 +511,7 @@ def mark_to_market(
 def performance_summary(db_path: str | None = None) -> dict:
     trades = list_trades(status="CLOSED", limit=500, db_path=db_path)
     open_trades = list_trades(status="OPEN", limit=500, db_path=db_path)
+    pending_trades = list_trades(status="PENDING", limit=500, db_path=db_path)
     pnl_values = [float(trade.get("realized_pnl") or 0) for trade in reversed(trades)]
     returns = [float(trade.get("return_pct") or 0) for trade in trades]
     r_values = [float(trade["r_multiple"]) for trade in trades if trade.get("r_multiple") is not None]
@@ -405,6 +524,7 @@ def performance_summary(db_path: str | None = None) -> dict:
     return {
         "closed_trades": len(trades),
         "open_trades": len(open_trades),
+        "pending_trades": len(pending_trades),
         "win_rate": round(wins / len(trades) * 100, 2) if trades else None,
         "realized_pnl": round(sum(pnl_values), 2),
         "unrealized_pnl": round(sum(float(t.get("unrealized_pnl") or 0) for t in open_trades), 2),

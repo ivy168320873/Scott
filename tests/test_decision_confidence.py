@@ -154,8 +154,14 @@ def test_signal_recording_deduplicates_and_backfills_outcomes(tmp_path, monkeypa
     assert row["price_1d"] == 101
     assert row["price_3d"] == 103
     assert row["price_5d"] == 105
-    assert row["return_5d"] == 5.0
-    assert row["benchmark_return_5d"] == 2.5
+    # Signals are filled at the next tradable open, never the signal close.
+    assert row["entry_fill_date"] == "2026-07-02"
+    assert row["entry_fill_price"] == 101.101
+    assert row["entry_gap_pct"] == 1.0
+    assert row["return_5d"] == 3.9604
+    assert row["net_return_5d"] == 3.7604
+    assert row["benchmark_return_5d"] == 1.9900
+    assert row["outcome_model"] == "NEXT_OPEN_COST_ADJUSTED_V1"
     assert row["was_correct"] == 1
 
     sce.record_signal({

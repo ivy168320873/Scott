@@ -523,6 +523,11 @@ def admin_dashboard():
         "ANTHROPIC_API_KEY": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "ALPHA_VANTAGE_KEY": bool(os.environ.get("ALPHA_VANTAGE_KEY")),
         "FINNHUB_KEY":    bool(os.environ.get("FINNHUB_KEY")),
+        "FRED_API_KEY":   bool(os.environ.get("FRED_API_KEY")),
+        "SEC_USER_AGENT": bool(os.environ.get("SEC_USER_AGENT")),
+        "ALPACA_API_KEY": bool(os.environ.get("ALPACA_API_KEY")),
+        "ALPACA_SECRET_KEY": bool(os.environ.get("ALPACA_SECRET_KEY")),
+        "ALPACA_DATA_FEED": os.environ.get("ALPACA_DATA_FEED", "iex"),
         "LINE_CHANNEL_ACCESS_TOKEN": bool(os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")),
         "LINE_USER_ID":    bool(os.environ.get("LINE_USER_ID")),
         "SMTP_HOST":      bool(os.environ.get("SMTP_HOST")),
@@ -2469,6 +2474,11 @@ def api_env_check():
             "ANTHROPIC_API_KEY": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "ALPHA_VANTAGE_KEY": bool(os.environ.get("ALPHA_VANTAGE_KEY")),
             "FINNHUB_KEY":       bool(os.environ.get("FINNHUB_KEY")),
+            "FRED_API_KEY":      bool(os.environ.get("FRED_API_KEY")),
+            "SEC_USER_AGENT":    bool(os.environ.get("SEC_USER_AGENT")),
+            "ALPACA_API_KEY":    bool(os.environ.get("ALPACA_API_KEY")),
+            "ALPACA_SECRET_KEY": bool(os.environ.get("ALPACA_SECRET_KEY")),
+            "ALPACA_DATA_FEED":  os.environ.get("ALPACA_DATA_FEED", "iex"),
             "LINE_CHANNEL_ACCESS_TOKEN": bool(os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")),
             "LINE_USER_ID":      bool(os.environ.get("LINE_USER_ID")),
             "SMTP_HOST":         bool(os.environ.get("SMTP_HOST")),
@@ -3605,12 +3615,29 @@ def _get_ohlcv_norm(symbol: str):
     return _dp.get_ohlcv(symbol.upper())
 
 
+def _get_direct_flow(symbol: str):
+    sym = str(symbol or "").upper().strip()
+    if not sym.endswith((".TW", ".TWO")):
+        return None
+    try:
+        from twse_flow import get_twse_flow
+
+        return get_twse_flow(sym)
+    except Exception:
+        return None
+
+
 # Evolution v2 routes are isolated in a Blueprint so new workflows no longer
 # make this legacy module larger.  Global auth, CSRF and rate-limit hooks still
 # apply to every Blueprint endpoint.
 from evolution_api import create_evolution_blueprint as _create_evolution_blueprint
 app.register_blueprint(
-    _create_evolution_blueprint(_get_ohlcv_norm, _deliver_notification_payload)
+    _create_evolution_blueprint(
+        _get_ohlcv_norm,
+        _deliver_notification_payload,
+        quote_fn=_dp.get_quote,
+        flow_fn=_get_direct_flow,
+    )
 )
 
 
@@ -4869,11 +4896,79 @@ def api_market_regime():
     if auth:
         return auth
     try:
-        result = _mre.run_market_regime(_get_ohlcv_norm)
+        requested_market = str(request.args.get("market") or "US").upper()
+        result = _mre.run_market_regime(
+            _get_ohlcv_norm,
+            market="TW" if requested_market == "TW" else "US",
+        )
         return jsonify(result)
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/quote/<symbol>")
+def api_institutional_quote(symbol: str):
+    """Source-attributed latest quote; never fabricates bid/ask."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    sym = str(symbol or "").upper().strip()
+    if not re.fullmatch(r"[A-Z0-9.\-]{1,20}", sym):
+        return jsonify({"ok": False, "error": "invalid symbol"}), 400
+    quote = _dp.get_quote(sym, force=request.args.get("force") == "1")
+    if not quote:
+        return jsonify({"ok": False, "error": "無法取得可驗證報價"}), 503
+    return jsonify(quote)
+
+
+@app.route("/api/institutional-status/<symbol>")
+def api_institutional_status(symbol: str):
+    """One auditable view of data, session, breadth, and calibration readiness."""
+    auth = _require_auth()
+    if auth:
+        return auth
+    try:
+        import institutional_guard as _institutional_guard
+        from market_clock import market_for_symbol
+
+        sym = str(symbol or "").upper().strip()
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,20}", sym):
+            return jsonify({"ok": False, "error": "invalid symbol"}), 400
+        ohlcv = _get_ohlcv_norm(sym)
+        quality = _dqe.run_data_quality(ohlcv)
+        quote = _dp.get_quote(sym)
+        direct_flow = _get_direct_flow(sym)
+        regime = _mre.run_market_regime(
+            _get_ohlcv_norm, market=market_for_symbol(sym)
+        )
+        readiness = _institutional_guard.assess_signal_readiness(
+            sym, ohlcv=ohlcv, data_quality=quality, quote=quote
+        )
+        calibration = {
+            signal_type: _sce.get_confidence_stats(
+                signal_type, regime=regime.get("market_regime")
+            )
+            for signal_type in ("STRONG_BUY", "BUY", "SELL")
+        }
+        return jsonify({
+            "ok": True,
+            "symbol": sym,
+            "readiness": readiness,
+            "data_quality": quality,
+            "quote": quote,
+            "direct_flow": direct_flow,
+            "market_regime": regime,
+            "calibration": calibration,
+            "execution_policy": {
+                "live_trading": False,
+                "paper_fill": "NEXT_REGULAR_OPEN_WITH_COSTS",
+                "completed_daily_bars_only": True,
+            },
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 # ── GET /api/top-tier-decision/<symbol> ──────────────────────────────────────
@@ -4895,7 +4990,12 @@ def api_top_tier_decision_get(symbol: str):
             return jsonify({"ok": False, "error": "symbol 不能為空"}), 400
         _refresh_signal_outcomes(sym)
         result = _ttde.run_top_tier_decision(
-            sym, _get_ohlcv_norm, cost=cost, holding_days=days
+            sym,
+            _get_ohlcv_norm,
+            cost=cost,
+            holding_days=days,
+            quote_snapshot=_dp.get_quote(sym),
+            flow_snapshot=_get_direct_flow(sym),
         )
         result["signal_tracking"] = _record_top_tier_signal(result)
         return jsonify(result)
@@ -4945,6 +5045,8 @@ def api_top_tier_decision():
             cost=cost, holding_days=days,
             sector_name=sec_n,
             watchlist_ohlcv=wl_ohlcv if wl_ohlcv else None,
+            quote_snapshot=_dp.get_quote(sym),
+            flow_snapshot=_get_direct_flow(sym),
         )
         result["signal_tracking"] = _record_top_tier_signal(result)
         return jsonify(result)
@@ -5084,6 +5186,10 @@ def _record_top_tier_signal(result: dict) -> dict:
         sector = result.get("sector_leadership") or {}
         position = result.get("position_sizing") or {}
         sell = result.get("sell_decision") or {}
+        quote = result.get("quote_snapshot") or {}
+        calibration = result.get("signal_calibration") or {}
+        readiness = result.get("institutional_readiness") or {}
+        regime_detail = result.get("market_regime_detail") or {}
         return _sce.record_signal_once({
             "symbol": result.get("symbol"),
             "signal_date": dq.get("last_date"),
@@ -5098,6 +5204,27 @@ def _record_top_tier_signal(result: dict) -> dict:
             "sector_leadership": sector.get("level"),
             "position_size_level": position.get("position_size_level"),
             "entry_price": dq.get("last_price"),
+            "prediction_probability": (
+                float(calibration.get("probability_5d_pct")) / 100
+                if calibration.get("probability_5d_pct") is not None
+                else None
+            ),
+            "quote_source": quote.get("source"),
+            "quote_timestamp": quote.get("timestamp"),
+            "quote_age_seconds": quote.get("age_seconds"),
+            "calibration_regime": result.get("market_regime"),
+            "data_snapshot": {
+                "readiness": readiness.get("status"),
+                "ohlcv_source": dq.get("source"),
+                "last_bar": dq.get("last_date"),
+                "quote_feed_scope": quote.get("feed_scope"),
+                "breadth": {
+                    "status": (regime_detail.get("breadth") or {}).get("status"),
+                    "score": (regime_detail.get("breadth") or {}).get("breadth_score"),
+                    "coverage": (regime_detail.get("breadth") or {}).get("coverage"),
+                },
+                "score_breakdown": result.get("score_breakdown") or {},
+            },
             "is_demo": False,
         })
     except Exception as exc:

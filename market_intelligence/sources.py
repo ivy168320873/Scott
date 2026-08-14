@@ -323,6 +323,22 @@ def collect_news(
                 ),
             )
         )
+    sec_configured = bool(config.sec_user_agent and "@" in config.sec_user_agent)
+    if sec_configured and include_slow_sources and provider_symbols:
+        from .filings import fetch_sec_filings
+
+        jobs.append(
+            (
+                "sec_edgar",
+                ",".join(provider_symbols),
+                lambda: fetch_sec_filings(
+                    provider_symbols,
+                    user_agent=config.sec_user_agent,
+                    lookback_days=max(30, config.lookback_hours // 24 + 7),
+                    session=session,
+                ),
+            )
+        )
 
     health = {
         "yahoo": {"configured": True, "attempted": 0, "succeeded": 0, "errors": []},
@@ -334,6 +350,12 @@ def collect_news(
         },
         "alpha_vantage": {
             "configured": bool(config.alpha_vantage_key),
+            "attempted": 0,
+            "succeeded": 0,
+            "errors": [],
+        },
+        "sec_edgar": {
+            "configured": sec_configured,
             "attempted": 0,
             "succeeded": 0,
             "errors": [],

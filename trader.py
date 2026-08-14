@@ -20,22 +20,51 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Try to import alpaca-py ───────────────────────────────────────────────────
-try:
-    from alpaca.trading.client import TradingClient
-    from alpaca.trading.requests import (
-        MarketOrderRequest, LimitOrderRequest,
-        TakeProfitRequest, StopLossRequest,
-        GetOrdersRequest,
-    )
-    from alpaca.trading.enums import (
-        OrderSide, TimeInForce, OrderClass,
-        QueryOrderStatus,
-    )
-    _ALPACA_AVAILABLE = True
-except ImportError:
-    _ALPACA_AVAILABLE = False
-    logger.warning("alpaca-py not installed — running in SIMULATION mode. pip install alpaca-py")
+# ── Lazy alpaca-py import ─────────────────────────────────────────────────────
+# alpaca-py imports pandas/numpy.  Loading that stack for every web process even
+# when no Alpaca credentials are configured increases startup risk and memory.
+_ALPACA_AVAILABLE: bool | None = None
+
+
+def _load_alpaca() -> bool:
+    global _ALPACA_AVAILABLE
+    global TradingClient, MarketOrderRequest, LimitOrderRequest
+    global TakeProfitRequest, StopLossRequest, GetOrdersRequest
+    global OrderSide, TimeInForce, OrderClass, QueryOrderStatus
+    if _ALPACA_AVAILABLE is not None:
+        return _ALPACA_AVAILABLE
+    try:
+        from alpaca.trading.client import TradingClient as _TradingClient
+        from alpaca.trading.requests import (
+            MarketOrderRequest as _MarketOrderRequest,
+            LimitOrderRequest as _LimitOrderRequest,
+            TakeProfitRequest as _TakeProfitRequest,
+            StopLossRequest as _StopLossRequest,
+            GetOrdersRequest as _GetOrdersRequest,
+        )
+        from alpaca.trading.enums import (
+            OrderSide as _OrderSide,
+            TimeInForce as _TimeInForce,
+            OrderClass as _OrderClass,
+            QueryOrderStatus as _QueryOrderStatus,
+        )
+        TradingClient = _TradingClient
+        MarketOrderRequest = _MarketOrderRequest
+        LimitOrderRequest = _LimitOrderRequest
+        TakeProfitRequest = _TakeProfitRequest
+        StopLossRequest = _StopLossRequest
+        GetOrdersRequest = _GetOrdersRequest
+        OrderSide = _OrderSide
+        TimeInForce = _TimeInForce
+        OrderClass = _OrderClass
+        QueryOrderStatus = _QueryOrderStatus
+        _ALPACA_AVAILABLE = True
+    except ImportError:
+        _ALPACA_AVAILABLE = False
+        logger.warning(
+            "alpaca-py not installed — running in SIMULATION mode. pip install alpaca-py"
+        )
+    return bool(_ALPACA_AVAILABLE)
 
 
 # ── Simulated order store (used when Alpaca is unavailable) ──────────────────
@@ -63,7 +92,10 @@ class TradeEngine:
         self.client: Optional[object] = None
         self.simulation = True
 
-        if _ALPACA_AVAILABLE and self.api_key and self.api_secret:
+        alpaca_available = (
+            _load_alpaca() if self.api_key and self.api_secret else False
+        )
+        if alpaca_available and self.api_key and self.api_secret:
             try:
                 self.client = TradingClient(
                     self.api_key, self.api_secret,
