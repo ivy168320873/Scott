@@ -129,6 +129,7 @@ tbody tr:hover{background:var(--surface2)}
     <div class="nav-section">導航</div>
     <a class="nav-item active" href="/admin"><span class="icon">🏠</span>總覽</a>
     <a class="nav-item" href="/admin/logins"><span class="icon">🔐</span>登入紀錄</a>
+    <a class="nav-item" href="/intelligence"><span class="icon">🧭</span>市場情報</a>
     <a class="nav-item" href="/"><span class="icon">📊</span>回主系統</a>
 
     <div class="nav-section">快捷操作</div>
@@ -170,6 +171,11 @@ tbody tr:hover{background:var(--surface2)}
         <div class="sc-val">{{ log_count }}</div>
         <div class="sc-lbl">登入紀錄筆數</div>
         <div class="sc-sub">最多保留 200 筆</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val">{{ intelligence.get('storage', {}).get('article_count', 0) }}</div>
+        <div class="sc-lbl">市場情報新聞</div>
+        <div class="sc-sub">有效催化劑 {{ intelligence.get('storage', {}).get('active_catalysts', 0) }}</div>
       </div>
       <div class="stat-card">
         <div class="sc-val">{{ health.get('candidates', '—') }}</div>
@@ -249,6 +255,16 @@ tbody tr:hover{background:var(--surface2)}
           <div class="health-item">
             <div class="hi-val">{{ sched.get('executed_today', 0) }}</div>
             <div class="hi-lbl">今日執行交易</div>
+          </div>
+          <div class="health-item">
+            <div class="hi-val">
+              {% if intelligence.get('config', {}).get('enabled') %}
+                <span style="color:var(--bull)">● 運行中</span>
+              {% else %}
+                <span style="color:var(--muted)">● 未啟用</span>
+              {% endif %}
+            </div>
+            <div class="hi-lbl">市場情報排程</div>
           </div>
         </div>
       </div>
@@ -339,6 +355,7 @@ tbody tr:hover{background:var(--surface2)}
       <div class="sec-hdr"><h2>⚡ 快捷操作</h2></div>
       <div class="sec-body" style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="triggerScan()">🔍 立即觸發掃描</button>
+        <a href="/intelligence" class="btn btn-ghost" style="text-decoration:none">🧭 市場情報</a>
         <button class="btn btn-ghost" onclick="adminAction('/api/admin/clear-cache','清空每日報告快取？','快取已清空')">🔄 清空報告快取</button>
         <button class="btn btn-ghost" onclick="testAlert()">📡 發送測試警報</button>
         <a href="/admin/logins" class="btn btn-ghost" style="text-decoration:none">📋 完整登入紀錄</a>

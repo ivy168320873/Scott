@@ -312,6 +312,19 @@ def _rate_limit(bucket: str, limit: int, window_seconds: int) -> Response | None
     return None
 
 
+# Market intelligence is isolated in a Blueprint so the worker can reuse the
+# same domain code without importing this large Flask module.
+from market_intelligence.web import create_blueprint as _create_intelligence_blueprint
+
+app.register_blueprint(
+    _create_intelligence_blueprint(
+        db_path=_USER_DATA_DB,
+        load_user_data=_load_user_data,
+        rate_limit=_rate_limit,
+    )
+)
+
+
 def _valid_hhmm(value) -> bool:
     return isinstance(value, str) and re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value) is not None
 
@@ -513,7 +526,10 @@ def admin_dashboard():
         "LINE_CHANNEL_ACCESS_TOKEN": bool(os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")),
         "LINE_USER_ID":    bool(os.environ.get("LINE_USER_ID")),
         "SMTP_HOST":      bool(os.environ.get("SMTP_HOST")),
+        "SMTP_USER":      bool(os.environ.get("SMTP_USER")),
         "SCHEDULER_ENABLE": os.environ.get("SCHEDULER_ENABLE", "false"),
+        "BACKGROUND_WORKERS_ENABLE": os.environ.get("BACKGROUND_WORKERS_ENABLE", "false"),
+        "MARKET_INTELLIGENCE_ENABLE": os.environ.get("MARKET_INTELLIGENCE_ENABLE", "false"),
         "RAILWAY_ENVIRONMENT": os.environ.get("RAILWAY_ENVIRONMENT", "—"),
     }
 
@@ -526,6 +542,15 @@ def admin_dashboard():
         health = _mon.system_health()
     except Exception:
         health = {}
+    try:
+        from market_intelligence.config import IntelligenceConfig
+        from market_intelligence.storage import status as _intelligence_storage_status
+        intelligence = {
+            "config": IntelligenceConfig.from_env(db_path=_USER_DATA_DB).public_status(),
+            "storage": _intelligence_storage_status(_USER_DATA_DB),
+        }
+    except Exception:
+        intelligence = {"config": {}, "storage": {}}
 
     # daily report cache
     cache_age = None
@@ -544,6 +569,7 @@ def admin_dashboard():
         health=health,
         cache_age=cache_age,
         alert_settings=_alert_schedule_settings,
+        intelligence=intelligence,
         log_count=len(_LOGIN_LOG),
     )
 @app.route("/admin/logins")
@@ -3441,11 +3467,10 @@ def _run_decision_alert_scanner():
     _time.sleep(60)   # let app finish booting
     while True:
         try:
-            data      = _load_user_data()
-            positions = data.get("holdings", [])
-            watchlist = data.get("watchlist", [])
-            if isinstance(watchlist, str):
-                watchlist = [w.strip().upper() for w in watchlist.split(",") if w.strip()]
+            from market_intelligence.user_context import extract_user_context
+            context = extract_user_context(_load_user_data())
+            positions = context["holdings"]
+            watchlist = context["watchlist"]
 
             if positions or watchlist:
                 _ascn.run_full_scan(
@@ -4169,11 +4194,10 @@ def _make_ai_fn():
 
 def _run_daily_report(report_type: str, *, dispatch: bool = False) -> dict:
     """Generate a report and optionally dispatch it."""
-    data     = _load_user_data()
-    pos_list = data.get("holdings", [])
-    wl_raw   = data.get("watchlist", [])
-    if isinstance(wl_raw, str):
-        wl_raw = [w.strip().upper() for w in wl_raw.split(",") if w.strip()]
+    from market_intelligence.user_context import extract_user_context
+    context = extract_user_context(_load_user_data())
+    pos_list = context["holdings"]
+    wl_raw = context["watchlist"]
 
     report = _dre.generate_report(
         report_type=report_type,

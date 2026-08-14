@@ -2,6 +2,34 @@
 
 Scott 是以 Flask 建置的美股／台股分析工具，包含技術訊號、回測、風險管理、投資組合、警報、每日報告與行動版 AI 助手。
 
+## 市場情報中樞
+
+登入後開啟 `/intelligence`，可把手機端同步的 `portfolio_v1` 持股與
+`radarWatchlist` 觀察清單連結到 Yahoo Finance、Finnhub 與 Alpha Vantage
+新聞。每則事件保留原始來源，並把「來源事實」與「AI／規則推論」分開顯示。
+
+新聞催化劑只會在信心門檻通過時，把頂級決策分數微調最多 ±8 分；它不會取代
+價格、成交量、資料品質或停損規則，也不會觸發真實下單。未設定 Claude 時仍會
+使用可解釋規則；未設定付費新聞金鑰時則保留 Yahoo 無金鑰來源，並在報告標示
+資料缺口。
+
+獨立執行一次：
+
+```bash
+python -m market_intelligence.worker run --type manual --force
+```
+
+Railway 建議新增第二個 Service，與 Web Service 掛載同一個 Volume、使用相同環境
+變數，Start Command 設為：
+
+```text
+python -m market_intelligence.worker daemon
+```
+
+只在這個情報 Worker 設定 `MARKET_INTELLIGENCE_ENABLE=true`。每日報告預設為
+Asia/Taipei 08:30，重大事件每 30 分鐘輪詢；Email 與 LINE 會使用既有 SQLite
+outbox 去重與重試。
+
 ## Evolution v2 決策閉環
 
 登入後開啟 `/evolution` 可使用新的手機版決策中樞。流程固定為：
