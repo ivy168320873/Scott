@@ -31,6 +31,8 @@ import market_regime_engine   as _mre
 import data_quality_engine    as _dqe
 import position_sizing_engine as _pse
 import decision_confidence_engine as _dce
+import institutional_guard as _iguard
+from market_clock import market_for_symbol
 from risk_engine   import calc_chase_risk
 from sell_engine   import calc_sell_decision
 from sector_engine import calc_sector_leadership
@@ -83,6 +85,8 @@ def run_top_tier_decision(
     stop_pct: float = 8.0,
     trail_pct: float = 15.0,
     profit_target_pct: float = 20.0,
+    quote_snapshot: dict | None = None,
+    flow_snapshot: dict | None = None,
 ) -> dict:
     """
     Full top-tier decision for one symbol.
@@ -97,10 +101,32 @@ def run_top_tier_decision(
     # ── Step 1: Fetch and validate data ───────────────────────────────────────
     ohlcv = _safe_fetch(ohlcv_fn, symbol)
     dq    = _dqe.run_data_quality(ohlcv)
+    market = market_for_symbol(symbol)
 
     # ── Step 2: Market regime ─────────────────────────────────────────────────
-    mr = _mre.run_market_regime(ohlcv_fn)
+    mr = _mre.run_market_regime(ohlcv_fn, market=market)
     regime = mr["market_regime"]
+    readiness = _iguard.assess_signal_readiness(
+        symbol,
+        ohlcv=ohlcv,
+        data_quality=dq,
+        quote=quote_snapshot,
+    )
+    must_not_buy.extend(
+        f"機構資料閘門：{item}" for item in readiness.get("blockers", [])
+    )
+    risk_controls.extend(readiness.get("warnings", []))
+    if isinstance(flow_snapshot, dict) and flow_snapshot.get("is_direct"):
+        inst = flow_snapshot.get("institutional") or {}
+        total_net = inst.get("total_net_lots")
+        if total_net is not None and total_net < 0:
+            risk_controls.append(
+                f"TWSE 三大法人 {inst.get('date')} 淨賣超 {abs(total_net):,.0f} 張（僅列證據，尚不改分）"
+            )
+        elif total_net is not None and total_net > 0:
+            risk_controls.append(
+                f"TWSE 三大法人 {inst.get('date')} 淨買超 {total_net:,.0f} 張（僅列證據，尚不改分）"
+            )
 
     # ── Step 3: Chase risk ────────────────────────────────────────────────────
     cr = calc_chase_risk(ohlcv) if dq["bar_count"] >= 20 else _empty_cr()
@@ -179,7 +205,7 @@ def run_top_tier_decision(
 
     # Hard Rule 3: RISK_OFF → no BUY/STRONG_BUY
     if regime == "RISK_OFF":
-        must_not_buy.append("市場狀態 RISK_OFF：SPY 跌破 MA200，禁止主動買進")
+        must_not_buy.append(f"{market} 市場狀態 RISK_OFF：禁止主動買進")
 
     # Hard Rule 4: CRASH_RISK → only WATCH/TRIM/SELL/AVOID
     if regime == "CRASH_RISK":
@@ -231,6 +257,14 @@ def run_top_tier_decision(
         alternatives_count = len(alternatives),
     )
 
+    readiness_cap = readiness.get("max_bullish_decision")
+    if decision == "STRONG_BUY" and readiness_cap == "BUY":
+        decision, level, dcolor = "BUY", "A", "#3fb950"
+        risk_controls.append("成交資料未達 SIP／NBBO 等級，STRONG_BUY 降為 BUY")
+    elif decision in {"STRONG_BUY", "BUY"} and readiness_cap == "WATCH":
+        decision, level, dcolor = "WATCH", "B", "#e3b341"
+        risk_controls.append("即時資料閘門未通過，買進訊號降為 WATCH")
+
     # Hard Rule 12: better alternatives → suggest ROTATE
     if alternatives and decision in ("WATCH", "HOLD", "TRIM"):
         risk_controls.append(
@@ -246,6 +280,7 @@ def run_top_tier_decision(
         and chase_score < 50
         and top_tier_score > 85
         and not must_not_buy
+        and readiness.get("status") != "BLOCKED"
     )
 
     # Phase 12C: Signal confidence calibration override
@@ -270,6 +305,14 @@ def run_top_tier_decision(
             pass
 
     # Position sizing (Phase 12B)
+    calibrated_probability = calibration.get("probability_5d_pct") if calibration else None
+    if (
+        calibrated_probability is not None
+        and calibration.get("probability_sample_size", 0) >= 5
+    ):
+        win_rate_estimate = max(0.05, min(0.95, float(calibrated_probability) / 100))
+    else:
+        win_rate_estimate = 0.60 if decision == "STRONG_BUY" else 0.55
     pos_result = _pse.run_position_sizing({
         "decision":          decision,
         "top_tier_score":    top_tier_score,
@@ -277,7 +320,7 @@ def run_top_tier_decision(
         "risk_budget_mult":  mr.get("risk_budget_multiplier", 1.0),
         "chase_risk_score":  chase_score,
         "ohlcv":             ohlcv,
-        "win_rate_estimate": 0.60 if decision == "STRONG_BUY" else 0.55,
+        "win_rate_estimate": win_rate_estimate,
         "reward_risk_ratio": 2.5  if decision == "STRONG_BUY" else 2.0,
     })
     pos_level = pos_result.get("position_size_level", "NO_TRADE")
@@ -317,6 +360,7 @@ def run_top_tier_decision(
         "decision":            decision,
         "decision_level":      level,
         "market_regime":       regime,
+        "market":              market,
         "market_score":        mr.get("market_score"),
         "market_permission":   market_permission,
         "position_size_level": pos_level,
@@ -332,6 +376,9 @@ def run_top_tier_decision(
         "next_check_time":     next_check,
         "disclaimer":          _DISCLAIMER,
         "confidence_card":     confidence_card,
+        "institutional_readiness": readiness,
+        "quote_snapshot":      quote_snapshot,
+        "direct_flow_snapshot": flow_snapshot,
         # ── Backward-compat UI fields (used by _renderTTD in index.html) ──
         "action_level":    _level_to_action(level, decision),
         "action_label":    _decision_label(decision),

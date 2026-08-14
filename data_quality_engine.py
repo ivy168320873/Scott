@@ -50,10 +50,16 @@ def run_data_quality(ohlcv: dict) -> dict:
     lows    = ohlcv.get("lows",    []) or []
     volumes = ohlcv.get("volumes", []) or []
     timestamps = ohlcv.get("timestamps", []) or []
+    dates = ohlcv.get("dates", []) or []
+    quality_flags = [str(item) for item in ohlcv.get("quality_flags", []) or []]
 
     bar_count  = len(closes)
     last_price = closes[-1] if closes else None
-    last_date  = _ts_to_date(timestamps[-1]) if timestamps else None
+    last_date  = (
+        str(ohlcv.get("last_bar_date") or "")[:10]
+        or (str(dates[-1])[:10] if dates else None)
+        or (_ts_to_date(timestamps[-1]) if timestamps else None)
+    )
 
     # ── Rule 1: demo data ─────────────────────────────────────────────────────
     if is_demo:
@@ -68,11 +74,24 @@ def run_data_quality(ohlcv: dict) -> dict:
             "bar_count":          bar_count,
             "last_price":         last_price,
             "last_date":          last_date,
+            "quality_flags":      quality_flags,
+            "fetched_at":         ohlcv.get("fetched_at"),
+            "market":             ohlcv.get("market"),
         }
 
     # ── Rule 2: missing / empty closes ───────────────────────────────────────
     if bar_count == 0:
         return _empty("無收盤價資料（closes 為空）")
+
+    # ── Rule 2B: completed-bar and provenance contract ───────────────────────
+    if ohlcv.get("last_bar_complete") is False:
+        warns.append("最新日 K 尚未完成，禁止用未完成收盤價產生交易訊號")
+        score -= 45
+    if ohlcv.get("excluded_incomplete_bar"):
+        warns.append("已排除盤中尚未完成的日 K；技術訊號使用上一根完整日 K")
+    if "FUTURE_BAR" in quality_flags:
+        warns.append("行情包含未來日期，資料時間軸異常")
+        score -= 50
 
     # ── Rule 3: last close invalid ────────────────────────────────────────────
     if not last_price or last_price <= 0:
@@ -87,6 +106,12 @@ def run_data_quality(ohlcv: dict) -> dict:
             "bar_count":          bar_count,
             "last_price":         None,
             "last_date":          last_date,
+            "last_bar_complete":  ohlcv.get("last_bar_complete"),
+            "excluded_incomplete_bar": bool(ohlcv.get("excluded_incomplete_bar")),
+            "quality_flags":      quality_flags,
+            "fetched_at":         ohlcv.get("fetched_at"),
+            "market":             ohlcv.get("market"),
+            "price_basis":        ohlcv.get("price_basis"),
         }
 
     # ── Rule 4: bar count check ───────────────────────────────────────────────
@@ -102,6 +127,12 @@ def run_data_quality(ohlcv: dict) -> dict:
             "bar_count":          bar_count,
             "last_price":         last_price,
             "last_date":          last_date,
+            "last_bar_complete":  ohlcv.get("last_bar_complete"),
+            "excluded_incomplete_bar": bool(ohlcv.get("excluded_incomplete_bar")),
+            "quality_flags":      quality_flags,
+            "fetched_at":         ohlcv.get("fetched_at"),
+            "market":             ohlcv.get("market"),
+            "price_basis":        ohlcv.get("price_basis"),
         }
 
     if bar_count < 60:
@@ -194,6 +225,12 @@ def run_data_quality(ohlcv: dict) -> dict:
         "bar_count":          bar_count,
         "last_price":         round(last_price, 4) if last_price else None,
         "last_date":          last_date,
+        "last_bar_complete":  ohlcv.get("last_bar_complete"),
+        "excluded_incomplete_bar": bool(ohlcv.get("excluded_incomplete_bar")),
+        "quality_flags":      quality_flags,
+        "fetched_at":         ohlcv.get("fetched_at"),
+        "market":             ohlcv.get("market"),
+        "price_basis":        ohlcv.get("price_basis"),
     }
 
 
@@ -218,4 +255,10 @@ def _empty(reason: str) -> dict:
         "bar_count":          0,
         "last_price":         None,
         "last_date":          None,
+        "last_bar_complete":  None,
+        "excluded_incomplete_bar": False,
+        "quality_flags":      [],
+        "fetched_at":         None,
+        "market":             None,
+        "price_basis":        None,
     }

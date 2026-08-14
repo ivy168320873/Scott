@@ -12,7 +12,9 @@ from scott_evolution import notifications, paper_trading, risk_brain
 from scott_evolution.service import evaluate, open_paper_from_signal, sync_paper_outcome
 
 
-def create_evolution_blueprint(ohlcv_fn, notification_sender=None) -> Blueprint:
+def create_evolution_blueprint(
+    ohlcv_fn, notification_sender=None, *, quote_fn=None, flow_fn=None
+) -> Blueprint:
     bp = Blueprint("evolution", __name__)
 
     @bp.get("/evolution")
@@ -53,6 +55,8 @@ def create_evolution_blueprint(ohlcv_fn, notification_sender=None) -> Blueprint:
                 portfolio=portfolio,
                 cost=body.get("cost", 0),
                 holding_days=body.get("holding_days", 0),
+                quote_fn=quote_fn,
+                flow_fn=flow_fn,
             )
             return jsonify(result)
         except (TypeError, ValueError) as exc:
@@ -72,6 +76,8 @@ def create_evolution_blueprint(ohlcv_fn, notification_sender=None) -> Blueprint:
                 ohlcv_fn,
                 portfolio=portfolio,
                 client_order_id=str(body.get("client_order_id") or "")[:120] or None,
+                quote_fn=quote_fn,
+                flow_fn=flow_fn,
             )
             return jsonify(result)
         except ValueError as exc:

@@ -13,16 +13,8 @@ from __future__ import annotations
 
 import statistics
 
-# ── Hardcoded upcoming event calendar ─────────────────────────────────────────
-
-_UPCOMING_EVENTS: list[dict] = [
-    {"event": "FOMC 利率決議",  "date": "2026-07-29", "impact": "HIGH"},
-    {"event": "CPI 通膨數據",   "date": "2026-07-15", "impact": "HIGH"},
-    {"event": "NFP 非農就業",   "date": "2026-07-03", "impact": "HIGH"},
-    {"event": "PPI 生產者物價", "date": "2026-07-14", "impact": "MEDIUM"},
-    {"event": "GDP 初值",       "date": "2026-07-30", "impact": "MEDIUM"},
-    {"event": "零售銷售",       "date": "2026-07-16", "impact": "MEDIUM"},
-]
+from economic_calendar import get_upcoming_events
+from macro_data import get_macro_snapshot
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
@@ -49,8 +41,13 @@ def run_macro_risk(ohlcv_fn) -> dict:
     tlt_raw  = _safe_fetch(ohlcv_fn, "TLT")
     soxx_raw = _safe_fetch(ohlcv_fn, "SOXX")
     uup_raw  = _safe_fetch(ohlcv_fn, "UUP")
-    vixy_raw = _safe_fetch(ohlcv_fn, "VIXY")
+    vixy_raw = _safe_fetch(ohlcv_fn, "^VIX")
+    volatility_is_proxy = False
     if not vixy_raw:
+        volatility_is_proxy = True
+        vixy_raw = _safe_fetch(ohlcv_fn, "VIXY")
+    if not vixy_raw:
+        volatility_is_proxy = True
         vixy_raw = _safe_fetch(ohlcv_fn, "VXX")
 
     # ── is_demo flag ──────────────────────────────────────────────────────────
@@ -76,24 +73,34 @@ def run_macro_risk(ohlcv_fn) -> dict:
     bq_score  = _calc_breadth_quality(qqq_c, soxx_c)
     dr_score  = _calc_defensive_rotation(xlu_c, xly_c)
     bm_score  = _calc_bond_market(tlt_c)
-    vp_score  = _calc_volatility_proxy(vixy_c, spy_c)
+    vp_score  = (
+        _calc_volatility_proxy(vixy_c, spy_c)
+        if volatility_is_proxy
+        else _calc_vix(vixy_c, spy_c)
+    )
+    direct_macro = get_macro_snapshot()
+    rates_credit_score = int(direct_macro.get("rates_credit_score", 50))
+    event_calendar = get_upcoming_events()
 
     component_scores = {
         "equity_breadth":     eb_score,
         "breadth_quality":    bq_score,
         "defensive_rotation": dr_score,
         "bond_market":        bm_score,
-        "volatility_proxy":   vp_score,
+        "volatility":         vp_score,
+        "volatility_proxy":   vp_score,  # backward-compatible UI key
+        "rates_credit":       rates_credit_score,
         "dollar_strength":    _calc_dollar_strength(uup_c),
     }
 
     # ── Composite macro score ─────────────────────────────────────────────────
     macro_score = round(
-        eb_score  * 0.30
-        + bq_score  * 0.20
-        + dr_score  * 0.25
-        + bm_score  * 0.15
-        + vp_score  * 0.10
+        eb_score  * 0.25
+        + bq_score  * 0.15
+        + dr_score  * 0.15
+        + bm_score  * 0.10
+        + vp_score  * 0.15
+        + rates_credit_score * 0.20
     )
     macro_score = max(0, min(100, macro_score))
 
@@ -112,6 +119,8 @@ def run_macro_risk(ohlcv_fn) -> dict:
     warnings = _build_warnings(
         spy_c, qqq_c, uup_c, vixy_c, component_scores, macro_score,
     )
+    warnings.extend(direct_macro.get("warnings") or [])
+    warnings.extend(event_calendar.get("warnings") or [])
 
     return {
         "ok":                    True,
@@ -122,7 +131,15 @@ def run_macro_risk(ohlcv_fn) -> dict:
         "component_scores":      component_scores,
         "key_drivers":           key_drivers,
         "warnings":              warnings,
-        "upcoming_events":       _UPCOMING_EVENTS,
+        "upcoming_events":       event_calendar.get("events") or [],
+        "event_calendar":        event_calendar,
+        "direct_macro_data":     direct_macro,
+        "volatility_source":     "ETF_PROXY" if volatility_is_proxy else "VIX_INDEX",
+        "data_completeness":     {
+            "direct_rates_credit": direct_macro.get("status"),
+            "event_calendar": event_calendar.get("status"),
+            "vix_direct": not volatility_is_proxy,
+        },
         "is_demo":               is_demo,
         "disclaimer":            "此為決策輔助，不代表自動下單。",
     }
@@ -227,6 +244,31 @@ def _calc_bond_market(tlt_c: list) -> int:
         return 50
 
     score = 50 + (tlt_ret / 100.0) * 400
+    return max(0, min(100, round(score)))
+
+
+def _calc_vix(vix_c: list, spy_c: list) -> int:
+    """Score the direct CBOE VIX level; higher score means lower macro risk."""
+    valid = [float(value) for value in vix_c if value and float(value) > 0]
+    if not valid:
+        return _calc_volatility_proxy([], spy_c)
+    level = valid[-1]
+    if level < 15:
+        score = 88
+    elif level < 20:
+        score = 72
+    elif level < 25:
+        score = 52
+    elif level < 35:
+        score = 30
+    else:
+        score = 10
+    if len(valid) >= 6 and valid[-6] > 0:
+        change_5d = (level - valid[-6]) / valid[-6] * 100
+        if change_5d > 25:
+            score -= 12
+        elif change_5d < -20:
+            score += 8
     return max(0, min(100, round(score)))
 
 

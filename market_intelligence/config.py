@@ -47,6 +47,7 @@ class IntelligenceConfig:
     anthropic_model: str
     finnhub_key: str
     alpha_vantage_key: str
+    sec_user_agent: str = ""
 
     @classmethod
     def from_env(cls, *, db_path: str | None = None) -> IntelligenceConfig:
@@ -83,6 +84,7 @@ class IntelligenceConfig:
             ).strip(),
             finnhub_key=os.environ.get("FINNHUB_KEY", "").strip(),
             alpha_vantage_key=os.environ.get("ALPHA_VANTAGE_KEY", "").strip(),
+            sec_user_agent=os.environ.get("SEC_USER_AGENT", "").strip(),
         )
 
     def public_status(self) -> dict:
@@ -102,5 +104,6 @@ class IntelligenceConfig:
                 "finnhub": bool(self.finnhub_key),
                 "alpha_vantage": bool(self.alpha_vantage_key),
                 "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
+                "sec_edgar": bool(self.sec_user_agent and "@" in self.sec_user_agent),
             },
         }
