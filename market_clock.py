@@ -6,16 +6,17 @@ were a completed close creates look-ahead bias and unstable signals.  This
 module gives every normalized dataset an explicit market/session/provenance
 contract and removes trailing uncompleted or future-dated candles.
 
-Holiday precision intentionally fails conservative: the built-in calendar is
-weekday/session based and declares that limitation.  If a weekday is an
-exchange holiday the provider normally has no current-day candle, so the last
-completed candle remains usable without inventing a session.
+Exchange holidays and scheduled early closes are resolved by
+``exchange_calendar``.  Taiwan's official schedule is refreshed in production;
+both markets support explicit emergency closure overrides.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+from exchange_calendar import exchange_day
 
 
 _MARKETS = {
@@ -65,7 +66,7 @@ def _aware_now(now: datetime | None) -> datetime:
 
 def market_session(symbol: str = "", *, market: str | None = None,
                    now: datetime | None = None) -> dict:
-    """Describe the exchange session without pretending holidays are verified."""
+    """Describe the exchange session with auditable calendar provenance."""
     code = str(market or market_for_symbol(symbol)).upper()
     if code not in _MARKETS:
         code = "US"
@@ -74,20 +75,25 @@ def market_session(symbol: str = "", *, market: str | None = None,
     weekday = current.weekday() < 5
     clock = current.timetz().replace(tzinfo=None)
 
-    if not weekday:
+    local_day = current.date()
+    day_status = exchange_day(code, local_day)
+    regular_close = cfg["regular_close"]
+    if day_status.get("early_close") and day_status.get("close_time"):
+        regular_close = time.fromisoformat(day_status["close_time"])
+
+    if not day_status["is_trading_day"]:
         state = "CLOSED"
     elif clock < cfg["pre_open"]:
         state = "CLOSED"
     elif clock < cfg["regular_open"]:
         state = "PRE"
-    elif clock < cfg["regular_close"]:
+    elif clock < regular_close:
         state = "OPEN"
     elif clock < cfg["post_close"]:
         state = "POST"
     else:
         state = "CLOSED"
 
-    local_day = current.date()
     return {
         "market": code,
         "timezone": cfg["timezone"],
@@ -97,17 +103,23 @@ def market_session(symbol: str = "", *, market: str | None = None,
             local_day, cfg["regular_open"], tzinfo=ZoneInfo(cfg["timezone"])
         ).isoformat(),
         "regular_close": datetime.combine(
-            local_day, cfg["regular_close"], tzinfo=ZoneInfo(cfg["timezone"])
+            local_day, regular_close, tzinfo=ZoneInfo(cfg["timezone"])
         ).isoformat(),
         "daily_bar_finalized_after": (
             datetime.combine(
-                local_day, cfg["regular_close"], tzinfo=ZoneInfo(cfg["timezone"])
+                local_day, regular_close, tzinfo=ZoneInfo(cfg["timezone"])
             )
             + timedelta(minutes=cfg["bar_finalization_delay_minutes"])
         ).isoformat(),
         "as_of": current.isoformat(),
-        "calendar_precision": "WEEKDAY_SESSION",
-        "holiday_verified": False,
+        "is_trading_day": day_status["is_trading_day"],
+        "early_close": day_status["early_close"],
+        "holiday_name": day_status["holiday_name"],
+        "calendar_precision": day_status["precision"],
+        "calendar_source": day_status["source"],
+        "calendar_source_url": day_status["source_url"],
+        "holiday_verified": day_status["verified"],
+        "calendar_warnings": day_status["warnings"],
     }
 
 
@@ -142,6 +154,9 @@ def daily_bar_is_complete(
         return False
     session = market_session(symbol, now=now)
     current = _aware_now(now).astimezone(ZoneInfo(session["timezone"]))
+    day_status = exchange_day(session["market"], parsed)
+    if not day_status["is_trading_day"]:
+        return False
     if parsed < current.date():
         return True
     if parsed > current.date():

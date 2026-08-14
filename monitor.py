@@ -14,30 +14,20 @@ import json
 import logging
 import math
 import os
+import tempfile
 import time
 import threading
 from datetime import datetime, timedelta
 from typing import Optional
 
+from exchange_calendar import exchange_day
+
 logger = logging.getLogger(__name__)
 
-STATE_FILE = os.path.join(os.path.dirname(__file__), 'monitor_state.json')
-
-# ── NYSE Holiday Calendar 2025-2027 ──────────────────────────────────────────
-_HOLIDAYS: set[str] = {
-    # 2025
-    '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18',
-    '2025-05-26', '2025-06-19', '2025-07-04', '2025-09-01',
-    '2025-11-27', '2025-12-25',
-    # 2026
-    '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03',
-    '2026-05-25', '2026-06-19', '2026-07-03', '2026-09-07',
-    '2026-11-26', '2026-12-25',
-    # 2027
-    '2027-01-01', '2027-01-18', '2027-02-15', '2027-03-26',
-    '2027-05-31', '2027-06-18', '2027-07-05', '2027-09-06',
-    '2027-11-25', '2027-12-24',
-}
+_VOLUME_PATH = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+STATE_FILE = os.path.join(
+    _VOLUME_PATH or os.path.dirname(__file__), "monitor_state.json"
+)
 
 
 def _now_et() -> datetime:
@@ -55,9 +45,14 @@ def _now_et() -> datetime:
 
 def is_trading_day(dt=None) -> bool:
     dt = dt or _now_et()
-    if dt.weekday() >= 5:
-        return False
-    return dt.strftime('%Y-%m-%d') not in _HOLIDAYS
+    return bool(exchange_day("US", dt.date())["is_trading_day"])
+
+
+def _regular_close_minutes(dt) -> int:
+    day = exchange_day("US", dt.date())
+    close_time = str(day.get("close_time") or "16:00")
+    hour, minute = (int(part) for part in close_time.split(":", 1))
+    return hour * 60 + minute
 
 
 def is_market_open(dt=None) -> bool:
@@ -66,7 +61,7 @@ def is_market_open(dt=None) -> bool:
     if not is_trading_day(dt):
         return False
     t = dt.hour * 60 + dt.minute
-    return 570 <= t < 960       # 9:30–16:00
+    return 570 <= t < _regular_close_minutes(dt)
 
 
 def is_pre_market(dt=None) -> bool:
@@ -82,16 +77,17 @@ def is_after_hours(dt=None) -> bool:
     if not is_trading_day(dt):
         return False
     t = dt.hour * 60 + dt.minute
-    return 960 <= t < 1200      # 16:00–20:00
+    return _regular_close_minutes(dt) <= t < 1200
 
 
-def market_status() -> dict:
-    dt     = _now_et()
+def market_status(dt=None) -> dict:
+    dt     = dt or _now_et()
+    calendar = exchange_day("US", dt.date())
     open_  = is_market_open(dt)
     pre_   = is_pre_market(dt)
     after_ = is_after_hours(dt)
     wknd   = dt.weekday() >= 5
-    hday   = dt.strftime('%Y-%m-%d') in _HOLIDAYS
+    hday   = dt.weekday() < 5 and not calendar["is_trading_day"]
 
     if open_:    label = "開市中 🟢"
     elif pre_:   label = "盤前 🟡"
@@ -112,7 +108,13 @@ def market_status() -> dict:
 
     minutes_to_close = None
     if open_:
-        close = dt.replace(hour=16, minute=0, second=0, microsecond=0)
+        close_minutes = _regular_close_minutes(dt)
+        close = dt.replace(
+            hour=close_minutes // 60,
+            minute=close_minutes % 60,
+            second=0,
+            microsecond=0,
+        )
         minutes_to_close = max(0, int((close - dt).total_seconds() / 60))
 
     return {
@@ -125,6 +127,9 @@ def market_status() -> dict:
         'weekday':          dt.strftime('%a'),
         'minutes_to_open':  minutes_to_open,
         'minutes_to_close': minutes_to_close,
+        'early_close':      calendar.get('early_close', False),
+        'holiday_name':     calendar.get('holiday_name'),
+        'calendar_source':  calendar.get('source'),
     }
 
 
@@ -172,8 +177,20 @@ class StateManager:
         with self._lock:
             try:
                 self._state['last_saved'] = datetime.utcnow().isoformat()
-                with open(self._path, 'w') as f:
-                    json.dump(self._state, f, default=str, indent=2)
+                parent = os.path.dirname(os.path.abspath(self._path))
+                os.makedirs(parent, exist_ok=True)
+                fd, temporary = tempfile.mkstemp(
+                    prefix="monitor-state-", suffix=".json", dir=parent
+                )
+                try:
+                    with os.fdopen(fd, 'w') as f:
+                        json.dump(self._state, f, default=str, indent=2)
+                        f.flush()
+                        os.fsync(f.fileno())
+                    os.replace(temporary, self._path)
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
             except Exception as e:
                 logger.warning("StateManager save failed: %s", e)
 

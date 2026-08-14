@@ -1,6 +1,6 @@
 """
 Position Sizing Engine — Phase 12B
-Computes optimal position size using Fixed-Risk, Kelly Criterion, and ATR methods.
+Computes position size using Fixed-Risk, calibrated fractional Kelly, and ATR.
 
 Public API
 ----------
@@ -8,7 +8,7 @@ run_position_sizing(payload: dict) -> dict
 
 Methods:
   fixed_risk    — Risk a fixed % of account per trade (classic 1-2% rule)
-  half_kelly    — Half-Kelly criterion based on win rate and reward/risk ratio
+  fractional_kelly — disabled until independent calibration gates pass
   vol_adjusted  — ATR-based: wider volatility → smaller position
 
 All methods are computed and the most conservative result is used.
@@ -40,7 +40,8 @@ _REGIME_MULT = {
 
 _DEFAULT_WIN_RATE    = 0.55
 _DEFAULT_RR_RATIO    = 2.0
-_MAX_POSITION_PCT    = 0.15   # hard cap: never > 15% per position
+_MAX_POSITION_PCT    = 0.15   # hard cap after calibration
+_UNCALIBRATED_MAX_POSITION_PCT = 0.03
 _ATR_STOP_MULT       = 2.0    # stop = entry − ATR × 2.0
 _ATR_PERIOD          = 14
 _RISK_PCT_DEFAULT    = 1.0    # risk 1% of account per trade
@@ -67,6 +68,8 @@ def run_position_sizing(payload: dict) -> dict:
         max_position_pct  : float  — hard cap on position size % (default 15.0)
         win_rate_estimate : float  — 0-1 (default 0.55)
         reward_risk_ratio : float  — r/r multiple (default 2.0)
+        kelly_enabled     : bool   — must be explicitly true after calibration
+        kelly_multiplier  : float  — default quarter-Kelly (0.25)
 
     Returns:
       position_size_level : "NO_TRADE" | "TINY" | "SMALL" | "NORMAL" | "AGGRESSIVE"
@@ -99,15 +102,24 @@ def run_position_sizing(payload: dict) -> dict:
         max_pos_pct   = float(payload.get("max_position_pct", _MAX_POSITION_PCT * 100) or _MAX_POSITION_PCT * 100) / 100
         win_rate      = float(payload.get("win_rate_estimate", _DEFAULT_WIN_RATE) or _DEFAULT_WIN_RATE)
         rr_ratio      = float(payload.get("reward_risk_ratio", _DEFAULT_RR_RATIO) or _DEFAULT_RR_RATIO)
+        kelly_enabled = payload.get("kelly_enabled") is True
+        kelly_mult    = float(payload.get("kelly_multiplier", 0.25) or 0.25)
 
         # Clamp inputs
         win_rate    = max(0.01, min(0.99, win_rate))
         rr_ratio    = max(0.1, min(10.0, rr_ratio))
         max_pos_pct = max(0.01, min(0.50, max_pos_pct))
         risk_pct    = max(0.1, min(5.0, risk_pct))
+        kelly_mult  = max(0.10, min(0.50, kelly_mult))
 
         rationale: list[str] = []
         warnings:  list[str] = []
+
+        if not kelly_enabled:
+            max_pos_pct = min(max_pos_pct, _UNCALIBRATED_MAX_POSITION_PCT)
+            warnings.append(
+                "Kelly 已停用：尚未通過獨立樣本、可信區間與校準誤差門檻；單檔上限 3%"
+            )
 
         # ── Gate: non-buy decisions ───────────────────────────────────────────
         if decision not in _DECISION_ALLOWED:
@@ -148,12 +160,17 @@ def run_position_sizing(payload: dict) -> dict:
         risk_per_share = (entry - stop_price) if (entry and stop_price and entry > stop_price) else None
 
         # ── Kelly criterion ───────────────────────────────────────────────────
-        kelly_f = _kelly(win_rate, rr_ratio)
-        half_k  = kelly_f / 2
-        rationale.append(
-            f"Kelly f*={kelly_f:.1%} → Half-Kelly={half_k:.1%} "
-            f"(勝率{win_rate:.0%}, R/R={rr_ratio:.1f})"
-        )
+        raw_kelly_f = _kelly(win_rate, rr_ratio)
+        kelly_f = raw_kelly_f if kelly_enabled else 0.0
+        fractional_k = kelly_f * kelly_mult
+        half_k = kelly_f / 2
+        if kelly_enabled:
+            rationale.append(
+                f"保守勝率下界 {win_rate:.1%}，Kelly f*={kelly_f:.1%} → "
+                f"{kelly_mult:.0%}-Kelly={fractional_k:.1%}（R/R={rr_ratio:.1f}）"
+            )
+        else:
+            rationale.append("未校準勝率不進入 Kelly 計算")
 
         # ── Chase risk adjustment ─────────────────────────────────────────────
         chase_adj = _chase_adjustment(chase_score)
@@ -190,12 +207,13 @@ def run_position_sizing(payload: dict) -> dict:
             sizing_results["fixed_risk"] = min(fixed_risk_pct, max_pos_pct)
         elif entry and risk_per_share:
             # Relative-only mode (no account size)
-            # Use half-kelly as pct proxy
+            # Account-free mode leaves fixed-risk unavailable.
             sizing_results["fixed_risk"] = None
 
-        # Method 2: Half-Kelly
-        kelly_size_pct = min(half_k * final_mult, max_pos_pct)
-        sizing_results["half_kelly"] = kelly_size_pct
+        # Method 2: fractional Kelly, only after explicit calibration approval.
+        kelly_size_pct = min(fractional_k * final_mult, max_pos_pct)
+        if kelly_enabled and kelly_size_pct > 0:
+            sizing_results["fractional_kelly"] = kelly_size_pct
 
         # Method 3: Volatility-adjusted (ATR-based)
         # Target: position such that daily portfolio-vol contribution = 0.2%
@@ -209,13 +227,13 @@ def run_position_sizing(payload: dict) -> dict:
         # All three valid → final = min(fixed_risk or kelly, vol_adjusted) to respect volatility
         valid_sizes = {k: v for k, v in sizing_results.items() if v is not None and v > 0}
         if not valid_sizes:
-            chosen_pct = kelly_size_pct
-            method = "half_kelly"
+            chosen_pct = 0.0
+            method = "risk_only_unavailable"
         elif len(valid_sizes) == 1:
             method    = next(iter(valid_sizes))
             chosen_pct = valid_sizes[method]
         else:
-            # Primary: prefer fixed_risk, then kelly; vol_adjusted acts as a soft cap
+            # Primary: prefer fixed-risk, then calibrated Kelly; volatility is a cap.
             primary_methods = {k: v for k, v in valid_sizes.items() if k != "vol_adjusted"}
             primary_pct = min(primary_methods.values()) if primary_methods else kelly_size_pct
             vol_adj_pct = valid_sizes.get("vol_adjusted", primary_pct)
@@ -225,7 +243,7 @@ def run_position_sizing(payload: dict) -> dict:
                 method = "vol_adjusted"
             else:
                 # Pick smallest primary method
-                method = min(primary_methods, key=lambda k: primary_methods[k]) if primary_methods else "half_kelly"
+                method = min(primary_methods, key=lambda k: primary_methods[k]) if primary_methods else "vol_adjusted"
                 chosen_pct = primary_methods.get(method, kelly_size_pct)
 
         chosen_pct = max(0.0, min(max_pos_pct, chosen_pct))
@@ -280,6 +298,11 @@ def run_position_sizing(payload: dict) -> dict:
             # ── Kelly ─────────────────────────────────────────────────────────
             "kelly_fraction":          round(kelly_f, 4),
             "half_kelly":              round(half_k, 4),
+            "fractional_kelly":        round(fractional_k, 4),
+            "raw_kelly_fraction":      round(raw_kelly_f, 4),
+            "kelly_enabled":           kelly_enabled,
+            "kelly_multiplier":        kelly_mult,
+            "calibration_status":      "QUALIFIED" if kelly_enabled else "INSUFFICIENT",
             "win_rate_estimate":       win_rate,
             "reward_risk_ratio":       rr_ratio,
             # ── Risk / stop ───────────────────────────────────────────────────
@@ -369,6 +392,11 @@ def _no_trade(reason: str, rationale: list, warnings: list) -> dict:
         "position_pct_of_portfolio": None,
         "kelly_fraction":          0.0,
         "half_kelly":              0.0,
+        "fractional_kelly":        0.0,
+        "raw_kelly_fraction":      0.0,
+        "kelly_enabled":           False,
+        "kelly_multiplier":        0.25,
+        "calibration_status":      "BLOCKED",
         "win_rate_estimate":       _DEFAULT_WIN_RATE,
         "reward_risk_ratio":       _DEFAULT_RR_RATIO,
         "entry_price":             None,

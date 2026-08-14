@@ -20,6 +20,7 @@ from .storage import (
     upsert_articles,
 )
 from .user_context import extract_user_context, load_kv
+from database_backup import ensure_daily_backup
 
 
 def _breaking_report(report: dict, threshold: int) -> dict | None:
@@ -157,6 +158,25 @@ def run_intelligence(
             analyzed_count=analyzed_count,
             report=report,
         )
+        if run_type == "daily":
+            try:
+                report["backup"] = ensure_daily_backup(config.db_path)
+                # Persist backup diagnostics without changing the run outcome.
+                finish_run(
+                    config.db_path,
+                    run_id,
+                    status="SUCCESS",
+                    fetched_count=fetched_count,
+                    new_count=len(new_keys),
+                    analyzed_count=analyzed_count,
+                    report=report,
+                )
+            except Exception as backup_exc:  # noqa: BLE001 - intelligence remains usable
+                report["backup"] = {
+                    "ok": False,
+                    "status": "FAILED",
+                    "error": str(backup_exc)[:300],
+                }
         return report
     except Exception as exc:  # noqa: BLE001 - run boundary records any provider failure
         if run_id:

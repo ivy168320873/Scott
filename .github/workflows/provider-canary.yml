@@ -1,0 +1,22 @@
+name: Provider contract canary
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 1 * * 1-5"
+
+jobs:
+  public-primary-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install public-source client
+        run: pip install requests==2.33.1
+      - name: Verify official provider contracts
+        run: python provider_canary.py
+
