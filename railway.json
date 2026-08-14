@@ -5,7 +5,7 @@
   },
   "deploy": {
     "startCommand": "python railway_start.py",
-    "healthcheckPath": "/healthz",
+    "healthcheckPath": "/readyz",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5

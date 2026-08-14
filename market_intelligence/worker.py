@@ -9,6 +9,8 @@ from datetime import datetime
 from time import monotonic
 from zoneinfo import ZoneInfo
 
+from database_backup import ensure_daily_backup
+
 from .config import IntelligenceConfig
 from .delivery import deliver_pending
 from .service import run_intelligence
@@ -44,9 +46,11 @@ def run_daemon(config: IntelligenceConfig) -> int:
             and get_state(config.db_path, "last_daily_date") != today
         ):
             report = run_intelligence("daily", dispatch=True, config=config)
+            backup = ensure_daily_backup(config.db_path)
             if report.get("_run", {}).get("status") == "SUCCESS":
                 set_state(config.db_path, "last_daily_date", today)
             print(f"[INTELLIGENCE] daily: {report.get('_run', report)}", flush=True)
+            print(f"[BACKUP] daily: {backup}", flush=True)
 
         if monotonic() >= next_poll:
             report = run_intelligence("breaking", dispatch=True, config=config)

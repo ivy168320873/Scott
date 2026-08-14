@@ -31,6 +31,15 @@ SIGNAL_TYPES = [
     "KILL_SIGNAL", "CHASE_RISK_HIGH",
 ]
 
+# Calibration gates count independent signal dates, not raw symbols.  Ten
+# stocks firing on the same macro day are correlated observations, not ten
+# independent trials.
+_MIN_CONFIDENCE_DAYS = 10
+_MIN_TRUST_DAYS = 30
+_MIN_KELLY_DAYS = 50
+_MAX_KELLY_BRIER = 0.20
+_MAX_KELLY_GAP_PCT = 10.0
+
 _DDL = """
 CREATE TABLE IF NOT EXISTS signal_history (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -650,7 +659,7 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
         stats = (
             regime_stats
             if isinstance(regime_stats, dict)
-            and regime_stats.get("evaluated_size", 0) >= 5
+            and regime_stats.get("independent_sample_size", 0) >= _MIN_TRUST_DAYS
             else global_stats
         )
     except Exception:
@@ -661,7 +670,10 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
 
     rec    = stats.get("recommendation", "WATCH")
     conf   = stats.get("confidence_score", 50)
-    sample = stats.get("outcome_sample_size", stats.get("sample_size", 0))
+    sample = stats.get(
+        "independent_sample_size",
+        stats.get("outcome_sample_size", stats.get("sample_size", 0)),
+    )
     notes  = list(stats.get("notes", []))
     if stats.get("calibration_scope") == "ALL_REGIMES" and regime:
         notes.append(f"{regime} 分層樣本不足，暫採全市場狀態校準")
@@ -674,12 +686,14 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
         max_decision = "WATCH"
         notes.append(f"{decision} 訊號已停用 (recommendation=DISABLE)")
     elif decision.upper() in ("BUY", "STRONG_BUY"):
-        if conf < 50 and sample >= 5:
+        if conf < 50 and sample >= _MIN_CONFIDENCE_DAYS:
             max_decision = "WATCH"
             notes.append(f"BUY 信心分數 {conf} < 50，降級為 WATCH")
-        elif decision.upper() == "STRONG_BUY" and sample < 20:
+        elif decision.upper() == "STRONG_BUY" and sample < _MIN_KELLY_DAYS:
             max_decision = "BUY"
-            notes.append(f"STRONG_BUY 樣本數 {sample} < 20，降級為 BUY")
+            notes.append(
+                f"STRONG_BUY 獨立交易日樣本 {sample} < {_MIN_KELLY_DAYS}，降級為 BUY"
+            )
 
     kill_stats  = get_confidence_stats("KILL_SIGNAL")
     chase_stats = get_confidence_stats("CHASE_RISK_HIGH")
@@ -687,12 +701,12 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
     kill_weight_up  = (
         isinstance(kill_stats, dict)
         and (kill_stats.get("win_rate_3d") or 0) >= 60
-        and kill_stats.get("outcome_sample_size", kill_stats.get("sample_size", 0)) >= 5
+        and kill_stats.get("independent_sample_size", 0) >= _MIN_TRUST_DAYS
     )
     chase_weight_up = (
         isinstance(chase_stats, dict)
         and (chase_stats.get("win_rate_3d") or 0) >= 60
-        and chase_stats.get("outcome_sample_size", chase_stats.get("sample_size", 0)) >= 5
+        and chase_stats.get("independent_sample_size", 0) >= _MIN_TRUST_DAYS
     )
 
     return {
@@ -705,6 +719,8 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
         "chase_weight_up":  chase_weight_up,
         "sample_size":      sample,
         "evaluated_size":   stats.get("evaluated_size", 0),
+        "independent_sample_size": stats.get("independent_sample_size", 0),
+        "raw_evaluated_size": stats.get("raw_evaluated_size", 0),
         "win_rate_1d":      stats.get("win_rate_1d"),
         "win_rate_3d":      stats.get("win_rate_3d"),
         "win_rate_5d":      stats.get("win_rate_5d"),
@@ -717,6 +733,9 @@ def get_calibration_override(decision: str, regime: str = "NEUTRAL") -> dict:
         "credible_interval_95": stats.get("credible_interval_95"),
         "brier_score": stats.get("brier_score"),
         "calibration_gap_pct": stats.get("calibration_gap_pct"),
+        "kelly_eligible": stats.get("kelly_eligible", False),
+        "kelly_win_rate_lower_bound": stats.get("kelly_win_rate_lower_bound"),
+        "kelly_gate": stats.get("kelly_gate", {}),
         "calibration_scope": stats.get("calibration_scope", "ALL_REGIMES"),
         "outcome_model": "NEXT_OPEN_COST_ADJUSTED_V1",
     }
@@ -735,11 +754,12 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     with_3d = [r for r in rows if r.get("return_3d") is not None]
     with_5d = [r for r in rows if r.get("return_5d") is not None]
     with_paper = [r for r in rows if r.get("paper_return_pct") is not None]
-    evaluated_ids = {
-        r.get("id") for r in rows
+    evaluated_rows = [
+        r for r in rows
         if r.get("return_5d") is not None or r.get("paper_return_pct") is not None
-    }
-    evaluated = len(evaluated_ids)
+    ]
+    raw_evaluated = len(evaluated_rows)
+    evaluated = _independent_count(evaluated_rows)
 
     # Win rate: signal-type specific definition of "correct"
     def _correct(r, days: int) -> bool | None:
@@ -776,15 +796,11 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     wr5 = _win_rate(rows, 5)
 
     judged_5d = [r for r in rows if _correct(r, 5) is not None]
-    wins_5d = sum(1 for row in judged_5d if _correct(row, 5) is True)
-    posterior = _beta_posterior(wins_5d, len(judged_5d))
+    daily_outcomes = _daily_outcomes(judged_5d, lambda row: _correct(row, 5))
+    wins_5d = sum(daily_outcomes)
+    posterior = _beta_posterior(wins_5d, len(daily_outcomes))
 
-    brier_rows = []
-    for row in rows:
-        probability = _normalized_probability(row.get("prediction_probability"))
-        outcome = _correct(row, 5)
-        if probability is not None and outcome is not None:
-            brier_rows.append((probability, 1.0 if outcome else 0.0))
+    brier_rows = _daily_brier_rows(rows, lambda row: _correct(row, 5))
     brier_score = (
         round(sum((prob - outcome) ** 2 for prob, outcome in brier_rows) / len(brier_rows), 4)
         if brier_rows else None
@@ -865,40 +881,50 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
     score  = max(0, min(100, round(score)))
 
     # ── Hard cap by sample size ───────────────────────────────────────────────
-    if evaluated < 5:
+    if evaluated < _MIN_CONFIDENCE_DAYS:
         score = min(score, 40)
-        notes.append("已評估樣本數 < 5，信心分數上限 40")
-    elif evaluated < 20:
+        notes.append(
+            f"獨立交易日樣本 < {_MIN_CONFIDENCE_DAYS}，信心分數上限 40"
+        )
+    elif evaluated < _MIN_TRUST_DAYS:
         score = min(score, 60)
-        notes.append(f"已評估樣本數 {evaluated} < 20，信心分數上限 60")
-    if judged_5d:
+        notes.append(
+            f"獨立交易日樣本 {evaluated} < {_MIN_TRUST_DAYS}，信心分數上限 60"
+        )
+    if daily_outcomes:
         low, high = posterior["credible_interval_95"]
         notes.append(
             f"成本後 5 日成功機率 {posterior['probability_pct']:.1f}%（95% 區間 {low:.1f}–{high:.1f}%）"
         )
 
     # ── Recommendation ────────────────────────────────────────────────────────
-    if evaluated < 5:
+    if evaluated < _MIN_CONFIDENCE_DAYS:
         rec = "WATCH"
-        notes.append("已評估樣本數不足 5，暫不可信")
-    elif consec_false >= 5 and evaluated >= 20:
+        notes.append(
+            f"獨立交易日樣本不足 {_MIN_CONFIDENCE_DAYS}，暫不可信"
+        )
+    elif consec_false >= 5 and evaluated >= _MIN_TRUST_DAYS:
         rec = "DISABLE"
         notes.append(f"連續 {consec_false} 次錯誤訊號，建議停用")
-    elif score < 35 or (evaluated >= 10 and calibrated_win_rate is not None and calibrated_win_rate < 40):
+    elif score < 35 or (
+        evaluated >= 20
+        and calibrated_win_rate is not None
+        and calibrated_win_rate < 40
+    ):
         rec = "DISABLE"
         notes.append("信心分數過低或勝率過差，建議停用")
     elif signal_type in ("BUY", "STRONG_BUY"):
-        if calibrated_win_rate is not None and calibrated_win_rate < 50 and evaluated >= 10:
+        if calibrated_win_rate is not None and calibrated_win_rate < 50 and evaluated >= 20:
             rec = "REDUCE_WEIGHT"
             notes.append(f"BUY 校準勝率 {calibrated_win_rate:.1f}% < 50%，降低倉位權重")
-        elif avg_rel5 is not None and avg_rel5 < 0 and evaluated >= 10:
+        elif avg_rel5 is not None and avg_rel5 < 0 and evaluated >= 20:
             rec = "REDUCE_WEIGHT"
             notes.append(f"BUY 平均相對報酬 {avg_rel5:.2f}%，跑輸大盤，降低倉位")
-        elif score >= 60:
+        elif score >= 60 and evaluated >= _MIN_TRUST_DAYS:
             rec = "TRUST"
         else:
             rec = "WATCH"
-    elif score >= 60:
+    elif score >= 60 and evaluated >= _MIN_TRUST_DAYS:
         rec = "TRUST"
     elif score < 50:
         rec = "WATCH"
@@ -922,11 +948,36 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
             mrate = round(len(misfires) / len(with_5d) * 100, 1)
             notes.append(f"賣出後大漲 >10% 案例佔 {mrate:.0f}%，部分可能誤殺")
 
+    credible_low = posterior["credible_interval_95"][0]
+    kelly_gate = {
+        "minimum_independent_days": _MIN_KELLY_DAYS,
+        "independent_days": len(daily_outcomes),
+        "credible_lower_bound_above_50": credible_low > 50,
+        "brier_at_most": _MAX_KELLY_BRIER,
+        "brier_pass": brier_score is not None and brier_score <= _MAX_KELLY_BRIER,
+        "calibration_gap_at_most_pct": _MAX_KELLY_GAP_PCT,
+        "calibration_gap_pass": (
+            calibration_gap is not None and calibration_gap <= _MAX_KELLY_GAP_PCT
+        ),
+        "positive_cost_adjusted_return": avg_net5 is not None and avg_net5 > 0,
+    }
+    kelly_eligible = bool(
+        len(daily_outcomes) >= _MIN_KELLY_DAYS
+        and kelly_gate["credible_lower_bound_above_50"]
+        and kelly_gate["brier_pass"]
+        and kelly_gate["calibration_gap_pass"]
+        and kelly_gate["positive_cost_adjusted_return"]
+    )
+    if signal_type in ("BUY", "STRONG_BUY") and not kelly_eligible:
+        notes.append("Kelly 未通過：僅採固定風險／波動度部位，單檔上限 3%")
+
     return {
         "signal_type":             signal_type,
         "sample_size":             sample_size,
         "outcome_sample_size":     evaluated,
         "evaluated_size":          evaluated,
+        "independent_sample_size": evaluated,
+        "raw_evaluated_size":      raw_evaluated,
         "win_rate_1d":             wr1,
         "win_rate_3d":             wr3,
         "win_rate_5d":             wr5,
@@ -944,18 +995,65 @@ def _compute_stats(signal_type: str, rows: list[dict]) -> dict:
         "confidence_score":        score,
         "recommendation":          rec,
         "probability_5d_pct":      posterior["probability_pct"],
-        "probability_sample_size": len(judged_5d),
+        "probability_sample_size": len(daily_outcomes),
         "credible_interval_95":    posterior["credible_interval_95"],
         "bayesian_prior":          "Beta(1,1)",
         "brier_score":             brier_score,
         "calibration_gap_pct":     calibration_gap,
         "calibration_sample_size": len(brier_rows),
+        "kelly_eligible":          kelly_eligible,
+        "kelly_win_rate_lower_bound": round(credible_low / 100, 4),
+        "kelly_gate":              kelly_gate,
         "outcome_model":           "NEXT_OPEN_COST_ADJUSTED_V1",
         "notes":                   notes,
     }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _independent_key(row: dict, index: int) -> str:
+    signal_day = str(row.get("signal_date") or "").strip()[:10]
+    if signal_day:
+        return f"day:{signal_day}"
+    row_id = row.get("id")
+    return f"row:{row_id}" if row_id is not None else f"index:{index}"
+
+
+def _independent_count(rows: list[dict]) -> int:
+    return len({_independent_key(row, index) for index, row in enumerate(rows)})
+
+
+def _daily_outcomes(rows: list[dict], outcome_fn) -> list[float]:
+    """Cluster correlated same-day signals into one fractional Bernoulli trial."""
+    grouped: dict[str, list[float]] = {}
+    for index, row in enumerate(rows):
+        outcome = outcome_fn(row)
+        if outcome is None:
+            continue
+        grouped.setdefault(_independent_key(row, index), []).append(
+            1.0 if outcome else 0.0
+        )
+    return [sum(values) / len(values) for values in grouped.values() if values]
+
+
+def _daily_brier_rows(rows: list[dict], outcome_fn) -> list[tuple[float, float]]:
+    grouped: dict[str, list[tuple[float, float]]] = {}
+    for index, row in enumerate(rows):
+        probability = _normalized_probability(row.get("prediction_probability"))
+        outcome = outcome_fn(row)
+        if probability is None or outcome is None:
+            continue
+        grouped.setdefault(_independent_key(row, index), []).append(
+            (probability, 1.0 if outcome else 0.0)
+        )
+    return [
+        (
+            sum(probability for probability, _ in values) / len(values),
+            sum(outcome for _, outcome in values) / len(values),
+        )
+        for values in grouped.values()
+        if values
+    ]
 
 def _pct_change(base, price) -> float | None:
     try:
@@ -1020,6 +1118,8 @@ def _empty_stats(signal_type: str) -> dict:
         "sample_size":             0,
         "outcome_sample_size":     0,
         "evaluated_size":          0,
+        "independent_sample_size": 0,
+        "raw_evaluated_size":      0,
         "win_rate_1d":             None,
         "win_rate_3d":             None,
         "win_rate_5d":             None,
@@ -1043,6 +1143,9 @@ def _empty_stats(signal_type: str) -> dict:
         "brier_score":             None,
         "calibration_gap_pct":     None,
         "calibration_sample_size": 0,
+        "kelly_eligible":          False,
+        "kelly_win_rate_lower_bound": 0.025,
+        "kelly_gate":              {},
         "calibration_scope":       "ALL_REGIMES",
         "outcome_model":           "NEXT_OPEN_COST_ADJUSTED_V1",
         "notes":                   ["尚無歷史資料"],
@@ -1060,6 +1163,8 @@ def _no_override() -> dict:
         "chase_weight_up":  False,
         "sample_size":      0,
         "evaluated_size":   0,
+        "independent_sample_size": 0,
+        "raw_evaluated_size": 0,
         "win_rate_1d":      None,
         "win_rate_3d":      None,
         "win_rate_5d":      None,
@@ -1072,6 +1177,9 @@ def _no_override() -> dict:
         "credible_interval_95": [2.5, 97.5],
         "brier_score": None,
         "calibration_gap_pct": None,
+        "kelly_eligible": False,
+        "kelly_win_rate_lower_bound": 0.025,
+        "kelly_gate": {},
         "calibration_scope": "ALL_REGIMES",
         "outcome_model": "NEXT_OPEN_COST_ADJUSTED_V1",
     }
@@ -1148,9 +1256,9 @@ def _beta_quantile(probability: float, a: float, b: float) -> float:
     return (low + high) / 2
 
 
-def _beta_posterior(wins: int, total: int) -> dict:
-    wins = max(0, min(int(wins), int(total)))
+def _beta_posterior(wins: float, total: int) -> dict:
     total = max(0, int(total))
+    wins = max(0.0, min(float(wins), float(total)))
     alpha, beta = 1 + wins, 1 + total - wins
     mean = alpha / (alpha + beta)
     return {

@@ -35,23 +35,25 @@ Railway 啟動器偵測到持久化 Volume 時會自動啟用情報 Worker；需
 重大事件每 30 分鐘輪詢；Email 與 LINE 會使用既有 SQLite outbox 去重與重試。
 啟動器會強制 `ALPACA_PAPER=true` 並移除實盤確認值，部署本身不會取得真實下單權限。
 
-## Institutional Core v3 決策閉環
+## Institutional Core v4 決策閉環
 
 登入後開啟 `/evolution` 可使用新的手機版決策中樞。流程固定為：
 
-1. 依美／台交易時區辨認 PRE、OPEN、POST、CLOSED；盤中未完成的日 K 會先排除。
+1. 依美／台交易時區、NYSE 規則、TWSE 官方休市日曆與提早收盤辨認 PRE、OPEN、POST、CLOSED；盤中未完成、休市日或未來日 K 會先排除。
 2. 行情保留 provider、抓取時間、完整 K 棒日期與 price basis；報價另標示 SIP、IEX 單一交易所或 Yahoo 參考來源。
 3. 市場狀態同時檢查主要指數與 12 檔代表性橫斷面廣度；不把代理廣度冒充交易所全市場家數。
 4. 取得真實行情並執行頂級決策引擎。
 5. 產生「價格、趨勢、量能、風險、市場」五類證據，並套用可保存的個人風險限制。
 6. 只有評分卡與風險閘門同時通過，才可建立持久化影子交易；影子單先進入 `PENDING`，下一交易日開盤才以滑價／費用後價格成交。
 7. 歷史訊號也以 next-open 回填 1／3／5 日結果，記錄 gap、MFE、MAE、成本後方向報酬與相對大盤報酬。
-8. 成功機率使用 Beta(1,1) 後驗分布與 95% 可信區間；有預測樣本後顯示 Brier score，不把綜合分數假裝成上漲機率。
+8. 成功機率使用 Beta(1,1) 後驗分布與 95% 可信區間；同一天的相關訊號只算一個獨立樣本，並顯示 Brier score，不把綜合分數假裝成上漲機率。
+9. Kelly 預設停用。只有至少 50 個獨立交易日、95% 成功率下界高於 50%、Brier ≤ 0.20、校準誤差 ≤ 10% 且成本後平均報酬為正，才用保守的 quarter-Kelly；否則只採固定風險／波動度，單檔上限 3%。
+10. 每日情報成功後建立 SQLite online backup、執行 quick_check 與 SHA-256 驗證並保留 14 天；`/readyz` 阻擋資料庫損壞或正式環境無 Volume 的部署。
 
 總經模組不再使用硬編碼事件日期：FOMC 由 Federal Reserve 官方行事曆動態解析；
 設定 `FRED_API_KEY` 後會加入 CPI、就業、GDP、2Y／10Y 利率與高收益債利差。
 若來源失敗，API 會回報 `DEGRADED`／`UNAVAILABLE`，不沿用過期日期。台股 `.TW`
-另會讀取 TWSE 官方三大法人與融資融券收盤後資料；`.TWO` 不會拿 TWSE 資料冒充 TPEX。
+讀取 TWSE 官方三大法人與融資融券收盤後資料；`.TWO` 改讀 TPEX 官方法人與融資融券資料，兩者不混用。
 
 通知改用 SQLite outbox：相同事件與管道會去重，失敗採指數退避重試，重新部署後仍可續送。手機 AI 對行情、估值、預測與買賣問題必須先取得工具證據；工具失敗時程式會直接阻擋無依據結論。
 
@@ -69,6 +71,7 @@ Railway 啟動器偵測到持久化 Volume 時會自動啟用情報 Worker；需
 - `GET /api/institutional-status/<symbol>`
 - `GET /api/market-regime?market=US|TW`
 - `GET /api/macro-risk`
+- `GET /api/operational-readiness`
 
 `DEFAULT_RISK_PRESET` 可設為 `conservative`、`balanced` 或 `aggressive`；使用者在決策中樞儲存的設定優先。`ALPACA_DATA_FEED=iex` 是單一交易所資料；只有帳戶具備 SIP entitlement 並改為 `sip` 時才會標記為 consolidated。所有可信度與模擬績效均屬決策輔助，不是獲利保證或自動下單授權。
 
@@ -91,7 +94,11 @@ python app.py
 1. 建立單一 Web Service 並連接此儲存庫。
 2. 掛載 Railway Volume，建議路徑 `/data`。Railway 提供 `RAILWAY_VOLUME_MOUNT_PATH` 後，Scott 會自動把 SQLite 放在該 Volume。
 3. 依 `.env.example` 設定環境變數。
-4. `/healthz` 是不依賴外部行情服務的存活檢查。
+4. `/healthz` 是不依賴外部行情服務的存活檢查；Railway 使用 `/readyz` 驗證 SQLite、Volume 與正式環境認證。
+
+同一 Volume 內的 SQLite 備份可防資料庫檔案損壞，但不能防整個 Volume 遺失。請在 Railway 啟用平台層備份後設定 `RAILWAY_BACKUP_SCHEDULE_CONFIRMED=true`；完整缺口可在登入後查看 `/api/operational-readiness`。
+
+GitHub Actions 另於每個交易日執行 `provider-canary.py`，直接抽查 NYSE、TWSE 與 TPEX 公開主來源；官方欄位或頁面格式改變時會讓 canary 失敗，避免系統悄悄把缺資料當成正常。
 
 Gunicorn 固定使用一個 process、八個 threads，避免 SQLite 與記憶體狀態被多個 worker 各自複製。若未來要水平擴充，需先把工作排程鎖、限流與快取移至 Redis／Postgres。
 

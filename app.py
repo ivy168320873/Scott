@@ -397,7 +397,7 @@ def _normalise_text_list(value, *, max_items: int = 50, max_length: int = 80) ->
     return result
 
 
-_PUBLIC_ENDPOINTS = {"login", "logout", "static", "robots_txt", "healthz"}
+_PUBLIC_ENDPOINTS = {"login", "logout", "static", "robots_txt", "healthz", "readyz"}
 
 @app.before_request
 def _require_auth():
@@ -462,6 +462,21 @@ def _security_headers(resp):
 def healthz():
     """Cheap public liveness probe; never calls market or broker APIs."""
     return jsonify(ok=True, service="scott", ts=datetime.now(timezone.utc).isoformat())
+
+
+@app.route("/readyz")
+def readyz():
+    """Public readiness probe exposing no secrets or provider details."""
+    from operational_readiness import build_readiness
+
+    readiness = build_readiness(_USER_DATA_DB)
+    response = jsonify(
+        ok=readiness["operational_ready"],
+        status=readiness["status"],
+        service="scott",
+        ts=readiness["generated_at"],
+    )
+    return response, (200 if readiness["operational_ready"] else 503)
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -2503,6 +2518,15 @@ def api_env_check():
     })
 
 
+@app.route("/api/operational-readiness")
+def api_operational_readiness():
+    """Authenticated evidence for deployment, data, delivery, and backup gaps."""
+    from operational_readiness import build_readiness
+
+    readiness = build_readiness(_USER_DATA_DB)
+    return jsonify(readiness), (200 if readiness["operational_ready"] else 503)
+
+
 @app.route("/api/monitor/alerts")
 def api_monitor_alerts():
     try:
@@ -3620,6 +3644,10 @@ def _get_direct_flow(symbol: str):
     if not sym.endswith((".TW", ".TWO")):
         return None
     try:
+        if sym.endswith(".TWO"):
+            from tpex_flow import get_tpex_flow
+
+            return get_tpex_flow(sym)
         from twse_flow import get_twse_flow
 
         return get_twse_flow(sym)

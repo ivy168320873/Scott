@@ -305,14 +305,19 @@ def run_top_tier_decision(
             pass
 
     # Position sizing (Phase 12B)
-    calibrated_probability = calibration.get("probability_5d_pct") if calibration else None
-    if (
-        calibrated_probability is not None
-        and calibration.get("probability_sample_size", 0) >= 5
-    ):
-        win_rate_estimate = max(0.05, min(0.95, float(calibrated_probability) / 100))
+    kelly_enabled = bool(calibration.get("kelly_eligible", False))
+    calibrated_lower_bound = calibration.get("kelly_win_rate_lower_bound")
+    if kelly_enabled and calibrated_lower_bound is not None:
+        # Kelly receives the lower 95% credible bound, never the posterior mean.
+        win_rate_estimate = max(0.05, min(0.95, float(calibrated_lower_bound)))
     else:
-        win_rate_estimate = 0.60 if decision == "STRONG_BUY" else 0.55
+        # Neutral placeholder is exposed for audit only; position_sizing ignores
+        # it while Kelly is disabled.
+        win_rate_estimate = 0.50
+        if decision in ("STRONG_BUY", "BUY"):
+            risk_controls.append(
+                "Kelly 尚未通過 50 個獨立交易日與校準品質門檻；單檔倉位上限 3%"
+            )
     pos_result = _pse.run_position_sizing({
         "decision":          decision,
         "top_tier_score":    top_tier_score,
@@ -322,6 +327,9 @@ def run_top_tier_decision(
         "ohlcv":             ohlcv,
         "win_rate_estimate": win_rate_estimate,
         "reward_risk_ratio": 2.5  if decision == "STRONG_BUY" else 2.0,
+        "kelly_enabled":     kelly_enabled,
+        "kelly_multiplier":  0.25,
+        "max_position_pct":  15.0 if kelly_enabled else 3.0,
     })
     pos_level = pos_result.get("position_size_level", "NO_TRADE")
 

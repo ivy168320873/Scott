@@ -2,7 +2,7 @@
 
 Unlike ``institutional_flow_engine`` (an OHLCV proxy), this adapter returns
 official exchange-published fields and labels their date/unit explicitly.
-Only TWSE-listed ``.TW`` symbols are supported; TPEX is reported as a gap.
+Only TWSE-listed ``.TW`` symbols are supported; TPEX has its own adapter.
 """
 
 from __future__ import annotations
@@ -194,7 +194,7 @@ def get_twse_flow(symbol: str, *, session=None, now: datetime | None = None) -> 
             "status": "UNSUPPORTED_TPEX",
             "symbol": sym,
             "is_direct": False,
-            "warnings": ["上櫃 .TWO 需使用 TPEX 官方資料源，目前不以 TWSE 資料替代"],
+            "warnings": ["上櫃 .TWO 請使用 tpex_flow 官方資料源"],
         }
     if not sym.endswith(".TW") or not sym[:-3].isdigit():
         return {
