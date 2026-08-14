@@ -19,16 +19,18 @@ Scott 是以 Flask 建置的美股／台股分析工具，包含技術訊號、�
 python -m market_intelligence.worker run --type manual --force
 ```
 
-Railway 建議新增第二個 Service，與 Web Service 掛載同一個 Volume、使用相同環境
-變數，Start Command 設為：
+Railway 會由 `railway_start.py` 在同一個 Web Service 內監督 Web 與情報 Worker，
+兩者因此共用同一個 SQLite Volume，不需要複製密鑰或建立第二份資料庫。情報 Worker
+使用的命令為：
 
 ```text
 python -m market_intelligence.worker daemon
 ```
 
-只在這個情報 Worker 設定 `MARKET_INTELLIGENCE_ENABLE=true`。每日報告預設為
-Asia/Taipei 08:30，重大事件每 30 分鐘輪詢；Email 與 LINE 會使用既有 SQLite
-outbox 去重與重試。
+Railway 啟動器預設啟用情報 Worker；需要暫停時可設定
+`RAILWAY_INTELLIGENCE_WORKER_ENABLE=false`。每日報告預設為 Asia/Taipei 08:30，
+重大事件每 30 分鐘輪詢；Email 與 LINE 會使用既有 SQLite outbox 去重與重試。
+啟動器會強制 `ALPACA_PAPER=true` 並移除實盤確認值，部署本身不會取得真實下單權限。
 
 ## Evolution v2 決策閉環
 

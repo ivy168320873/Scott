@@ -1,2 +1,2 @@
-web: gunicorn --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:$PORT app:app
+web: python railway_start.py
 intelligence: python -m market_intelligence.worker daemon
