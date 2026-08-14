@@ -22,8 +22,13 @@ _FALSE_VALUES = {"0", "false", "no", "off"}
 def worker_enabled(env: Mapping[str, str] | None = None) -> bool:
     """Return whether Railway should supervise the intelligence worker."""
     values = os.environ if env is None else env
-    raw = str(values.get("RAILWAY_INTELLIGENCE_WORKER_ENABLE", "true")).strip()
-    return raw.lower() not in _FALSE_VALUES
+    raw = str(values.get("RAILWAY_INTELLIGENCE_WORKER_ENABLE", "")).strip()
+    if raw:
+        return raw.lower() not in _FALSE_VALUES
+    # A repository can remain connected to more than one Railway project.
+    # Auto-start only beside the persistent user database, so an old stateless
+    # deployment cannot create a duplicate scheduler or spend provider quota.
+    return bool(str(values.get("RAILWAY_VOLUME_MOUNT_PATH", "")).strip())
 
 
 def runtime_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
