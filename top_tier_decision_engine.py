@@ -44,6 +44,31 @@ except ImportError:
 _DISCLAIMER = "此為決策輔助系統，不代表自動下單，不構成投資建議。操作前請自行評估風險。"
 
 
+def _load_news_catalyst(symbol: str) -> dict | None:
+    """Read a fresh, confidence-gated catalyst without making network calls."""
+    try:
+        from market_intelligence.config import IntelligenceConfig
+        from market_intelligence.storage import get_symbol_catalyst
+
+        config = IntelligenceConfig.from_env()
+        catalyst = get_symbol_catalyst(config.db_path, symbol)
+        if not catalyst:
+            return None
+        confidence = int(catalyst.get("confidence") or 0)
+        importance = int(catalyst.get("importance") or 0)
+        if confidence < 60 or importance < 60:
+            catalyst["score_adjustment"] = 0
+            catalyst["applied"] = False
+        else:
+            catalyst["score_adjustment"] = max(
+                -8.0, min(8.0, float(catalyst.get("score_adjustment") or 0))
+            )
+            catalyst["applied"] = bool(catalyst["score_adjustment"])
+        return catalyst
+    except Exception:
+        return None
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def run_top_tier_decision(
@@ -134,7 +159,13 @@ def run_top_tier_decision(
     sl_s = _sector_score(sl)
     score_breakdown["sector"] = sl_s * 0.10
 
-    top_tier_score = round(sum(score_breakdown.values()))
+    # News is a bounded overlay, never a replacement for price/risk evidence.
+    news_catalyst = _load_news_catalyst(symbol)
+    news_adjustment = (
+        float(news_catalyst.get("score_adjustment") or 0) if news_catalyst else 0.0
+    )
+    score_breakdown["news_catalyst"] = news_adjustment
+    top_tier_score = max(0, min(100, round(sum(score_breakdown.values()))))
 
     # ── Step 9: Apply hard rules ──────────────────────────────────────────────
 
@@ -315,6 +346,7 @@ def run_top_tier_decision(
         "sell_decision":   sd,
         "sector_leadership": sl,
         "signal_calibration": calibration if calibration else None,
+        "news_catalyst":  news_catalyst,
     }
 
 
