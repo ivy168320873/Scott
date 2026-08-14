@@ -27,8 +27,9 @@ Railway 會由 `railway_start.py` 在同一個 Web Service 內監督 Web 與情�
 python -m market_intelligence.worker daemon
 ```
 
-Railway 啟動器預設啟用情報 Worker；需要暫停時可設定
-`RAILWAY_INTELLIGENCE_WORKER_ENABLE=false`。每日報告預設為 Asia/Taipei 08:30，
+Railway 啟動器偵測到持久化 Volume 時會自動啟用情報 Worker；需要暫停時可設定
+`RAILWAY_INTELLIGENCE_WORKER_ENABLE=false`，需要在無 Volume 的測試服務啟動時則明確
+設為 `true`。每日報告預設為 Asia/Taipei 08:30，
 重大事件每 30 分鐘輪詢；Email 與 LINE 會使用既有 SQLite outbox 去重與重試。
 啟動器會強制 `ALPACA_PAPER=true` 並移除實盤確認值，部署本身不會取得真實下單權限。
 
