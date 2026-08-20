@@ -14,7 +14,10 @@ def test_runtime_env_enables_worker_and_forces_paper_trading():
     assert env["MARKET_INTELLIGENCE_ENABLE"] == "true"
     assert env["ALPACA_PAPER"] == "true"
     assert "ENABLE_LIVE_TRADING" not in env
-    assert railway_start.gunicorn_command(env)[-2:] == ["0.0.0.0:8080", "app:app"]
+    assert railway_start.gunicorn_command(env)[-2:] == [
+        "0.0.0.0:8080",
+        "production_app:app",
+    ]
 
 
 def test_worker_can_be_explicitly_disabled():
