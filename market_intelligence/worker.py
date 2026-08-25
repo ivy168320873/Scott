@@ -17,6 +17,26 @@ from .service import run_intelligence
 from .storage import get_state, set_state
 
 
+def _run_daily_breakout_watch(config: IntelligenceConfig) -> None:
+    """Run the read-only AI/semi breakout watch without risking worker uptime."""
+    try:
+        from breakout_watch import dispatch_breakout_watch, run_breakout_watch
+
+        result = run_breakout_watch(config=config)
+        delivery = dispatch_breakout_watch(result, config=config)
+        symbols = [item.get("symbol") for item in result.get("candidates") or []]
+        if symbols:
+            print(
+                f"[BREAKOUT] high-quality candidates={','.join(symbols)} "
+                f"delivery={delivery}",
+                flush=True,
+            )
+        else:
+            print("[BREAKOUT] no high-quality signal; notification suppressed", flush=True)
+    except Exception as exc:  # noqa: BLE001 - breakout watch must fail isolated
+        print(f"[BREAKOUT] failed: {str(exc)[:300]}", flush=True)
+
+
 def run_daemon(config: IntelligenceConfig) -> int:
     if not config.enabled:
         print(
@@ -52,6 +72,11 @@ def run_daemon(config: IntelligenceConfig) -> int:
             print(f"[INTELLIGENCE] daily: {report.get('_run', report)}", flush=True)
             print(f"[BACKUP] daily: {backup}", flush=True)
 
+            # Separate, read-only breakout candidate scan.  It deliberately
+            # does not share the trading executor and dispatches only when a
+            # candidate clears the strict quality threshold.
+            _run_daily_breakout_watch(config)
+
         if monotonic() >= next_poll:
             report = run_intelligence("breaking", dispatch=True, config=config)
             next_poll = monotonic() + config.poll_minutes * 60
@@ -75,10 +100,20 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--dispatch", action="store_true")
     run.add_argument("--force", action="store_true")
     sub.add_parser("daemon", help="run the independent scheduler")
+    breakout = sub.add_parser("breakout", help="run the AI/semi breakout watch once")
+    breakout.add_argument("--dispatch", action="store_true")
     args = parser.parse_args(argv)
     config = IntelligenceConfig.from_env()
     if args.command == "daemon":
         return run_daemon(config)
+    if args.command == "breakout":
+        from breakout_watch import dispatch_breakout_watch, run_breakout_watch
+
+        result = run_breakout_watch(config=config)
+        if args.dispatch:
+            result["delivery"] = dispatch_breakout_watch(result, config=config)
+        print(result, flush=True)
+        return 0
     report = run_intelligence(
         args.type,
         dispatch=args.dispatch,
