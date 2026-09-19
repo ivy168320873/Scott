@@ -26,13 +26,19 @@ def health_ready():
             or os.environ.get("ALLOW_INSECURE_NO_AUTH", "false").lower() == "true"
         ),
         "persistent_storage": bool(
-            os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+            os.environ.get("PERSISTENT_STORAGE_PATH", "").strip()
+            or os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
             or os.environ.get("USER_DATA_DB", "").strip()
             or os.environ.get("DATABASE_URL", "").strip()
         ),
         "commit_identified": meta["commit"] != "unknown",
     }
-    ready = all(checks.values())
+    # Build identity is an observability warning, not a serving dependency.
+    # Some platforms do not expose a commit environment variable; making it a
+    # hard readiness requirement would create a deployment outage while the
+    # database, authentication and application are otherwise healthy.
+    critical = ("secret_key", "auth_configured", "persistent_storage")
+    ready = all(checks[name] for name in critical)
     return {"ok": ready, "checks": checks, **meta}, 200 if ready else 503
 
 

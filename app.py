@@ -14,13 +14,16 @@ import email.mime.text
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict, deque
 
-# Keep every SQLite-backed module on the Railway Volume when one is mounted.
+# Keep every SQLite-backed module on the configured persistent Volume.
 # This must run before importing modules that read USER_DATA_DB at import time.
-_RAILWAY_VOLUME = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+_PERSISTENT_VOLUME = (
+    os.environ.get("PERSISTENT_STORAGE_PATH", "").strip()
+    or os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+)
 if not os.environ.get("USER_DATA_DB", "").strip():
     os.environ["USER_DATA_DB"] = (
-        os.path.join(_RAILWAY_VOLUME, "user_data.db")
-        if _RAILWAY_VOLUME
+        os.path.join(_PERSISTENT_VOLUME, "user_data.db")
+        if _PERSISTENT_VOLUME
         else "./user_data.db"
     )
 import data_provider as _dp
@@ -56,6 +59,8 @@ _IS_PRODUCTION = (
     os.environ.get("RAILWAY_ENVIRONMENT", "").lower() in {"production", "prod"}
     or os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").lower() in {"production", "prod"}
     or os.environ.get("FLASK_ENV", "").lower() in {"production", "prod"}
+    or bool(os.environ.get("ZEABUR_SERVICE_ID", "").strip())
+    or os.environ.get("ZEABUR", "").lower() in {"1", "true", "production", "prod"}
 )
 _ACCESS_CODE = os.environ.get("ACCESS_CODE", "").strip()
 _ALLOW_INSECURE_NO_AUTH = os.environ.get("ALLOW_INSECURE_NO_AUTH", "false").lower() == "true"
@@ -206,9 +211,10 @@ except Exception as _db_error:
     if _IS_PRODUCTION:
         raise RuntimeError(f"Unable to initialise persistent database: {_db_error}") from _db_error
 
-if _IS_PRODUCTION and not _RAILWAY_VOLUME:
+if _IS_PRODUCTION and not _PERSISTENT_VOLUME:
     print(
-        "[PERSISTENCE WARNING] No RAILWAY_VOLUME_MOUNT_PATH detected; "
+        "[PERSISTENCE WARNING] No PERSISTENT_STORAGE_PATH or "
+        "RAILWAY_VOLUME_MOUNT_PATH detected; "
         "SQLite data may be lost on redeploy.",
         flush=True,
     )
@@ -397,7 +403,10 @@ def _normalise_text_list(value, *, max_items: int = 50, max_length: int = 80) ->
     return result
 
 
-_PUBLIC_ENDPOINTS = {"login", "logout", "static", "robots_txt", "healthz", "readyz"}
+_PUBLIC_ENDPOINTS = {
+    "login", "logout", "static", "robots_txt", "healthz", "readyz",
+    "health_live", "health_ready",
+}
 
 @app.before_request
 def _require_auth():
@@ -2470,7 +2479,9 @@ def api_env_check():
     spy_is_demo = (spy_ohlcv or {}).get("is_demo", True)
 
     db_path = os.path.abspath(_USER_DATA_DB)
-    volume_path = os.path.abspath(_RAILWAY_VOLUME) if _RAILWAY_VOLUME else ""
+    volume_path = (
+        os.path.abspath(_PERSISTENT_VOLUME) if _PERSISTENT_VOLUME else ""
+    )
     try:
         db_is_persistent = bool(
             volume_path and os.path.commonpath([db_path, volume_path]) == volume_path

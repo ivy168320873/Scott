@@ -198,3 +198,24 @@ def test_verified_backup_and_readiness_are_auditable(tmp_path):
         item for item in readiness["checks"]
         if item["critical"] and item["status"] == "FAIL"
     ]
+
+
+def test_zeabur_readiness_accepts_explicit_persistent_volume(tmp_path):
+    db_path = tmp_path / "user_data.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE test(value TEXT)")
+    readiness = operational_readiness.build_readiness(
+        str(db_path),
+        env={
+            "ZEABUR_SERVICE_ID": "service-1",
+            "PERSISTENT_STORAGE_PATH": str(tmp_path),
+            "ACCESS_CODE": "set",
+            "SECRET_KEY": "set",
+        },
+        now=datetime(2026, 8, 14, 12, tzinfo=timezone.utc),
+    )
+    storage = next(
+        item for item in readiness["checks"] if item["id"] == "persistent_storage"
+    )
+    assert storage["status"] == "PASS"
+    assert storage["critical"] is True

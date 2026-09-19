@@ -2,9 +2,57 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
+from exchange_calendar import exchange_day
 from market_clock import market_session
+
+
+def _parse_day(value) -> date | None:
+    try:
+        return date.fromisoformat(str(value or "")[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def expected_last_completed_session(
+    symbol: str,
+    *,
+    now: datetime | None = None,
+) -> date | None:
+    """Return the newest exchange session whose daily bar should be final.
+
+    Calendar days are not a safe freshness measure: a Friday bar is current on
+    Sunday, while the same Friday bar is stale after Monday's close.  Walking
+    the exchange calendar makes the gate correct across weekends, holidays and
+    scheduled early closes.
+    """
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    session = market_session(symbol, now=current)
+    local_now = current.astimezone(ZoneInfo(session["timezone"]))
+    candidate = local_now.date()
+    finalized_at = datetime.fromisoformat(session["daily_bar_finalized_after"])
+    if not session["is_trading_day"] or local_now < finalized_at:
+        candidate -= timedelta(days=1)
+
+    for _ in range(15):
+        if exchange_day(session["market"], candidate)["is_trading_day"]:
+            return candidate
+        candidate -= timedelta(days=1)
+    return None
+
+
+def _missing_sessions(market: str, actual: date, expected: date) -> int:
+    missing = 0
+    cursor = actual + timedelta(days=1)
+    while cursor <= expected and missing <= 15:
+        if exchange_day(market, cursor)["is_trading_day"]:
+            missing += 1
+        cursor += timedelta(days=1)
+    return missing
 
 
 def assess_signal_readiness(
@@ -31,6 +79,31 @@ def assess_signal_readiness(
         blockers.append("最新日 K 尚未完成")
     if data.get("excluded_incomplete_bar"):
         warnings.append("盤中日 K 已排除；指標只使用完整日 K")
+
+    last_completed = _parse_day(
+        data.get("last_bar_date")
+        or ((data.get("dates") or [None])[-1] if data.get("dates") else None)
+    )
+    expected_completed = expected_last_completed_session(symbol, now=now)
+    missing_sessions = None
+    if last_completed is None:
+        blockers.append("缺少最後完整日 K 日期，無法驗證資料新鮮度")
+    elif expected_completed is not None:
+        if last_completed > expected_completed:
+            blockers.append(
+                f"日 K 日期 {last_completed.isoformat()} 晚於應有交易日 "
+                f"{expected_completed.isoformat()}"
+            )
+        elif last_completed < expected_completed:
+            missing_sessions = _missing_sessions(
+                session["market"], last_completed, expected_completed
+            )
+            blockers.append(
+                f"日 K 落後 {missing_sessions} 個交易日（最後 "
+                f"{last_completed.isoformat()}，應有 {expected_completed.isoformat()}）"
+            )
+        else:
+            missing_sessions = 0
 
     quote_ok = isinstance(quote, dict) and quote.get("ok") and quote.get("last")
     if session["state"] == "OPEN":
@@ -79,8 +152,16 @@ def assess_signal_readiness(
         "session": session,
         "quote": quote,
         "last_completed_close": closes[-1] if closes else None,
-        "last_completed_bar": data.get("last_bar_date")
-        or ((data.get("dates") or [None])[-1] if data.get("dates") else None),
+        "last_completed_bar": last_completed.isoformat() if last_completed else None,
+        "expected_completed_bar": (
+            expected_completed.isoformat() if expected_completed else None
+        ),
+        "missing_trading_sessions": missing_sessions,
+        "daily_data_fresh": bool(
+            last_completed
+            and expected_completed
+            and last_completed == expected_completed
+        ),
         "max_bullish_decision": max_bullish_decision,
         "automated_execution_allowed": False,
         "shadow_fill_model": "NEXT_REGULAR_OPEN_WITH_COSTS",

@@ -35,7 +35,7 @@ Railway 啟動器偵測到持久化 Volume 時會自動啟用情報 Worker；需
 重大事件每 30 分鐘輪詢；Email 與 LINE 會使用既有 SQLite outbox 去重與重試。
 啟動器會強制 `ALPACA_PAPER=true` 並移除實盤確認值，部署本身不會取得真實下單權限。
 
-## Institutional Core v4 決策閉環
+## Institutional Core v5 決策閉環
 
 登入後開啟 `/evolution` 可使用新的手機版決策中樞。流程固定為：
 
@@ -49,6 +49,8 @@ Railway 啟動器偵測到持久化 Volume 時會自動啟用情報 Worker；需
 8. 成功機率使用 Beta(1,1) 後驗分布與 95% 可信區間；同一天的相關訊號只算一個獨立樣本，並顯示 Brier score，不把綜合分數假裝成上漲機率。
 9. Kelly 預設停用。只有至少 50 個獨立交易日、95% 成功率下界高於 50%、Brier ≤ 0.20、校準誤差 ≤ 10% 且成本後平均報酬為正，才用保守的 quarter-Kelly；否則只採固定風險／波動度，單檔上限 3%。
 10. 每日情報成功後建立 SQLite online backup、執行 quick_check 與 SHA-256 驗證並保留 14 天；`/readyz` 阻擋資料庫損壞或正式環境無 Volume 的部署。
+11. 日 K 時效改以實際交易日判斷：週末可正確沿用週五資料，但下一交易日收盤後仍未更新就會阻擋買進訊號。
+12. AI／半導體突破監控不固定湊數；只有趨勢、壓力距離、波動收斂、量價、相對強度、市場狀態與事件風險同時通過才通知。
 
 總經模組不再使用硬編碼事件日期：FOMC 由 Federal Reserve 官方行事曆動態解析；
 設定 `FRED_API_KEY` 後會加入 CPI、就業、GDP、2Y／10Y 利率與高收益債利差。
@@ -56,6 +58,13 @@ Railway 啟動器偵測到持久化 Volume 時會自動啟用情報 Worker；需
 讀取 TWSE 官方三大法人與融資融券收盤後資料；`.TWO` 改讀 TPEX 官方法人與融資融券資料，兩者不混用。
 
 通知改用 SQLite outbox：相同事件與管道會去重，失敗採指數退避重試，重新部署後仍可續送。手機 AI 對行情、估值、預測與買賣問題必須先取得工具證據；工具失敗時程式會直接阻擋無依據結論。
+
+突破監控只產生研究訊號，不會下單。每日情報完成後會沿用同一份新聞報告，避免重複抓取與消耗額度；亦可手動執行：
+
+```bash
+python -m market_intelligence.worker breakout
+python -m market_intelligence.worker breakout --dispatch
+```
 
 主要 API：
 
@@ -89,12 +98,14 @@ python app.py
 
 應用程式位於 `http://localhost:5000`。正式環境必須設定 `ACCESS_CODE` 與 `SECRET_KEY`；系統不會在正式環境靜默開放未登入存取。
 
-## Railway 部署
+## Railway／Zeabur 部署
 
 1. 建立單一 Web Service 並連接此儲存庫。
 2. 掛載 Railway Volume，建議路徑 `/data`。Railway 提供 `RAILWAY_VOLUME_MOUNT_PATH` 後，Scott 會自動把 SQLite 放在該 Volume。
 3. 依 `.env.example` 設定環境變數。
 4. `/healthz` 是不依賴外部行情服務的存活檢查；Railway 使用 `/readyz` 驗證 SQLite、Volume 與正式環境認證。
+
+Zeabur 或其他容器平台請把 Volume 掛載目錄填入 `PERSISTENT_STORAGE_PATH`，例如 `/data`；系統會共用該路徑保存 SQLite、通知佇列、模擬交易與監控狀態。`/health/live` 與 `/health/ready` 保持公開給平台探針，但不會暴露持股、金鑰或行情內容。
 
 同一 Volume 內的 SQLite 備份可防資料庫檔案損壞，但不能防整個 Volume 遺失。請在 Railway 啟用平台層備份後設定 `RAILWAY_BACKUP_SCHEDULE_CONFIRMED=true`；完整缺口可在登入後查看 `/api/operational-readiness`。
 

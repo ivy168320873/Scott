@@ -27,6 +27,8 @@ def worker_enabled(env: Mapping[str, str] | None = None) -> bool:
     # Auto-start only when durable storage is explicitly present. This avoids
     # duplicate schedulers on stale/stateless deployments.
     return bool(
+        str(values.get("PERSISTENT_STORAGE_PATH", "")).strip()
+        or
         str(values.get("RAILWAY_VOLUME_MOUNT_PATH", "")).strip()
         or str(values.get("USER_DATA_DB", "")).strip()
         or str(values.get("DATABASE_URL", "")).strip()
@@ -37,7 +39,7 @@ def runtime_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
     child = dict(os.environ if env is None else env)
     child["ALPACA_PAPER"] = "true"
     child.pop("ENABLE_LIVE_TRADING", None)
-    child.setdefault("ROCKETSTOCK_ENGINE_VERSION", "institutional-core-v4")
+    child.setdefault("ROCKETSTOCK_ENGINE_VERSION", "institutional-core-v5")
     if worker_enabled(child):
         child["MARKET_INTELLIGENCE_ENABLE"] = "true"
     return child

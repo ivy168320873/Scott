@@ -99,6 +99,56 @@ def test_stale_open_market_quote_blocks_bullish_signal():
     assert guard["max_bullish_decision"] == "WATCH"
 
 
+def test_daily_freshness_uses_exchange_sessions_not_calendar_days():
+    sunday = datetime(2026, 8, 16, 12, tzinfo=timezone.utc)
+    friday_data = {
+        "closes": [100],
+        "dates": ["2026-08-14"],
+        "last_bar_date": "2026-08-14",
+        "last_bar_complete": True,
+    }
+    quality = {"data_status": "OK", "is_demo": False}
+
+    current = institutional_guard.assess_signal_readiness(
+        "NVDA",
+        ohlcv=friday_data,
+        data_quality=quality,
+        quote=None,
+        now=sunday,
+    )
+    assert current["daily_data_fresh"] is True
+    assert current["expected_completed_bar"] == "2026-08-14"
+    assert current["missing_trading_sessions"] == 0
+    assert current["status"] == "RESEARCH_ONLY"
+
+    monday_after_close = datetime(2026, 8, 17, 21, 30, tzinfo=timezone.utc)
+    stale = institutional_guard.assess_signal_readiness(
+        "NVDA",
+        ohlcv=friday_data,
+        data_quality=quality,
+        quote=None,
+        now=monday_after_close,
+    )
+    assert stale["daily_data_fresh"] is False
+    assert stale["expected_completed_bar"] == "2026-08-17"
+    assert stale["missing_trading_sessions"] == 1
+    assert stale["status"] == "BLOCKED"
+    assert stale["max_bullish_decision"] == "WATCH"
+
+
+def test_missing_daily_bar_date_fails_closed():
+    guard = institutional_guard.assess_signal_readiness(
+        "NVDA",
+        ohlcv={"closes": [100], "last_bar_complete": True},
+        data_quality={"data_status": "OK", "is_demo": False},
+        quote=None,
+        now=datetime(2026, 8, 17, 15, tzinfo=timezone.utc),
+    )
+    assert guard["daily_data_fresh"] is False
+    assert guard["status"] == "BLOCKED"
+    assert any("最後完整日 K 日期" in item for item in guard["blockers"])
+
+
 def _trend(up=True):
     if up:
         closes = [100 + index * 0.5 for index in range(220)]
