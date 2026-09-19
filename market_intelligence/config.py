@@ -55,8 +55,13 @@ class IntelligenceConfig:
             db_path
             or os.environ.get("USER_DATA_DB")
             or (
-                os.path.join(os.environ["RAILWAY_VOLUME_MOUNT_PATH"], "user_data.db")
-                if os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+                os.path.join(
+                    os.environ.get("PERSISTENT_STORAGE_PATH")
+                    or os.environ["RAILWAY_VOLUME_MOUNT_PATH"],
+                    "user_data.db",
+                )
+                if os.environ.get("PERSISTENT_STORAGE_PATH")
+                or os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
                 else "./user_data.db"
             )
         )

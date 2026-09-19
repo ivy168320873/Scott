@@ -142,7 +142,7 @@ def deployment_metadata(env: Mapping[str, str] | None = None) -> dict[str, Any]:
     )
     return {
         "service": "rocketstock",
-        "engine": values.get("ROCKETSTOCK_ENGINE_VERSION", "institutional-core-v4"),
+        "engine": values.get("ROCKETSTOCK_ENGINE_VERSION", "institutional-core-v5"),
         "platform": platform,
         "commit": sha[:12] if sha != "unknown" else sha,
         "branch": values.get("GIT_BRANCH") or values.get("RAILWAY_GIT_BRANCH") or values.get("ZEABUR_GIT_BRANCH") or "unknown",

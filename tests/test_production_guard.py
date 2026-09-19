@@ -1,4 +1,7 @@
 from datetime import datetime, timedelta, timezone
+import os
+import subprocess
+import sys
 
 from production_guard import apply_freshness_guard, check_freshness, deployment_metadata, evaluate_sources
 
@@ -44,3 +47,34 @@ def test_deployment_metadata_identifies_platform_and_commit():
     assert meta["platform"] == "zeabur"
     assert meta["commit"] == "1234567890ab"
     assert meta["branch"] == "main"
+
+
+def test_production_health_liveness_is_public(tmp_path):
+    env = dict(os.environ)
+    env.update({
+        "ACCESS_CODE": "health-test-code",
+        "SECRET_KEY": "health-test-secret",
+        "USER_DATA_DB": str(tmp_path / "user_data.db"),
+        "BACKGROUND_WORKERS_ENABLE": "false",
+        "SCHEDULER_ENABLE": "false",
+        "ALLOW_DEMO_DATA": "false",
+    })
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from production_app import app; "
+                "c=app.test_client(); "
+                "live=c.get('/health/live'); ready=c.get('/health/ready'); "
+                "assert live.status_code == 200 and live.get_json()['ok'] is True; "
+                "assert ready.status_code == 200 and ready.get_json()['ok'] is True"
+            ),
+        ],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr

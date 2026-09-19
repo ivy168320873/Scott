@@ -77,7 +77,9 @@ def build_readiness(
     } or str(values.get("RAILWAY_ENVIRONMENT_NAME", "")).lower() in {
         "production",
         "prod",
-    }
+    } or bool(str(values.get("ZEABUR_SERVICE_ID", "")).strip()) or str(
+        values.get("ZEABUR", "")
+    ).lower() in {"1", "true", "production", "prod"}
     checks: list[dict] = []
 
     try:
@@ -97,14 +99,18 @@ def build_readiness(
             )
         )
 
-    volume_path = str(values.get("RAILWAY_VOLUME_MOUNT_PATH", "")).strip()
+    volume_path = str(
+        values.get("PERSISTENT_STORAGE_PATH")
+        or values.get("RAILWAY_VOLUME_MOUNT_PATH")
+        or ""
+    ).strip()
     persistent = _persistent(db_path, volume_path)
     if production and not persistent:
         checks.append(
             _item(
                 "persistent_storage",
                 "FAIL",
-                "正式環境資料庫不在 Railway Volume",
+                "正式環境資料庫不在已宣告的持久化 Volume",
                 critical=True,
             )
         )
@@ -201,12 +207,15 @@ def build_readiness(
             details=backup,
         )
     )
-    platform_backup = _is_true(values.get("RAILWAY_BACKUP_SCHEDULE_CONFIRMED"))
+    platform_backup = _is_true(
+        values.get("PLATFORM_BACKUP_SCHEDULE_CONFIRMED")
+        or values.get("RAILWAY_BACKUP_SCHEDULE_CONFIRMED")
+    )
     checks.append(
         _item(
             "off_volume_backup",
             "PASS" if platform_backup else "WARN",
-            "Railway 平台備份已人工確認" if platform_backup else "同 Volume 備份無法防 Volume 遺失；尚未確認 Railway 平台備份",
+            "平台層備份已人工確認" if platform_backup else "同 Volume 備份無法防 Volume 遺失；尚未確認平台層備份",
         )
     )
 
@@ -227,4 +236,3 @@ def build_readiness(
         },
         "generated_at": current.isoformat(),
     }
-

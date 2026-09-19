@@ -24,7 +24,10 @@ from exchange_calendar import exchange_day
 
 logger = logging.getLogger(__name__)
 
-_VOLUME_PATH = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+_VOLUME_PATH = (
+    os.environ.get("PERSISTENT_STORAGE_PATH", "").strip()
+    or os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+)
 STATE_FILE = os.path.join(
     _VOLUME_PATH or os.path.dirname(__file__), "monitor_state.json"
 )

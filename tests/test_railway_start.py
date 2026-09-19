@@ -33,6 +33,7 @@ def test_worker_can_be_explicitly_disabled():
 def test_worker_does_not_auto_start_without_a_persistent_volume():
     assert railway_start.worker_enabled({}) is False
     assert railway_start.worker_enabled({"RAILWAY_VOLUME_MOUNT_PATH": "/data"}) is True
+    assert railway_start.worker_enabled({"PERSISTENT_STORAGE_PATH": "/data"}) is True
 
 
 def test_intelligence_command_is_shell_free():
